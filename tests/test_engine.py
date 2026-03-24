@@ -97,6 +97,11 @@ def test_detects_project_structure_and_template_conflicts() -> None:
     assert "项目属性 vs 品目名称" in titles
     assert "项目属性 vs 所属行业" in titles
     assert "项目属性 vs 中小企业声明函" in titles
+    assert "baseline_risk_rules" in report.rule_selection.core_modules
+    assert "sme_policy" in report.rule_selection.core_modules
+    assert "template_conflicts" in report.rule_selection.core_modules
+    assert "project_structure" in report.rule_selection.enhancement_modules
+    assert "service" in report.rule_selection.scenario_tags
 
 
 def test_missing_dimension_generates_missing_evidence() -> None:
@@ -300,6 +305,8 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert manifest["artifact_paths"]["base_report"]["json"] == bundle.base_json_path
     assert manifest["artifact_paths"]["final_report"]["json"] == bundle.final_json_path
     assert manifest["stage_records"]
+    assert "core_modules" in manifest["rule_selection"]
+    assert "enhancement_modules" in manifest["rule_selection"]
     llm_tasks_payload = json.loads(Path(bundle.llm_tasks_path).read_text(encoding="utf-8"))
     assert all(item["task_name"].startswith("llm_") for item in llm_tasks_payload["tasks"])
 

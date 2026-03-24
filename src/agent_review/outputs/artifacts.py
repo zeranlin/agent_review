@@ -153,6 +153,7 @@ def _build_run_manifest(
             "table_count": len(report.parse_result.tables),
             "warnings": report.parse_result.warnings,
         },
+        "rule_selection": report.rule_selection.to_dict(),
         "stage_records": [item.to_dict() for item in report.stage_records],
         "task_records": [item.to_dict() for item in report.task_records],
         "artifact_paths": {

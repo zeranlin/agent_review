@@ -30,6 +30,7 @@ from .models import (
     ReviewDimension,
     ReviewMode,
     ReviewReport,
+    RuleSelection,
     RunStageRecord,
     SectionIndex,
     Severity,
@@ -57,6 +58,7 @@ class ReviewPipelineState:
     manual_review_queue: list[str] = field(default_factory=list)
     reviewed_dimensions: list[str] = field(default_factory=list)
     specialist_tables: object | None = None
+    rule_selection: RuleSelection = field(default_factory=RuleSelection)
     overall_conclusion: ConclusionLevel | None = None
     summary: str = ""
     stage_records: list[RunStageRecord] = field(default_factory=list)
@@ -120,6 +122,7 @@ class ReviewPipeline:
                 )
                 for item in state.stage_records
             ],
+            rule_selection=state.rule_selection,
         )
 
     def _stage_document_structure(self, state: ReviewPipelineState) -> None:
@@ -171,19 +174,25 @@ class ReviewPipeline:
         )
 
     def _stage_rule_evaluation(self, state: ReviewPipelineState) -> None:
-        risk_hits, executed_modules = execute_rule_registry(
+        risk_hits, rule_selection = execute_rule_registry(
             text=state.normalized_text,
             clauses=state.extracted_clauses,
         )
+        state.rule_selection = rule_selection
         state.risk_hits = dedupe_risk_hits(risk_hits)
         state.findings.extend(convert_risk_hits_to_findings(state.risk_hits))
         state.specialist_tables = build_specialist_tables(state.risk_hits)
+        executed_modules = rule_selection.core_modules + rule_selection.enhancement_modules
         state.stage_records.append(
             RunStageRecord(
                 stage_name="rule_evaluation",
                 status="completed",
                 item_count=len(state.risk_hits),
-                detail=f"执行 {len(executed_modules)} 个规则模块，命中 {len(state.risk_hits)} 条风险。",
+                detail=(
+                    f"执行核心规则 {len(rule_selection.core_modules)} 个，"
+                    f"场景增强规则 {len(rule_selection.enhancement_modules)} 个，"
+                    f"共命中 {len(state.risk_hits)} 条风险。"
+                ),
             )
         )
 

@@ -263,6 +263,16 @@ class TaskRecord:
 
 
 @dataclass(slots=True)
+class RuleSelection:
+    core_modules: list[str] = field(default_factory=list)
+    enhancement_modules: list[str] = field(default_factory=list)
+    scenario_tags: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class LLMSemanticReview:
     clause_supplements: list[ExtractedClause] = field(default_factory=list)
     specialist_findings: list[Finding] = field(default_factory=list)
@@ -300,6 +310,7 @@ class ReviewReport:
     reviewed_dimensions: list[str]
     stage_records: list[RunStageRecord] = field(default_factory=list)
     task_records: list[TaskRecord] = field(default_factory=list)
+    rule_selection: RuleSelection = field(default_factory=RuleSelection)
     llm_semantic_review: LLMSemanticReview = field(default_factory=LLMSemanticReview)
 
     def to_dict(self) -> dict[str, object]:
@@ -324,5 +335,6 @@ class ReviewReport:
             "reviewed_dimensions": self.reviewed_dimensions,
             "stage_records": [item.to_dict() for item in self.stage_records],
             "task_records": [item.to_dict() for item in self.task_records],
+            "rule_selection": self.rule_selection.to_dict(),
             "llm_semantic_review": self.llm_semantic_review.to_dict(),
         }
