@@ -224,7 +224,18 @@ def _amount_extractor(keywords: list[str]) -> ClauseExtractor:
 
 def _contract_type_extractor(lines: list[str]) -> ExtractedClause | None:
     contract_types = ["承揽合同", "买卖合同", "服务合同", "施工合同", "采购合同"]
+    # Prefer explicit contract type declarations over generic "政府采购合同" process wording.
     for line_no, line in enumerate(lines, start=1):
+        if "合同类型" not in line:
+            continue
+        for contract_type in contract_types:
+            if contract_type in line:
+                return _build_clause(line, line_no, normalized_value=contract_type, relation_tags=[contract_type])
+    for line_no, line in enumerate(lines, start=1):
+        if "是否属于签订不超过3年履行期限政府采购合同的项目" in line:
+            continue
+        if "采购合同" in line and "合同类型" not in line:
+            continue
         for contract_type in contract_types:
             if contract_type in line:
                 return _build_clause(line, line_no, normalized_value=contract_type, relation_tags=[contract_type])

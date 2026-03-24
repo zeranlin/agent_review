@@ -452,6 +452,16 @@ def test_forestry_like_project_can_trigger_structure_scoring_contract_and_amount
     assert applicability_map["RP-SME-005"].applicable is True
 
 
+def test_contract_type_extractor_prefers_explicit_type_over_government_procurement_contract_phrase() -> None:
+    text = """
+    （十三）是否属于签订不超过3年履行期限政府采购合同的项目：否
+    1）合同类型：承揽合同
+    """
+    clauses = {item.field_name: item for item in extract_clauses(text)}
+
+    assert clauses["合同类型"].normalized_value == "承揽合同"
+
+
 def test_load_document_supports_docx(tmp_path: Path) -> None:
     file_path = tmp_path / "sample.docx"
     document = Document()
