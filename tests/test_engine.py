@@ -184,6 +184,35 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.base_markdown_path).exists()
     assert Path(bundle.final_json_path).exists()
     assert Path(bundle.final_markdown_path).exists()
+    assert Path(bundle.specialist_table_paths["sme_policy"]["base"]).exists()
+    assert Path(bundle.specialist_table_paths["sme_policy"]["final"]).exists()
+
+
+def test_write_review_artifacts_outputs_specialist_table_files(tmp_path: Path) -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    年龄要求35岁以下。
+    采购人拥有最终解释权。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    enhanced_report = TenderReviewEngine(
+        review_enhancer=FakeEnhancer(),
+        review_mode=ReviewMode.enhanced,
+    ).review_text(text, document_name="demo.txt")
+
+    bundle = write_review_artifacts(enhanced_report, base_report, tmp_path)
+
+    for table_name in [
+        "project_structure",
+        "sme_policy",
+        "personnel_boundary",
+        "contract_performance",
+        "template_conflicts",
+    ]:
+        assert Path(bundle.specialist_table_paths[table_name]["base"]).exists()
+        assert Path(bundle.specialist_table_paths[table_name]["final"]).exists()
 
 
 def test_markdown_report_uses_v2_sections() -> None:
