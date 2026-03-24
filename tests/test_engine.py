@@ -125,9 +125,13 @@ def test_missing_dimension_generates_missing_evidence() -> None:
         "dimension_review",
         "rule_evaluation",
         "consistency_review",
+        "review_point_assembly",
+        "formal_adjudication",
         "finalize_report",
     ]
     assert all(isinstance(item.clause_role, ClauseRole) for item in report.extracted_clauses)
+    assert report.review_points
+    assert report.formal_adjudication
 
 
 def test_load_document_supports_docx(tmp_path: Path) -> None:
@@ -598,6 +602,21 @@ def test_report_contains_specialist_tables() -> None:
     assert report.specialist_tables.sme_policy
     assert report.specialist_tables.personnel_boundary
     assert report.specialist_tables.contract_performance
+
+
+def test_report_contains_review_point_and_formal_adjudication_skeleton() -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    年龄要求35岁以下。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    assert report.review_points
+    assert report.formal_adjudication
+    markdown = render_markdown(report)
+    assert "## ReviewPoint" in markdown
+    assert "## Formal Adjudication" in markdown
 
 
 def test_markdown_can_render_specialist_summary() -> None:

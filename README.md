@@ -78,11 +78,19 @@ pyproject.toml              # 包配置与测试配置
 4. `dimension_review`
 5. `rule_evaluation`
 6. `consistency_review`
-7. `finalize_report`
+7. `review_point_assembly`
+8. `formal_adjudication`
+9. `finalize_report`
 
 这样 `engine.py` 只负责装配输入源、触发 pipeline 和控制 LLM 增强，规则扩展和结果归并不再散落在主编排代码里。
 
 其中新增的 `clause_role_classification` 会对条款标注角色，例如采购约束条款、投标文件模板、政策说明、定义说明、附件引用等，用于后续降低模板误报。
+
+当前还新增了 3 个“审查点驱动”核心骨架：
+
+- `ReviewPoint`：以审查点为核心组织问题，而不是直接围绕单条 finding 输出
+- `EvidenceBundle`：为每个审查点汇总直接证据、辅助证据、缺失证据和条款角色
+- `FormalAdjudication`：在正式意见输出前，单独记录该审查点是进入正式意见、待人工确认还是被过滤
 
 当前规则执行采用“双层规则架构”：
 

@@ -314,11 +314,19 @@
 4. `dimension_review`
 5. `rule_evaluation`
 6. `consistency_review`
-7. `finalize_report`
+7. `review_point_assembly`
+8. `formal_adjudication`
+9. `finalize_report`
 
 这样可以把 `engine.py` 从厚流程脚本收敛为轻量编排入口，并让每一步都保留稳定的中间状态、计数信息和执行记录。
 
 其中 `clause_role_classification` 专门负责识别模板文本、定义说明、附件引用等弱证据来源，避免其直接穿透到正式风险结论。
+
+当前还引入 3 个面向高精度审查的核心骨架：
+
+- `ReviewPoint`：以“审查点”为核心单元组织结果
+- `EvidenceBundle`：围绕每个审查点汇总直接证据、辅助证据、冲突证据和缺失证据
+- `FormalAdjudication`：在正式意见输出前，对每个审查点评估“进入正式意见 / 待人工确认 / 过滤”
 
 ## 运行产物
 

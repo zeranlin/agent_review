@@ -179,6 +179,22 @@ def render_markdown(report: ReviewReport) -> str:
             lines.append(f"- {item.title}: {item.reason}")
         lines.append("")
 
+    if report.review_points:
+        lines.append("## ReviewPoint")
+        for item in report.review_points[:10]:
+            lines.append(
+                f"- {item.point_id} {item.title}: {item.status.value}，{item.evidence_bundle.sufficiency_summary}"
+            )
+        lines.append("")
+
+    if report.formal_adjudication:
+        lines.append("## Formal Adjudication")
+        for item in report.formal_adjudication[:10]:
+            lines.append(
+                f"- {item.point_id} {item.title}: {item.disposition.value}，{item.rationale}"
+            )
+        lines.append("")
+
     lines.append("## 章节定位")
     for item in report.section_index:
         status = "已定位" if item.located else "未定位"

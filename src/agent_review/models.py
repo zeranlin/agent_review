@@ -66,6 +66,19 @@ class ClauseRole(str, Enum):
     unknown = "未识别"
 
 
+class ReviewPointStatus(str, Enum):
+    identified = "identified"
+    confirmed = "confirmed"
+    suspected = "suspected"
+    manual_confirmation = "manual_confirmation"
+
+
+class FormalDisposition(str, Enum):
+    include = "include"
+    manual_confirmation = "manual_confirmation"
+    filtered_out = "filtered_out"
+
+
 @dataclass(slots=True)
 class Evidence:
     quote: str
@@ -358,6 +371,70 @@ class ReviewWorkItem:
 
 
 @dataclass(slots=True)
+class EvidenceBundle:
+    direct_evidence: list[Evidence] = field(default_factory=list)
+    supporting_evidence: list[Evidence] = field(default_factory=list)
+    conflicting_evidence: list[Evidence] = field(default_factory=list)
+    missing_evidence_notes: list[str] = field(default_factory=list)
+    clause_roles: list[ClauseRole] = field(default_factory=list)
+    sufficiency_summary: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "direct_evidence": [item.to_dict() for item in self.direct_evidence],
+            "supporting_evidence": [item.to_dict() for item in self.supporting_evidence],
+            "conflicting_evidence": [item.to_dict() for item in self.conflicting_evidence],
+            "missing_evidence_notes": self.missing_evidence_notes,
+            "clause_roles": [item.value for item in self.clause_roles],
+            "sufficiency_summary": self.sufficiency_summary,
+        }
+
+
+@dataclass(slots=True)
+class ReviewPoint:
+    point_id: str
+    title: str
+    dimension: str
+    severity: Severity
+    status: ReviewPointStatus
+    rationale: str
+    evidence_bundle: EvidenceBundle = field(default_factory=EvidenceBundle)
+    legal_basis: list[LegalBasis] = field(default_factory=list)
+    source_findings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "point_id": self.point_id,
+            "title": self.title,
+            "dimension": self.dimension,
+            "severity": self.severity.value,
+            "status": self.status.value,
+            "rationale": self.rationale,
+            "evidence_bundle": self.evidence_bundle.to_dict(),
+            "legal_basis": [item.to_dict() for item in self.legal_basis],
+            "source_findings": self.source_findings,
+        }
+
+
+@dataclass(slots=True)
+class FormalAdjudication:
+    point_id: str
+    title: str
+    disposition: FormalDisposition
+    rationale: str
+    included_in_formal: bool
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "point_id": self.point_id,
+            "title": self.title,
+            "disposition": self.disposition.value,
+            "rationale": self.rationale,
+            "included_in_formal": self.included_in_formal,
+        }
+
+
+@dataclass(slots=True)
 class ReviewReport:
     review_mode: ReviewMode
     parse_result: ParseResult
@@ -378,6 +455,8 @@ class ReviewReport:
     manual_review_queue: list[str]
     reviewed_dimensions: list[str]
     source_documents: list[SourceDocument] = field(default_factory=list)
+    review_points: list[ReviewPoint] = field(default_factory=list)
+    formal_adjudication: list[FormalAdjudication] = field(default_factory=list)
     high_risk_review_items: list[ReviewWorkItem] = field(default_factory=list)
     pending_confirmation_items: list[ReviewWorkItem] = field(default_factory=list)
     stage_records: list[RunStageRecord] = field(default_factory=list)
@@ -406,6 +485,8 @@ class ReviewReport:
             "manual_review_queue": self.manual_review_queue,
             "reviewed_dimensions": self.reviewed_dimensions,
             "source_documents": [item.to_dict() for item in self.source_documents],
+            "review_points": [item.to_dict() for item in self.review_points],
+            "formal_adjudication": [item.to_dict() for item in self.formal_adjudication],
             "high_risk_review_items": [item.to_dict() for item in self.high_risk_review_items],
             "pending_confirmation_items": [item.to_dict() for item in self.pending_confirmation_items],
             "stage_records": [item.to_dict() for item in self.stage_records],

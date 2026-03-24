@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .adjudication import build_formal_adjudication, build_review_points
 from .checklist import DEFAULT_DIMENSIONS
 from .consistency import (
     check_consistency,
@@ -62,6 +63,8 @@ class ReviewPipelineState:
     recommendations: list[Recommendation] = field(default_factory=list)
     manual_review_queue: list[str] = field(default_factory=list)
     reviewed_dimensions: list[str] = field(default_factory=list)
+    review_points: list = field(default_factory=list)
+    formal_adjudication: list = field(default_factory=list)
     specialist_tables: object | None = None
     rule_selection: RuleSelection = field(default_factory=RuleSelection)
     overall_conclusion: ConclusionLevel | None = None
@@ -82,6 +85,8 @@ class ReviewPipeline:
             self._stage_dimension_review,
             self._stage_rule_evaluation,
             self._stage_consistency_review,
+            self._stage_review_point_assembly,
+            self._stage_formal_adjudication,
             self._stage_finalize_report,
         )
 
@@ -121,6 +126,8 @@ class ReviewPipeline:
             manual_review_queue=state.manual_review_queue,
             reviewed_dimensions=state.reviewed_dimensions,
             source_documents=state.source_documents,
+            review_points=state.review_points,
+            formal_adjudication=state.formal_adjudication,
             high_risk_review_items=_build_high_risk_review_items(state.findings),
             pending_confirmation_items=_build_pending_confirmation_items(
                 state.findings,
@@ -240,6 +247,38 @@ class ReviewPipeline:
                 status="completed",
                 item_count=issue_count,
                 detail=f"完成一致性矩阵检查，发现 {issue_count} 条需关注项。",
+            )
+        )
+
+    def _stage_review_point_assembly(self, state: ReviewPipelineState) -> None:
+        state.review_points = build_review_points(
+            state.findings,
+            state.parse_result.text,
+            state.extracted_clauses,
+        )
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="review_point_assembly",
+                status="completed",
+                item_count=len(state.review_points),
+                detail=f"已从审查结果组装 {len(state.review_points)} 个 ReviewPoint。",
+            )
+        )
+
+    def _stage_formal_adjudication(self, state: ReviewPipelineState) -> None:
+        state.formal_adjudication = build_formal_adjudication(
+            state.review_points,
+            state.findings,
+            state.parse_result.text,
+            state.extracted_clauses,
+        )
+        included_count = sum(1 for item in state.formal_adjudication if item.included_in_formal)
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="formal_adjudication",
+                status="completed",
+                item_count=included_count,
+                detail=f"已完成 formal_adjudication，{included_count} 个审查点可进入正式意见。",
             )
         )
 
