@@ -92,9 +92,23 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 
 当前版本尚未提供：
 
-- OCR / PDF 解析
+- 基于视觉模型的高阶版 OCR 理解
 - 直接的 LLM 集成
 - 来自法规知识库的法条检索
 - 针对地方采购规范的自动比对
 
 这些能力将作为后续层继续叠加到现有 harness 上。
+
+## 当前解析能力
+
+当前版本已接入基础真实文件解析能力：
+
+- `txt` / `md`：直接文本读取
+- `docx`：段落和表格抽取
+- `pdf`：使用 `pypdf` 提取页文本，并尝试对 PDF 内嵌图片做 OCR 补充
+- 图片文件：使用 `pytesseract` 执行 OCR
+
+注意：
+
+- 当前环境如果没有安装 `tesseract` 可执行程序，图片 OCR 会返回 warning，但不会让整次审查失败。
+- `.doc` 仍建议先转换为 `.docx` 或 PDF 后再审查。

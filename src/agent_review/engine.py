@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .checklist import DEFAULT_DIMENSIONS
+from .models import ConclusionLevel
 from .consistency import (
     check_consistency,
     collect_relative_strengths,
@@ -18,7 +19,7 @@ from .models import (
     ReviewReport,
     Severity,
 )
-from .parsers import load_text_file, normalize_text
+from .parsers import load_document, normalize_text
 from .rules import build_recommendations, convert_risk_hits_to_findings, match_risk_rules
 from .structure import build_file_info, build_scope_statement, detect_file_type, locate_sections
 
@@ -63,6 +64,7 @@ class TenderReviewEngine:
         overall_conclusion = derive_conclusion(findings)
         summary = self._build_summary(findings, manual_review_queue, overall_conclusion)
         return ReviewReport(
+            parse_result=_build_parse_result_for_text(normalized_text, document_name),
             file_info=file_info,
             scope_statement=scope_statement,
             overall_conclusion=overall_conclusion,
@@ -79,8 +81,51 @@ class TenderReviewEngine:
         )
 
     def review_file(self, path: str | Path) -> ReviewReport:
-        document_name, text = load_text_file(path)
-        return self.review_text(text=text, document_name=document_name)
+        document_name, parse_result = load_document(path)
+        normalized_text = normalize_text(parse_result.text)
+        file_type = detect_file_type(normalized_text)
+        file_info = build_file_info(document_name, normalized_text, file_type)
+        scope_statement = build_scope_statement(file_info)
+        section_index = locate_sections(normalized_text)
+        extracted_clauses = extract_clauses(normalized_text)
+        risk_hits = match_risk_rules(normalized_text)
+        consistency_checks = check_consistency(normalized_text)
+        findings: list[Finding] = []
+        manual_review_queue: list[str] = []
+        reviewed_dimensions: list[str] = []
+
+        for dimension in self.dimensions:
+            reviewed_dimensions.append(dimension.display_name)
+            dimension_findings = self._review_dimension(normalized_text, dimension)
+            findings.extend(dimension_findings)
+            for finding in dimension_findings:
+                if finding.finding_type == FindingType.manual_review_required:
+                    manual_review_queue.append(finding.title)
+
+        findings.extend(convert_risk_hits_to_findings(risk_hits))
+        findings.extend(convert_consistency_checks_to_findings(consistency_checks))
+
+        manual_review_queue = list(dict.fromkeys(manual_review_queue))
+        relative_strengths = collect_relative_strengths(section_index, findings)
+        recommendations = build_recommendations(findings)
+        overall_conclusion = derive_conclusion(findings)
+        summary = self._build_summary(findings, manual_review_queue, overall_conclusion)
+        return ReviewReport(
+            parse_result=parse_result,
+            file_info=file_info,
+            scope_statement=scope_statement,
+            overall_conclusion=overall_conclusion,
+            summary=summary,
+            findings=findings,
+            relative_strengths=relative_strengths,
+            section_index=section_index,
+            extracted_clauses=extracted_clauses,
+            risk_hits=risk_hits,
+            consistency_checks=consistency_checks,
+            recommendations=recommendations,
+            manual_review_queue=manual_review_queue,
+            reviewed_dimensions=reviewed_dimensions,
+        )
 
     @staticmethod
     def _check_consistency(text: str) -> list[ConsistencyCheck]:
@@ -264,3 +309,19 @@ class TenderReviewEngine:
             f"审查结论为“{overall_conclusion.value}”。共生成 {len(findings)} 条审查结果，"
             f"其中 {issue_count} 条需要关注。"
         )
+
+
+def _build_parse_result_for_text(text: str, document_name: str):
+    from .models import ParseResult, ParsedPage
+
+    suffix = Path(document_name).suffix.lower().lstrip(".") or "txt"
+    return ParseResult(
+        parser_name="text",
+        source_path=document_name,
+        source_format=suffix,
+        page_count=1,
+        text=text,
+        pages=[ParsedPage(page_index=1, text=text, source="text")],
+        tables=[],
+        warnings=[],
+    )

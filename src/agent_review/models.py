@@ -74,6 +74,51 @@ class ReviewDimension:
 
 
 @dataclass(slots=True)
+class ParsedPage:
+    page_index: int
+    text: str
+    source: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ParsedTable:
+    table_index: int
+    row_count: int
+    rows: list[list[str]]
+    source: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ParseResult:
+    parser_name: str
+    source_path: str
+    source_format: str
+    page_count: int | None
+    text: str
+    pages: list[ParsedPage] = field(default_factory=list)
+    tables: list[ParsedTable] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "parser_name": self.parser_name,
+            "source_path": self.source_path,
+            "source_format": self.source_format,
+            "page_count": self.page_count,
+            "text": self.text,
+            "pages": [item.to_dict() for item in self.pages],
+            "tables": [item.to_dict() for item in self.tables],
+            "warnings": self.warnings,
+        }
+
+
+@dataclass(slots=True)
 class FileInfo:
     document_name: str
     format_hint: str
@@ -145,6 +190,7 @@ class Recommendation:
 
 @dataclass(slots=True)
 class ReviewReport:
+    parse_result: ParseResult
     file_info: FileInfo
     scope_statement: str
     overall_conclusion: ConclusionLevel
@@ -161,6 +207,7 @@ class ReviewReport:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "parse_result": self.parse_result.to_dict(),
             "file_info": self.file_info.to_dict(),
             "scope_statement": self.scope_statement,
             "overall_conclusion": self.overall_conclusion.value,

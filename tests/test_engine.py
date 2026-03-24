@@ -1,5 +1,11 @@
+from pathlib import Path
+
+from docx import Document
+from PIL import Image
+
 from agent_review.engine import TenderReviewEngine
 from agent_review.models import ConclusionLevel, FileType, FindingType
+from agent_review.parsers import load_document
 
 
 def test_detects_manual_review_for_attachment_markers() -> None:
@@ -51,3 +57,32 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     assert any(item.finding_type == FindingType.missing_evidence for item in report.findings)
     assert report.section_index
     assert isinstance(report.relative_strengths, list)
+
+
+def test_load_document_supports_docx(tmp_path: Path) -> None:
+    file_path = tmp_path / "sample.docx"
+    document = Document()
+    document.add_paragraph("项目概况")
+    document.add_paragraph("采购需求：提供运维服务。")
+    table = document.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "预算金额"
+    table.rows[0].cells[1].text = "100000"
+    document.save(file_path)
+
+    document_name, parse_result = load_document(file_path)
+    assert document_name == "sample.docx"
+    assert parse_result.source_format == "docx"
+    assert "项目概况" in parse_result.text
+    assert parse_result.tables
+
+
+def test_load_document_supports_image_ocr_with_warning_when_tesseract_missing(tmp_path: Path) -> None:
+    image_path = tmp_path / "sample.png"
+    image = Image.new("RGB", (120, 40), color="white")
+    image.save(image_path)
+
+    document_name, parse_result = load_document(image_path)
+    assert document_name == "sample.png"
+    assert parse_result.source_format == "png"
+    assert parse_result.page_count == 1
+    assert isinstance(parse_result.warnings, list)
