@@ -15,6 +15,7 @@ class ArtifactBundle:
     base_markdown_path: str
     final_json_path: str
     final_markdown_path: str
+    manifest_path: str
     specialist_table_paths: dict[str, dict[str, str]]
 
 
@@ -41,6 +42,21 @@ def write_review_artifacts(
         base_report=base_report,
         report=report,
     )
+    manifest_path = target_dir / "run_manifest.json"
+    manifest_payload = _build_run_manifest(
+        target_dir=target_dir,
+        base_report=base_report,
+        report=report,
+        specialist_table_paths=specialist_table_paths,
+        base_json_path=base_json_path,
+        base_markdown_path=base_markdown_path,
+        final_json_path=final_json_path,
+        final_markdown_path=final_markdown_path,
+    )
+    manifest_path.write_text(
+        json.dumps(manifest_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     return ArtifactBundle(
         run_dir=str(target_dir),
@@ -48,6 +64,7 @@ def write_review_artifacts(
         base_markdown_path=str(base_markdown_path),
         final_json_path=str(final_json_path),
         final_markdown_path=str(final_markdown_path),
+        manifest_path=str(manifest_path),
         specialist_table_paths=specialist_table_paths,
     )
 
@@ -88,4 +105,49 @@ def _table_payload(report: ReviewReport, table_name: str) -> dict[str, object]:
         "llm_enhanced": report.llm_enhanced,
         "summary": report.specialist_tables.summaries.get(table_name, ""),
         "rows": [item.to_dict() for item in rows],
+    }
+
+
+def _build_run_manifest(
+    target_dir: Path,
+    base_report: ReviewReport,
+    report: ReviewReport,
+    specialist_table_paths: dict[str, dict[str, str]],
+    base_json_path: Path,
+    base_markdown_path: Path,
+    final_json_path: Path,
+    final_markdown_path: Path,
+) -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "run_dir": str(target_dir),
+        "document_name": report.file_info.document_name,
+        "review_mode": report.review_mode.value,
+        "overall_conclusion": report.overall_conclusion.value,
+        "llm": {
+            "requested": report.review_mode.value == "enhanced",
+            "enhanced": report.llm_enhanced,
+            "warnings": report.llm_warnings,
+        },
+        "parse_summary": {
+            "parser_name": report.parse_result.parser_name,
+            "source_format": report.parse_result.source_format,
+            "page_count": report.parse_result.page_count,
+            "table_count": len(report.parse_result.tables),
+            "warnings": report.parse_result.warnings,
+        },
+        "stage_records": [item.to_dict() for item in report.stage_records],
+        "artifact_paths": {
+            "base_report": {
+                "json": str(base_json_path),
+                "markdown": str(base_markdown_path),
+                "review_mode": base_report.review_mode.value,
+            },
+            "final_report": {
+                "json": str(final_json_path),
+                "markdown": str(final_markdown_path),
+                "review_mode": report.review_mode.value,
+            },
+            "specialist_tables": specialist_table_paths,
+        },
     }

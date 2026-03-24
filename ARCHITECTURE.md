@@ -115,8 +115,9 @@
 
 - 运行参数校验
 - 审查任务初始化
-- 分阶段调用解析、抽取、规则匹配和报告生成
+- 按 stage pipeline 分阶段调用解析、抽取、规则匹配和报告生成
 - 中间工件汇总与写出
+- 运行索引写出
 
 职责：
 
@@ -125,6 +126,7 @@
 - 在必要时触发人工复核升级
 - 在 `enhanced` 模式下先产出基础报告，再调用 LLM 增强
 - 在 LLM 超时或失败时自动降级回基础报告
+- 通过 `stage_records` 和 `run_manifest.json` 记录每次执行
 
 ### 3. 输入与解析层
 
@@ -218,6 +220,7 @@
 职责：
 
 - 对抽取结果执行规则匹配
+- 通过规则注册中心统一管理通用规则和专项规则
 - 输出风险命中名称、理由、严重程度、来源定位
 - 区分高风险、中风险和低风险/待完善
 
@@ -274,6 +277,20 @@
 - 保证一条问题对应一条修改建议
 - 让后续人工或 agent 可以继续复用这些产物
 - 同时输出基础报告和增强报告两套产物
+- 同时输出专项表和运行索引文件
+
+## 编排细化
+
+当前编排层已经显式拆成以下 stage：
+
+1. `document_structure`
+2. `clause_extraction`
+3. `dimension_review`
+4. `rule_evaluation`
+5. `consistency_review`
+6. `finalize_report`
+
+这样可以把 `engine.py` 从厚流程脚本收敛为轻量编排入口，并让每一步都保留稳定的中间状态、计数信息和执行记录。
 
 ## 运行产物
 
@@ -302,6 +319,9 @@
 - `base_report.md`
 - `enhanced_report.json`
 - `enhanced_report.md`
+- `run_manifest.json`
+- 五类专项表独立 JSON
+- stage 执行记录
 - LLM warning / timeout 信息
 
 ## 设计原则
@@ -332,11 +352,13 @@ agent_review/
     cli.py
     engine.py
     models.py
+    pipeline.py
+    merge.py
     reporting.py
     parsers/          # 输入与解析层
     structure/        # 文件类型识别、章节定位、范围声明
     extractors/       # 条款抽取层
-    rules/            # 风险规则与分级
+    rules/            # 风险规则、注册中心与分级
     consistency/      # 一致性检查与裁决
     outputs/          # 标准化报告与工件写出
 ```

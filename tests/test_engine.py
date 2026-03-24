@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from docx import Document
 from PIL import Image
@@ -104,6 +105,14 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     assert any(item.finding_type == FindingType.missing_evidence for item in report.findings)
     assert report.section_index
     assert isinstance(report.relative_strengths, list)
+    assert [item.stage_name for item in report.stage_records] == [
+        "document_structure",
+        "clause_extraction",
+        "dimension_review",
+        "rule_evaluation",
+        "consistency_review",
+        "finalize_report",
+    ]
 
 
 def test_load_document_supports_docx(tmp_path: Path) -> None:
@@ -184,8 +193,14 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.base_markdown_path).exists()
     assert Path(bundle.final_json_path).exists()
     assert Path(bundle.final_markdown_path).exists()
+    assert Path(bundle.manifest_path).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["base"]).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["final"]).exists()
+
+    manifest = json.loads(Path(bundle.manifest_path).read_text(encoding="utf-8"))
+    assert manifest["artifact_paths"]["base_report"]["json"] == bundle.base_json_path
+    assert manifest["artifact_paths"]["final_report"]["json"] == bundle.final_json_path
+    assert manifest["stage_records"]
 
 
 def test_write_review_artifacts_outputs_specialist_table_files(tmp_path: Path) -> None:

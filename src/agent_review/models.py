@@ -227,6 +227,17 @@ class SpecialistTables:
 
 
 @dataclass(slots=True)
+class RunStageRecord:
+    stage_name: str
+    status: str
+    item_count: int | None = None
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class ReviewReport:
     review_mode: ReviewMode
     parse_result: ParseResult
@@ -246,6 +257,7 @@ class ReviewReport:
     recommendations: list[Recommendation]
     manual_review_queue: list[str]
     reviewed_dimensions: list[str]
+    stage_records: list[RunStageRecord] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -267,4 +279,5 @@ class ReviewReport:
             "recommendations": [item.to_dict() for item in self.recommendations],
             "manual_review_queue": self.manual_review_queue,
             "reviewed_dimensions": self.reviewed_dimensions,
+            "stage_records": [item.to_dict() for item in self.stage_records],
         }

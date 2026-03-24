@@ -36,16 +36,18 @@ docs/
   review_workflow.md        # 审查流程与升级规则
 src/agent_review/
   checklist.py              # 审查维度配置
-  engine.py                 # 审查编排主循环
+  engine.py                 # 审查编排入口
   models.py                 # 结构化审查模型
+  pipeline.py               # stage pipeline 与共享运行状态
+  merge.py                  # 结果去重与归并
   reporting.py              # Markdown/JSON 报告渲染
   cli.py                    # 本地命令行入口
   parsers/                  # 输入与解析层
   structure/                # 文件类型识别、章节定位、范围声明
   extractors/               # 条款抽取层
-  rules/                    # 风险规则与建议映射
+  rules/                    # 风险规则、注册中心与建议映射
   consistency/              # 一致性检查与结论裁决
-  outputs/                  # 输出层预留
+  outputs/                  # 报告、专项表和运行索引输出
 tests/
   test_engine.py            # 轻量校验测试
 AGENTS.md                   # 仓库内智能体协作规则
@@ -67,6 +69,17 @@ pyproject.toml              # 包配置与测试配置
 9. 输出问题与修改建议对应关系
 
 当前仓库已经提供该流程的最小可运行实现，便于在接入模型、OCR、法规知识库之前，先把架构和工件契约跑通。
+
+当前执行链已进一步收敛为明确的 stage pipeline：
+
+1. `document_structure`
+2. `clause_extraction`
+3. `dimension_review`
+4. `rule_evaluation`
+5. `consistency_review`
+6. `finalize_report`
+
+这样 `engine.py` 只负责装配输入源、触发 pipeline 和控制 LLM 增强，规则扩展和结果归并不再散落在主编排代码里。
 
 ## 快速开始
 
@@ -117,10 +130,11 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 
 当前版本已提供一个最小可用的 LLM 增强层，默认不启用。
 
-启用后，LLM 会参与：
+启用后，LLM 会优先围绕专项检查表做语义增强，包括：
 
-- 总体结论摘要润色
-- 修改建议优化
+- 基于专项表生成更聚焦的总体结论摘要
+- 对修改建议做定向优化
+- 为项目结构、中小企业政策、人员与用工边界、合同履约、模板冲突生成专项摘要
 
 运行模式：
 
@@ -154,6 +168,17 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - `base_report.md`
 - `enhanced_report.json`
 - `enhanced_report.md`
+- `run_manifest.json`
+- `project_structure_table.base.json`
+- `project_structure_table.json`
+- `sme_policy_table.base.json`
+- `sme_policy_table.json`
+- `personnel_boundary_table.base.json`
+- `personnel_boundary_table.json`
+- `contract_performance_table.base.json`
+- `contract_performance_table.json`
+- `template_conflicts_table.base.json`
+- `template_conflicts_table.json`
 
 其中：
 
@@ -161,3 +186,10 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - 在 `enhanced` 模式下，基础报告保留确定性结果，增强报告叠加 LLM 输出
 
 这样即使 LLM 超时或失败，也不会影响基础报告交付。
+
+`run_manifest.json` 会统一记录：
+
+- 本次运行的文件名、模式和结论
+- 解析摘要
+- 各 stage 执行状态
+- 报告与专项表的落盘路径
