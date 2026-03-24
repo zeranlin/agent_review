@@ -78,7 +78,8 @@ SCENARIO_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规审查助
 4. 每个动态任务都要优先给出证据采集提示，说明后续应优先补哪些字段或条款。
 5. 每个动态任务都要尽量给出反证模板，帮助后续避免过度定性。
 6. 每个动态任务都要给出一组组证增强字段，供后续触发专属组证增强。
-7. 输出必须是 JSON，不要使用 Markdown。
+7. 每个动态任务都要给出 task_type，只能从 structure、scoring、contract、template、policy、restrictive、personnel、consistency、generic 中选择。
+8. 输出必须是 JSON，不要使用 Markdown。
 """
 
 REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规复核审查员。
@@ -297,6 +298,7 @@ def build_scenario_review_prompt(report: ReviewReport) -> str:
       "title": "建议新增的动态审查任务标题",
       "dimension": "项目结构风险",
       "severity": "medium 或 high",
+      "task_type": "structure",
       "scenario_tags": ["dynamic", "domain"],
       "focus_fields": ["项目属性", "采购标的"],
       "signal_groups": [

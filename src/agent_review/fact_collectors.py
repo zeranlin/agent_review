@@ -35,7 +35,7 @@ def enhance_dynamic_task_evidence(
     if not definition.catalog_id.startswith("RP-DYN-"):
         return bundle, status, rationale
 
-    extra_clauses = _collect_dynamic_enhancement_clauses(definition, extracted_clauses)
+    extra_clauses = _collect_dynamic_enhancement_clauses_by_type(definition, extracted_clauses)
     rebuttal_clauses = _collect_dynamic_rebuttal_clauses(definition, extracted_clauses)
     if not extra_clauses and not rebuttal_clauses:
         return _append_dynamic_hints(definition, bundle), status, rationale
@@ -85,6 +85,8 @@ def enhance_dynamic_task_evidence(
         enhanced_rationale += " 动态任务已追加一轮专属组证增强。"
     if rebuttal_clauses:
         enhanced_rationale += " 同时识别到反证模板，已纳入反证链。"
+    if definition.task_type != "generic":
+        enhanced_rationale += f" 当前动态任务按 {definition.task_type} 类型执行差异化组证。"
     return enhanced_bundle, enhanced_status, enhanced_rationale
 
 
@@ -306,13 +308,128 @@ def _assemble_bundle_for_definition(
     return bundle, status, rationale
 
 
-def _collect_dynamic_enhancement_clauses(
+def _collect_dynamic_enhancement_clauses_by_type(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> list[ExtractedClause]:
-    relevant = _collect_relevant_clauses(definition, extracted_clauses)
+    assembler = DYNAMIC_TASK_TYPE_ASSEMBLERS.get(
+        definition.task_type,
+        _assemble_dynamic_generic_evidence,
+    )
+    relevant = assembler(definition, extracted_clauses)
     if definition.enhancement_fields:
         relevant.extend(_collect_by_fields(extracted_clauses, definition.enhancement_fields))
+    return _dedupe_clauses(relevant)
+
+
+def _assemble_dynamic_generic_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    return _collect_relevant_clauses(definition, extracted_clauses)
+
+
+def _assemble_dynamic_structure_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        ["项目属性", "采购标的", "品目名称", "所属行业划分", "合同履行期限", "质保期"],
+    )
+    relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
+    return _dedupe_clauses(relevant)
+
+
+def _assemble_dynamic_scoring_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        ["评分方法", "价格分", "技术分", "商务分", "样品分", "财务指标加分", "人员评分要求"],
+    )
+    relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
+    return _dedupe_clauses(relevant)
+
+
+def _assemble_dynamic_contract_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        ["付款节点", "验收标准", "考核条款", "扣款条款", "解约条款", "合同履行期限"],
+    )
+    relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
+    return _dedupe_clauses(relevant)
+
+
+def _assemble_dynamic_template_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        ["项目属性", "采购标的", "中小企业声明函类型", "是否允许联合体", "是否允许分包"],
+    )
+    relevant.extend(
+        clause for clause in extracted_clauses if clause.clause_role == ClauseRole.form_template
+    )
+    relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
+    return _dedupe_clauses(relevant)
+
+
+def _assemble_dynamic_policy_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        ["是否专门面向中小企业", "是否仍保留价格扣除条款", "中小企业声明函类型", "分包比例", "是否为预留份额采购"],
+    )
+    relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
+    return _dedupe_clauses(relevant)
+
+
+def _assemble_dynamic_restrictive_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        ["是否指定品牌", "是否有限制产地厂家商标", "是否要求专利", "采购标的", "品目名称"],
+    )
+    relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
+    return _dedupe_clauses(relevant)
+
+
+def _assemble_dynamic_personnel_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_by_fields(extracted_clauses, ["项目属性", "采购标的", "人员评分要求"])
+    relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
+    return _dedupe_clauses(relevant)
+
+
+def _assemble_dynamic_consistency_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        [
+            "项目属性",
+            "采购标的",
+            "中小企业声明函类型",
+            "是否专门面向中小企业",
+            "是否仍保留价格扣除条款",
+            "付款节点",
+            "验收标准",
+        ],
+    )
+    relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
     return _dedupe_clauses(relevant)
 
 
@@ -591,4 +708,17 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-CONS-005": _assemble_consistency_policy_evidence,
     "RP-CONS-007": _assemble_consistency_policy_evidence,
     "RP-CONS-008": _assemble_consistency_policy_evidence,
+}
+
+
+DYNAMIC_TASK_TYPE_ASSEMBLERS: dict[str, Callable[[ReviewPointDefinition, list[ExtractedClause]], list[ExtractedClause]]] = {
+    "generic": _assemble_dynamic_generic_evidence,
+    "structure": _assemble_dynamic_structure_evidence,
+    "scoring": _assemble_dynamic_scoring_evidence,
+    "contract": _assemble_dynamic_contract_evidence,
+    "template": _assemble_dynamic_template_evidence,
+    "policy": _assemble_dynamic_policy_evidence,
+    "restrictive": _assemble_dynamic_restrictive_evidence,
+    "personnel": _assemble_dynamic_personnel_evidence,
+    "consistency": _assemble_dynamic_consistency_evidence,
 }

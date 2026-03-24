@@ -68,6 +68,7 @@ def parse_dynamic_review_tasks(raw_items: object) -> list[ReviewPointDefinition]
                 title=title,
                 dimension=dimension,
                 default_severity=_parse_severity(item.get("severity")),
+                task_type=_parse_task_type(item, title, dimension),
                 scenario_tags=[
                     str(value).strip()
                     for value in item.get("scenario_tags", [])
@@ -132,3 +133,38 @@ def _parse_severity(raw_value: object) -> Severity:
     if value == "low":
         return Severity.low
     return Severity.medium
+
+
+def _parse_task_type(item: dict[str, object], title: str, dimension: str) -> str:
+    value = str(item.get("task_type", "")).strip().lower()
+    allowed = {
+        "structure",
+        "scoring",
+        "contract",
+        "template",
+        "policy",
+        "restrictive",
+        "personnel",
+        "consistency",
+        "generic",
+    }
+    if value in allowed:
+        return value
+    haystack = f"{title} {dimension}".lower()
+    if "结构" in haystack or "属性" in haystack:
+        return "structure"
+    if "评分" in haystack or "评审" in haystack:
+        return "scoring"
+    if "合同" in haystack or "付款" in haystack or "验收" in haystack:
+        return "contract"
+    if "模板" in haystack:
+        return "template"
+    if "中小企业" in haystack or "政策" in haystack:
+        return "policy"
+    if "限制竞争" in haystack or "品牌" in haystack:
+        return "restrictive"
+    if "人员" in haystack or "用工" in haystack:
+        return "personnel"
+    if "一致性" in haystack or "冲突" in haystack:
+        return "consistency"
+    return "generic"

@@ -533,6 +533,7 @@ class FakeClient:
                             "title": "项目属性与采购内容结构错配",
                             "dimension": "项目结构风险",
                             "severity": "high",
+                            "task_type": "structure",
                             "scenario_tags": ["dynamic", "hybrid"],
                             "focus_fields": ["项目属性", "采购标的", "合同履行期限"],
                             "signal_groups": [["人工管护", "抚育", "管护"], ["承揽合同"]],
@@ -801,6 +802,48 @@ def test_dynamic_tasks_can_add_evidence_hints_rebuttal_templates_and_enhanced_as
         for item in dynamic_point.evidence_bundle.direct_evidence + dynamic_point.evidence_bundle.supporting_evidence
     )
     assert "专属组证增强" in dynamic_point.rationale
+    assert "structure 类型执行差异化组证" in dynamic_point.rationale
+
+
+def test_dynamic_tasks_can_use_type_specific_scoring_assembly() -> None:
+    text = """
+    项目属性：服务
+    评分方法：综合评分法
+    财务指标：营业收入越高得分越高。
+    样品分：10分
+    """
+    dynamic_definition = [
+        {
+            "catalog_id": "RP-DYN-002",
+            "title": "评分项与项目履约能力相关性复核",
+            "dimension": "评审标准明确性",
+            "severity": "high",
+            "task_type": "scoring",
+            "scenario_tags": ["dynamic", "scoring"],
+            "focus_fields": ["评分方法"],
+            "signal_groups": [["营业收入", "得分"]],
+            "evidence_hints": ["优先采集评分方法、财务指标和样品分条款"],
+            "rebuttal_templates": [],
+            "enhancement_fields": ["评分方法"],
+            "basis_hint": "评分相关动态任务应优先围绕评分字段组证。",
+        }
+    ]
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+    from agent_review.llm.task_planner import build_dynamic_review_points, parse_dynamic_review_tasks
+
+    points = build_dynamic_review_points(
+        parse_dynamic_review_tasks(dynamic_definition),
+        base_report.extracted_clauses,
+    )
+    scoring_point = points[0]
+
+    quotes = [item.quote for item in scoring_point.evidence_bundle.direct_evidence + scoring_point.evidence_bundle.supporting_evidence]
+    assert any("评分方法" in quote for quote in quotes)
+    assert any("财务指标" in quote or "营业收入" in quote for quote in quotes)
+    assert any("样品分" in quote for quote in quotes)
+    assert "scoring 类型执行差异化组证" in scoring_point.rationale
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:

@@ -136,6 +136,7 @@ class ReviewPointDefinition:
     title: str
     dimension: str
     default_severity: Severity
+    task_type: str = "generic"
     scenario_tags: list[str] = field(default_factory=list)
     required_conditions: list[ReviewPointCondition] = field(default_factory=list)
     exclusion_conditions: list[ReviewPointCondition] = field(default_factory=list)
@@ -150,6 +151,7 @@ class ReviewPointDefinition:
             "title": self.title,
             "dimension": self.dimension,
             "default_severity": self.default_severity.value,
+            "task_type": self.task_type,
             "scenario_tags": self.scenario_tags,
             "required_conditions": [item.to_dict() for item in self.required_conditions],
             "exclusion_conditions": [item.to_dict() for item in self.exclusion_conditions],
