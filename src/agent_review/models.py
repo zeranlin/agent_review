@@ -49,6 +49,12 @@ class TaskStatus(str, Enum):
     skipped = "skipped"
 
 
+class AdoptionStatus(str, Enum):
+    rule_based = "rule_based"
+    direct = "可直接采用"
+    manual = "需人工确认"
+
+
 @dataclass(slots=True)
 class Evidence:
     quote: str
@@ -80,11 +86,14 @@ class Finding:
     legal_basis: list[LegalBasis] = field(default_factory=list)
     confidence: float = 0.0
     next_action: str = ""
+    adoption_status: AdoptionStatus = AdoptionStatus.rule_based
+    review_note: str = ""
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["finding_type"] = self.finding_type.value
         payload["severity"] = self.severity.value
+        payload["adoption_status"] = self.adoption_status.value
         payload["evidence"] = [item.to_dict() for item in self.evidence]
         payload["legal_basis"] = [item.to_dict() for item in self.legal_basis]
         return payload
@@ -188,9 +197,13 @@ class ExtractedClause:
     field_name: str
     content: str
     source_anchor: str
+    adoption_status: AdoptionStatus = AdoptionStatus.rule_based
+    review_note: str = ""
 
     def to_dict(self) -> dict[str, str]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["adoption_status"] = self.adoption_status.value
+        return payload
 
 
 @dataclass(slots=True)
@@ -319,6 +332,19 @@ class LLMSemanticReview:
 
 
 @dataclass(slots=True)
+class ReviewWorkItem:
+    item_type: str
+    title: str
+    severity: str
+    source: str
+    reason: str
+    action: str
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class ReviewReport:
     review_mode: ReviewMode
     parse_result: ParseResult
@@ -339,6 +365,8 @@ class ReviewReport:
     manual_review_queue: list[str]
     reviewed_dimensions: list[str]
     source_documents: list[SourceDocument] = field(default_factory=list)
+    high_risk_review_items: list[ReviewWorkItem] = field(default_factory=list)
+    pending_confirmation_items: list[ReviewWorkItem] = field(default_factory=list)
     stage_records: list[RunStageRecord] = field(default_factory=list)
     task_records: list[TaskRecord] = field(default_factory=list)
     rule_selection: RuleSelection = field(default_factory=RuleSelection)
@@ -365,6 +393,8 @@ class ReviewReport:
             "manual_review_queue": self.manual_review_queue,
             "reviewed_dimensions": self.reviewed_dimensions,
             "source_documents": [item.to_dict() for item in self.source_documents],
+            "high_risk_review_items": [item.to_dict() for item in self.high_risk_review_items],
+            "pending_confirmation_items": [item.to_dict() for item in self.pending_confirmation_items],
             "stage_records": [item.to_dict() for item in self.stage_records],
             "task_records": [item.to_dict() for item in self.task_records],
             "rule_selection": self.rule_selection.to_dict(),

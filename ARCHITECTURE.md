@@ -296,6 +296,8 @@
 - 将中间工件整合成结构化报告
 - 保证一条问题对应一条修改建议
 - 为高频风险和一致性问题挂接结构化法规依据
+- 对 LLM 语义补充结果做“可直接采用 / 需人工确认”分级
+- 将高风险问题和待人工确认问题单独沉淀为人工复核产物
 - 让后续人工或 agent 可以继续复用这些产物
 - 同时输出基础报告和增强报告两套产物
 - 同时输出专项表和运行索引文件
@@ -342,6 +344,8 @@
 - `enhanced_report.md`
 - `run_manifest.json`
 - `llm_tasks.json`
+- `high_risk_review_checklist.json`
+- `pending_confirmation_items.json`
 - 五类专项表独立 JSON
 - stage 执行记录
 - LLM warning / timeout 信息
@@ -361,6 +365,12 @@
 - `failed`
 - `timed_out`
 - `skipped`
+
+对于 LLM 语义补充结果，还应增加结果分级：
+
+- `rule_based`：来自规则链和确定性主链路的结果
+- `可直接采用`：LLM 补充结果置信度较高，可直接合并到增强报告
+- `需人工确认`：LLM 补充结果存在歧义或上下文依赖，需要进入待确认问题单
 
 ## 设计原则
 

@@ -129,9 +129,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 
 当前版本尚未提供：
 
-- 基于视觉模型的高阶版 OCR 理解
-- 直接的 LLM 集成
-- 来自法规知识库的法条检索
+- 完整法规知识库检索与地方口径差异化适配
 - 针对地方采购规范的自动比对
 
 这些能力将作为后续层继续叠加到现有 harness 上。
@@ -174,6 +172,13 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 - 基于专项表和语义复核结果的总体结论摘要
 - 对修改建议的定向优化
 - 项目结构、中小企业政策、人员与用工边界、合同履约、模板冲突 5 张专项表摘要
+- 对语义补充结果做“可直接采用 / 需人工确认”的分级
+
+当前 LLM 结果分级规则：
+
+- 规则链直接产出的结果默认视为 `rule_based`
+- LLM 语义补充结果会标记为 `可直接采用` 或 `需人工确认`
+- 标记为 `需人工确认` 的补充结果会自动进入待确认问题单
 
 运行模式：
 
@@ -209,6 +214,8 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - `enhanced_report.md`
 - `run_manifest.json`
 - `llm_tasks.json`
+- `high_risk_review_checklist.json`
+- `pending_confirmation_items.json`
 - `project_structure_table.base.json`
 - `project_structure_table.json`
 - `sme_policy_table.base.json`
@@ -232,7 +239,7 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - 本次运行的文件名、模式和结论
 - 解析摘要
 - 各 stage 执行状态
-- 报告与专项表的落盘路径
+- 报告、专项表和人工复核产物的落盘路径
 
 `llm_tasks.json` 会单独记录 4 个 LLM 语义子任务状态：
 
@@ -242,3 +249,8 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - `llm_verdict_review`
 
 每个任务都会显式标记为 `pending`、`running`、`completed`、`failed`、`timed_out` 或 `skipped`，便于人工判断增强链路是否完整执行。
+
+人工复核相关产物包括：
+
+- `high_risk_review_checklist.json`：从高风险/严重风险问题自动汇总出的复核清单
+- `pending_confirmation_items.json`：汇总所有“需人工确认”的 LLM 语义补充结果与基础人工复核项

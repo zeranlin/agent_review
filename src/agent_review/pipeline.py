@@ -20,6 +20,7 @@ from .merge import (
     dedupe_strings,
 )
 from .models import (
+    AdoptionStatus,
     ConclusionLevel,
     Evidence,
     FileInfo,
@@ -31,6 +32,7 @@ from .models import (
     ReviewDimension,
     ReviewMode,
     ReviewReport,
+    ReviewWorkItem,
     RuleSelection,
     RunStageRecord,
     SectionIndex,
@@ -118,6 +120,12 @@ class ReviewPipeline:
             manual_review_queue=state.manual_review_queue,
             reviewed_dimensions=state.reviewed_dimensions,
             source_documents=state.source_documents,
+            high_risk_review_items=_build_high_risk_review_items(state.findings),
+            pending_confirmation_items=_build_pending_confirmation_items(
+                state.findings,
+                state.extracted_clauses,
+                state.manual_review_queue,
+            ),
             stage_records=state.stage_records,
             task_records=[
                 TaskRecord(
@@ -387,3 +395,75 @@ def _build_summary(
         f"审查结论为“{overall_conclusion.value}”。共生成 {len(findings)} 条审查结果，"
         f"其中 {issue_count} 条需要关注。"
     )
+
+
+def _build_high_risk_review_items(findings: list[Finding]) -> list[ReviewWorkItem]:
+    items: list[ReviewWorkItem] = []
+    for finding in findings:
+        if finding.severity not in {Severity.high, Severity.critical}:
+            continue
+        items.append(
+            ReviewWorkItem(
+                item_type="finding",
+                title=finding.title,
+                severity=finding.severity.value,
+                source=finding.dimension,
+                reason=finding.rationale,
+                action=finding.next_action,
+            )
+        )
+    return items
+
+
+def _build_pending_confirmation_items(
+    findings: list[Finding],
+    clauses: list,
+    manual_review_queue: list[str],
+) -> list[ReviewWorkItem]:
+    items: list[ReviewWorkItem] = []
+    for finding in findings:
+        if finding.adoption_status != AdoptionStatus.manual:
+            continue
+        items.append(
+            ReviewWorkItem(
+                item_type="llm_finding",
+                title=finding.title,
+                severity=finding.severity.value,
+                source=finding.dimension,
+                reason=finding.review_note or finding.rationale,
+                action=finding.next_action,
+            )
+        )
+    for clause in clauses:
+        if clause.adoption_status.value != "需人工确认":
+            continue
+        items.append(
+            ReviewWorkItem(
+                item_type="llm_clause",
+                title=f"{clause.field_name}补充抽取",
+                severity="medium",
+                source=clause.category,
+                reason=clause.review_note or clause.content,
+                action="结合原文或附件核实后决定是否纳入正式条款抽取。",
+            )
+        )
+    for title in manual_review_queue:
+        items.append(
+            ReviewWorkItem(
+                item_type="manual_queue",
+                title=title,
+                severity="medium",
+                source="基础人工复核",
+                reason="当前文本存在附件依赖、外部材料依赖或自动判断边界。",
+                action="补齐相关附件、补遗或合同文本后复核。",
+            )
+        )
+    seen: set[tuple[str, str, str]] = set()
+    deduped: list[ReviewWorkItem] = []
+    for item in items:
+        key = (item.item_type, item.title, item.source)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped

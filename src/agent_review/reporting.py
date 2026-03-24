@@ -126,6 +126,18 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append(f"- {item.related_issue}: {item.suggestion}")
     lines.append("")
 
+    if report.high_risk_review_items:
+        lines.append("## 高风险复核清单")
+        for item in report.high_risk_review_items:
+            lines.append(f"- {item.title}: {item.severity}，{item.reason}")
+        lines.append("")
+
+    if report.pending_confirmation_items:
+        lines.append("## 待确认问题单")
+        for item in report.pending_confirmation_items:
+            lines.append(f"- {item.title}: {item.reason}")
+        lines.append("")
+
     lines.append("## 章节定位")
     for item in report.section_index:
         status = "已定位" if item.located else "未定位"
@@ -141,7 +153,9 @@ def render_markdown(report: ReviewReport) -> str:
     if report.llm_semantic_review.clause_supplements:
         lines.append("## LLM补充条款")
         for item in report.llm_semantic_review.clause_supplements:
-            lines.append(f"- [{item.category}] {item.field_name}: {item.content}（{item.source_anchor}）")
+            lines.append(
+                f"- [{item.category}] {item.field_name}: {item.content}（{item.source_anchor}，{item.adoption_status.value}）"
+            )
         lines.append("")
 
     _append_specialist_table(lines, "项目结构一致性表", report.specialist_tables.project_structure)
@@ -170,13 +184,17 @@ def render_markdown(report: ReviewReport) -> str:
     if report.llm_semantic_review.specialist_findings:
         lines.append("## LLM专项语义复核")
         for item in report.llm_semantic_review.specialist_findings:
-            lines.append(f"- {item.title}: {item.severity.value}，{item.rationale}")
+            lines.append(
+                f"- {item.title}: {item.severity.value}，{item.rationale}（{item.adoption_status.value}）"
+            )
         lines.append("")
 
     if report.llm_semantic_review.consistency_findings:
         lines.append("## LLM深层一致性复核")
         for item in report.llm_semantic_review.consistency_findings:
-            lines.append(f"- {item.title}: {item.severity.value}，{item.rationale}")
+            lines.append(
+                f"- {item.title}: {item.severity.value}，{item.rationale}（{item.adoption_status.value}）"
+            )
         lines.append("")
 
     if report.llm_semantic_review.verdict_review:

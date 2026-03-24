@@ -17,6 +17,8 @@ class ArtifactBundle:
     final_markdown_path: str
     manifest_path: str
     llm_tasks_path: str
+    high_risk_review_path: str
+    pending_confirmation_path: str
     specialist_table_paths: dict[str, dict[str, str]]
 
 
@@ -48,6 +50,16 @@ def write_review_artifacts(
         json.dumps(_build_llm_tasks_payload(report), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    high_risk_review_path = target_dir / "high_risk_review_checklist.json"
+    pending_confirmation_path = target_dir / "pending_confirmation_items.json"
+    high_risk_review_path.write_text(
+        json.dumps(_build_work_items_payload(report.high_risk_review_items), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    pending_confirmation_path.write_text(
+        json.dumps(_build_work_items_payload(report.pending_confirmation_items), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     manifest_path = target_dir / "run_manifest.json"
     manifest_payload = _build_run_manifest(
         target_dir=target_dir,
@@ -59,6 +71,8 @@ def write_review_artifacts(
         final_json_path=final_json_path,
         final_markdown_path=final_markdown_path,
         llm_tasks_path=llm_tasks_path,
+        high_risk_review_path=high_risk_review_path,
+        pending_confirmation_path=pending_confirmation_path,
     )
     manifest_path.write_text(
         json.dumps(manifest_payload, ensure_ascii=False, indent=2),
@@ -73,6 +87,8 @@ def write_review_artifacts(
         final_markdown_path=str(final_markdown_path),
         manifest_path=str(manifest_path),
         llm_tasks_path=str(llm_tasks_path),
+        high_risk_review_path=str(high_risk_review_path),
+        pending_confirmation_path=str(pending_confirmation_path),
         specialist_table_paths=specialist_table_paths,
     )
 
@@ -127,6 +143,8 @@ def _build_run_manifest(
     final_json_path: Path,
     final_markdown_path: Path,
     llm_tasks_path: Path,
+    high_risk_review_path: Path,
+    pending_confirmation_path: Path,
 ) -> dict[str, object]:
     return {
         "schema_version": "1.0",
@@ -170,6 +188,8 @@ def _build_run_manifest(
             },
             "specialist_tables": specialist_table_paths,
             "llm_tasks": str(llm_tasks_path),
+            "high_risk_review_checklist": str(high_risk_review_path),
+            "pending_confirmation_items": str(pending_confirmation_path),
         },
     }
 
@@ -181,4 +201,11 @@ def _build_llm_tasks_payload(report: ReviewReport) -> dict[str, object]:
         "llm_enhanced": report.llm_enhanced,
         "warnings": report.llm_warnings,
         "tasks": [item.to_dict() for item in report.task_records if item.task_name.startswith("llm_")],
+    }
+
+
+def _build_work_items_payload(items) -> dict[str, object]:
+    return {
+        "count": len(items),
+        "items": [item.to_dict() for item in items],
     }

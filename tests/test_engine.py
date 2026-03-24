@@ -6,7 +6,7 @@ from PIL import Image
 
 from agent_review.engine import TenderReviewEngine
 from agent_review.llm import QwenReviewEnhancer
-from agent_review.models import ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
+from agent_review.models import AdoptionStatus, ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
@@ -242,6 +242,8 @@ class FakeClient:
                             "field_name": "分包比例",
                             "content": "文件疑似提及分包落实中小企业政策，但比例未在现有抽取结果中单列。",
                             "source_anchor": "line:8",
+                            "adoption_status": "需人工确认",
+                            "review_note": "分包比例出现在模糊表述中，需结合原表格确认。",
                         }
                     ]
                 },
@@ -258,6 +260,8 @@ class FakeClient:
                             "rationale": "评分承诺与后续考核扣款口径疑似共用同一表述，可能导致重复约束。",
                             "source_anchor": "line:12",
                             "next_action": "拆分投标评分承诺与履约考核口径。",
+                            "confidence": 0.88,
+                            "adoption_status": "可直接采用",
                         }
                     ],
                     "specialist_summaries": {
@@ -283,6 +287,9 @@ class FakeClient:
                             "rationale": "付款条款虽未直接写考核，但满意度表述可能实际控制尾款支付。",
                             "source_anchor": "line:15",
                             "next_action": "将付款条件改为客观验收节点。",
+                            "confidence": 0.66,
+                            "adoption_status": "需人工确认",
+                            "review_note": "需结合合同完整上下文确认付款触发机制。",
                         }
                     ]
                 },
@@ -327,9 +334,13 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
 
     assert enhanced_report.llm_enhanced is True
     assert enhanced_report.llm_semantic_review.clause_supplements
+    assert enhanced_report.llm_semantic_review.clause_supplements[0].adoption_status == AdoptionStatus.manual
     assert any(item.title == "评分因素与履约考核存在隐性耦合" for item in enhanced_report.findings)
     assert any(item.title == "付款条件与满意度表述存在隐性冲突" for item in enhanced_report.findings)
+    assert any(item.adoption_status == AdoptionStatus.direct for item in enhanced_report.llm_semantic_review.specialist_findings)
+    assert any(item.adoption_status == AdoptionStatus.manual for item in enhanced_report.llm_semantic_review.consistency_findings)
     assert enhanced_report.llm_semantic_review.verdict_review
+    assert enhanced_report.pending_confirmation_items
     assert any(item.stage_name == "llm_semantic_review" for item in enhanced_report.stage_records)
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
     assert llm_tasks == {
@@ -341,6 +352,7 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     markdown = render_markdown(enhanced_report)
     assert "## LLM补充条款" in markdown
     assert "## LLM裁决复核" in markdown
+    assert "## 待确认问题单" in markdown
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:
@@ -433,6 +445,8 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.final_markdown_path).exists()
     assert Path(bundle.manifest_path).exists()
     assert Path(bundle.llm_tasks_path).exists()
+    assert Path(bundle.high_risk_review_path).exists()
+    assert Path(bundle.pending_confirmation_path).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["base"]).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["final"]).exists()
 
@@ -444,6 +458,8 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert "enhancement_modules" in manifest["rule_selection"]
     llm_tasks_payload = json.loads(Path(bundle.llm_tasks_path).read_text(encoding="utf-8"))
     assert all(item["task_name"].startswith("llm_") for item in llm_tasks_payload["tasks"])
+    pending_payload = json.loads(Path(bundle.pending_confirmation_path).read_text(encoding="utf-8"))
+    assert "items" in pending_payload
 
 
 def test_write_review_artifacts_outputs_specialist_table_files(tmp_path: Path) -> None:

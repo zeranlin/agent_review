@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from ..merge import dedupe_extracted_clauses, dedupe_findings, dedupe_recommendations
 from ..models import (
+    AdoptionStatus,
     Evidence,
     ExtractedClause,
     Finding,
@@ -13,6 +14,7 @@ from ..models import (
     LLMSemanticReview,
     Recommendation,
     ReviewReport,
+    ReviewWorkItem,
     RunStageRecord,
     Severity,
     SpecialistTables,
@@ -173,6 +175,12 @@ class QwenReviewEnhancer:
             specialist_tables=specialist_tables,
             extracted_clauses=merged_clauses,
             findings=merged_findings,
+            high_risk_review_items=_build_high_risk_review_items(merged_findings),
+            pending_confirmation_items=_build_pending_confirmation_items(
+                merged_findings,
+                merged_clauses,
+                report.manual_review_queue,
+            ),
             llm_semantic_review=semantic_review,
             llm_enhanced=llm_enhanced,
             llm_warnings=warnings,
@@ -313,6 +321,8 @@ def _parse_clause_supplements(raw_items: object) -> list[ExtractedClause]:
         field_name = str(item.get("field_name", "")).strip()
         content = str(item.get("content", "")).strip()
         source_anchor = str(item.get("source_anchor", "")).strip() or "llm_clause_supplement"
+        adoption_status = _parse_adoption_status(item.get("adoption_status"))
+        review_note = str(item.get("review_note", "")).strip()
         if not category or not field_name or not content:
             continue
         results.append(
@@ -321,6 +331,8 @@ def _parse_clause_supplements(raw_items: object) -> list[ExtractedClause]:
                 field_name=field_name,
                 content=content,
                 source_anchor=source_anchor,
+                adoption_status=adoption_status,
+                review_note=review_note,
             )
         )
     return results
@@ -339,6 +351,9 @@ def _parse_findings(raw_items: object, default_dimension: str) -> list[Finding]:
             continue
         severity = _parse_severity(item.get("severity"))
         source_anchor = str(item.get("source_anchor", "")).strip() or default_dimension
+        confidence = _parse_confidence(item.get("confidence"), severity)
+        adoption_status = _parse_adoption_status(item.get("adoption_status"), confidence)
+        review_note = str(item.get("review_note", "")).strip()
         results.append(
             Finding(
                 dimension=str(item.get("dimension", "")).strip() or default_dimension,
@@ -351,8 +366,10 @@ def _parse_findings(raw_items: object, default_dimension: str) -> list[Finding]:
                 title=title,
                 rationale=rationale,
                 evidence=[Evidence(quote=title, section_hint=source_anchor)],
-                confidence=0.62 if severity == Severity.medium else 0.70,
+                confidence=confidence,
                 next_action=str(item.get("next_action", "")).strip() or "结合原文条款进一步复核并修订。",
+                adoption_status=adoption_status,
+                review_note=review_note,
             )
         )
     return results
@@ -369,6 +386,29 @@ def _parse_severity(raw_value: object) -> Severity:
     return Severity.medium
 
 
+def _parse_confidence(raw_value: object, severity: Severity) -> float:
+    try:
+        if raw_value not in {None, ""}:
+            return float(raw_value)
+    except (TypeError, ValueError):
+        pass
+    return 0.62 if severity == Severity.medium else 0.70
+
+
+def _parse_adoption_status(
+    raw_value: object,
+    confidence: float | None = None,
+) -> AdoptionStatus:
+    value = str(raw_value or "").strip()
+    if value in {AdoptionStatus.direct.value, "direct"}:
+        return AdoptionStatus.direct
+    if value in {AdoptionStatus.manual.value, "manual"}:
+        return AdoptionStatus.manual
+    if confidence is not None and confidence < 0.75:
+        return AdoptionStatus.manual
+    return AdoptionStatus.direct
+
+
 def _parse_json_response(raw: str) -> dict:
     text = raw.strip()
     if text.startswith("```"):
@@ -381,3 +421,83 @@ def _parse_json_response(raw: str) -> dict:
         if match:
             return json.loads(match.group(0))
         raise
+
+
+def _build_high_risk_review_items(findings: list[Finding]) -> list[ReviewWorkItem]:
+    items: list[ReviewWorkItem] = []
+    for finding in findings:
+        if finding.severity not in {Severity.high, Severity.critical}:
+            continue
+        items.append(
+            ReviewWorkItem(
+                item_type="finding",
+                title=finding.title,
+                severity=finding.severity.value,
+                source=finding.dimension,
+                reason=finding.rationale,
+                action=finding.next_action,
+            )
+        )
+    return items
+
+
+def _build_pending_confirmation_items(
+    findings: list[Finding],
+    clauses: list[ExtractedClause],
+    manual_review_queue: list[str],
+) -> list[ReviewWorkItem]:
+    items: list[ReviewWorkItem] = []
+    seen_titles: set[str] = set()
+
+    for finding in findings:
+        if finding.adoption_status != AdoptionStatus.manual:
+            continue
+        title = finding.title.strip()
+        if not title or title in seen_titles:
+            continue
+        seen_titles.add(title)
+        items.append(
+            ReviewWorkItem(
+                item_type="finding",
+                title=title,
+                severity=finding.severity.value,
+                source=finding.dimension,
+                reason=finding.review_note or finding.rationale,
+                action=finding.next_action or "结合原文与上下文补充人工确认。",
+            )
+        )
+
+    for clause in clauses:
+        if clause.adoption_status != AdoptionStatus.manual:
+            continue
+        title = f"{clause.field_name}待确认"
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
+        items.append(
+            ReviewWorkItem(
+                item_type="clause",
+                title=title,
+                severity="medium",
+                source=clause.category,
+                reason=clause.review_note or clause.content,
+                action="回到原文对应位置确认条款语义和适用范围。",
+            )
+        )
+
+    for title in manual_review_queue:
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
+        items.append(
+            ReviewWorkItem(
+                item_type="queue",
+                title=title,
+                severity="medium",
+                source="manual_review_queue",
+                reason="基础筛查阶段已标记为需人工复核。",
+                action="补充附件、上下文或外部材料后再定性。",
+            )
+        )
+
+    return items

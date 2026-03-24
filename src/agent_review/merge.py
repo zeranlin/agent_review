@@ -24,7 +24,7 @@ def dedupe_risk_hits(risk_hits: list[RiskHit]) -> list[RiskHit]:
 
 def dedupe_findings(findings: list[Finding]) -> list[Finding]:
     results: list[Finding] = []
-    seen: set[tuple[str, str, str, str, tuple[tuple[str, str], ...]]] = set()
+    seen: set[tuple[str, str, str, str, str, tuple[tuple[str, str], ...]]] = set()
     for finding in findings:
         evidence_key = tuple((item.quote, item.section_hint) for item in finding.evidence)
         key = (
@@ -32,6 +32,7 @@ def dedupe_findings(findings: list[Finding]) -> list[Finding]:
             finding.title,
             finding.finding_type.value,
             finding.severity.value,
+            finding.adoption_status.value,
             evidence_key,
         )
         if key in seen:
@@ -54,9 +55,15 @@ def dedupe_recommendations(recommendations: list[Recommendation]) -> list[Recomm
 
 def dedupe_extracted_clauses(clauses: list[ExtractedClause]) -> list[ExtractedClause]:
     results: list[ExtractedClause] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
     for clause in clauses:
-        key = (clause.category, clause.field_name, clause.content, clause.source_anchor)
+        key = (
+            clause.category,
+            clause.field_name,
+            clause.content,
+            clause.source_anchor,
+            clause.adoption_status.value,
+        )
         if key in seen:
             continue
         seen.add(key)
