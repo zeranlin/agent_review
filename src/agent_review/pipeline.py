@@ -10,7 +10,7 @@ from .consistency import (
     convert_consistency_checks_to_findings,
     derive_conclusion,
 )
-from .extractors import extract_clauses
+from .extractors import classify_extracted_clauses, extract_clauses
 from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_risk_hits
 from .merge import (
     build_specialist_tables,
@@ -78,6 +78,7 @@ class ReviewPipeline:
         self.stages = (
             self._stage_document_structure,
             self._stage_clause_extraction,
+            self._stage_clause_role_classification,
             self._stage_dimension_review,
             self._stage_rule_evaluation,
             self._stage_consistency_review,
@@ -161,6 +162,18 @@ class ReviewPipeline:
                 status="completed",
                 item_count=len(state.extracted_clauses),
                 detail=f"抽取 {len(state.extracted_clauses)} 条结构化条款。",
+            )
+        )
+
+    def _stage_clause_role_classification(self, state: ReviewPipelineState) -> None:
+        state.extracted_clauses = classify_extracted_clauses(state.extracted_clauses)
+        identified_count = sum(1 for item in state.extracted_clauses if item.clause_role.value != "未识别")
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="clause_role_classification",
+                status="completed",
+                item_count=identified_count,
+                detail=f"完成条款角色识别，{identified_count} 条条款已获得角色标签。",
             )
         )
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..models import ExtractedClause
+from ..models import ClauseRole, ExtractedClause
 
 
 def extract_clauses(text: str) -> list[ExtractedClause]:
@@ -76,7 +76,62 @@ def extract_clauses(text: str) -> list[ExtractedClause]:
                         field_name=field_name,
                         content=line[:120],
                         source_anchor=f"line:{line_no}",
+                        clause_role=classify_clause_role(line),
                     )
                 )
                 break
     return clauses
+
+
+def classify_extracted_clauses(clauses: list[ExtractedClause]) -> list[ExtractedClause]:
+    for clause in clauses:
+        clause.clause_role = classify_clause_role(clause.content)
+    return clauses
+
+
+def classify_clause_role(text: str) -> ClauseRole:
+    normalized = text.strip()
+    if not normalized:
+        return ClauseRole.unknown
+
+    form_markers = [
+        "证明书",
+        "格式",
+        "以下格式文件由供应商根据需要选用",
+        "单位名称（盖章）",
+        "法定代表人",
+        "投标人代表",
+        "联合体共同投标协议书",
+    ]
+    if (
+        any(marker in normalized for marker in form_markers)
+        or "____" in normalized
+        or "______" in normalized
+        or normalized.endswith("声明函")
+        or normalized.startswith("声明函")
+        or normalized.startswith("中小企业声明函")
+        or normalized.startswith("残疾人福利性单位声明函")
+    ):
+        return ClauseRole.form_template
+
+    if "详见附件" in normalized or "附表" in normalized or "附件" in normalized:
+        return ClauseRole.appendix_reference
+
+    if any(marker in normalized for marker in ["名词解释", "采购代理机构：", "采购人：", "投标人：", "评标委员会"]):
+        return ClauseRole.document_definition
+
+    if any(marker in normalized for marker in ["根据《", "依据《", "管理办法", "通知》", "实施条例", "政府采购法"]) and any(
+        marker in normalized for marker in ["规定", "说明", "政策", "扶持", "扣除"]
+    ):
+        return ClauseRole.policy_explanation
+
+    if any(marker in normalized for marker in ["付款", "验收", "违约", "解约", "质保", "履约", "安装", "调试"]):
+        return ClauseRole.contract_term
+
+    if any(marker in normalized for marker in ["资格要求", "评分", "综合评分", "评标", "分值", "业绩", "证书", "样品", "技术要求", "商务要求"]):
+        return ClauseRole.qualification_or_scoring
+
+    if any(marker in normalized for marker in ["不接受联合体", "不允许合同分包", "采购包", "中小企业", "价格扣除", "采购需求", "货物", "服务", "工程"]):
+        return ClauseRole.procurement_requirement
+
+    return ClauseRole.unknown

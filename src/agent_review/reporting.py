@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 
-from .models import FindingType, ReviewReport
+from .models import ClauseRole, FindingType, ReviewReport
 
 
 def render_json(report: ReviewReport) -> str:
@@ -412,12 +413,14 @@ def _build_formal_review_items(report: ReviewReport) -> list[dict[str, str]]:
     )
 
     items: list[dict[str, str]] = []
+    seen_keys: set[str] = set()
     for finding in issue_findings:
         if finding.severity.value not in {"critical", "high"}:
             continue
+        if not _is_formal_eligible(finding, report):
+            continue
         title = finding.title.strip()
-        section_hint = "；".join(item.section_hint for item in finding.evidence if item.section_hint) or "未明确定位"
-        quote = "；".join(item.quote for item in finding.evidence if item.quote) or "当前自动抽取未定位到可直接引用的原文。"
+        section_hint, quote = _resolve_formal_evidence(report, finding)
         basis_text = (
             "；".join(
                 f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
@@ -425,6 +428,10 @@ def _build_formal_review_items(report: ReviewReport) -> list[dict[str, str]]:
             )
             or "当前结果未自动挂接明确法规依据，建议结合原始条款进一步复核。"
         )
+        dedupe_key = f"{section_hint}|{quote}"
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
         issue_type = finding.dimension or "高风险问题"
         compliance = _build_compliance_judgment(finding)
         items.append(
@@ -449,6 +456,130 @@ def _build_compliance_judgment(finding) -> str:
     if finding.finding_type == FindingType.manual_review_required:
         return "当前条款存在高风险信号，但仍需结合完整附件或上下文进一步核定。"
     return "相关条款存在高风险合规疑点，建议优先整改。"
+
+
+def _is_formal_eligible(finding, report: ReviewReport) -> bool:
+    if not finding.evidence:
+        return False
+
+    section_hint, quote = _resolve_formal_evidence(report, finding)
+    if section_hint in {"未明确定位", "keyword_match", "restrictive_term"}:
+        return False
+    if not quote or quote == "当前自动抽取未定位到可直接引用的原文。":
+        return False
+
+    roles = _infer_evidence_roles(report, finding)
+    if roles and all(
+        role in {
+            ClauseRole.form_template,
+            ClauseRole.policy_explanation,
+            ClauseRole.document_definition,
+            ClauseRole.appendix_reference,
+            ClauseRole.unknown,
+        }
+        for role in roles
+    ):
+        return False
+
+    if not _evidence_supports_title(finding.title, quote):
+        return False
+
+    return True
+
+
+def _resolve_formal_evidence(report: ReviewReport, finding) -> tuple[str, str]:
+    section_hint = "；".join(item.section_hint for item in finding.evidence if item.section_hint) or "未明确定位"
+    raw_quote = "；".join(item.quote for item in finding.evidence if item.quote).strip()
+
+    if not finding.evidence:
+        return section_hint, "当前自动抽取未定位到可直接引用的原文。"
+
+    primary_hint = finding.evidence[0].section_hint if finding.evidence else ""
+    line_quote = _line_text_from_anchor(report.parse_result.text, primary_hint)
+    if raw_quote and " / " in raw_quote:
+        parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
+        supplemental = []
+        for part in parts:
+            matched = _search_line_by_keyword(report.parse_result.text, part)
+            if matched:
+                supplemental.append(matched)
+        if line_quote:
+            supplemental.insert(0, line_quote)
+        if supplemental:
+            return section_hint, "；".join(dict.fromkeys(supplemental))
+
+    if line_quote:
+        return section_hint, line_quote
+    if raw_quote:
+        return section_hint, raw_quote
+    return section_hint, "当前自动抽取未定位到可直接引用的原文。"
+
+
+def _infer_evidence_roles(report: ReviewReport, finding) -> list[ClauseRole]:
+    roles: list[ClauseRole] = []
+    for evidence in finding.evidence:
+        for clause in report.extracted_clauses:
+            if clause.source_anchor == evidence.section_hint or clause.content == evidence.quote:
+                roles.append(clause.clause_role)
+        if not roles:
+            inferred = _infer_role_from_text(evidence.quote)
+            if inferred != ClauseRole.unknown:
+                roles.append(inferred)
+    return roles
+
+
+def _infer_role_from_text(text: str) -> ClauseRole:
+    normalized = text.strip()
+    if not normalized:
+        return ClauseRole.unknown
+    if any(marker in normalized for marker in ["声明函", "证明书", "单位名称（盖章）", "法定代表人", "____"]):
+        return ClauseRole.form_template
+    if any(marker in normalized for marker in ["采购代理机构：", "采购人：", "投标人：", "名词解释"]):
+        return ClauseRole.document_definition
+    if "附件" in normalized or "附表" in normalized:
+        return ClauseRole.appendix_reference
+    if any(marker in normalized for marker in ["根据《", "管理办法", "通知》", "实施条例"]):
+        return ClauseRole.policy_explanation
+    return ClauseRole.unknown
+
+
+def _evidence_supports_title(title: str, quote: str) -> bool:
+    checks = {
+        "性别限制": [["性别", "男性", "女性"]],
+        "年龄限制": [["年龄"]],
+        "身高限制": [["身高"]],
+        "容貌体形要求": [["容貌", "体形", "五官"]],
+        "产地厂家商标限制": [["产地", "厂家", "商标", "品牌", "原厂"]],
+        "货物服务属性冲突": [["货物"], ["服务", "实施", "运维", "承接"]],
+        "货物项目混入大量服务履约内容": [["货物"], ["服务", "实施", "运维", "承接"]],
+        "项目属性 vs 履约内容": [["货物"], ["服务", "实施", "运维", "承接"]],
+        "专门面向中小企业却仍保留价格扣除": [["中小企业"], ["价格扣除"]],
+        "专门面向中小企业却保留价格扣除模板": [["中小企业"], ["价格扣除"]],
+        "中小企业政策 vs 价格扣除政策": [["中小企业"], ["价格扣除"]],
+        "采购人单方解释或决定条款": [["解释权", "采购人意见", "采购人解释", "采购人说了算"]],
+    }
+    groups = checks.get(title)
+    if not groups:
+        return True
+    return all(any(token in quote for token in group) for group in groups)
+
+
+def _line_text_from_anchor(text: str, anchor: str) -> str:
+    match = re.match(r"line:(\d+)", anchor or "")
+    if not match:
+        return ""
+    line_no = int(match.group(1))
+    lines = text.splitlines()
+    if 1 <= line_no <= len(lines):
+        return lines[line_no - 1].strip()
+    return ""
+
+
+def _search_line_by_keyword(text: str, keyword: str) -> str:
+    for line in text.splitlines():
+        if keyword and keyword in line:
+            return line.strip()
+    return ""
 
 
 def _append_specialist_table(lines: list[str], title: str, rows) -> None:

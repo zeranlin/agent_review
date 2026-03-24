@@ -74,12 +74,15 @@ pyproject.toml              # 包配置与测试配置
 
 1. `document_structure`
 2. `clause_extraction`
-3. `dimension_review`
-4. `rule_evaluation`
-5. `consistency_review`
-6. `finalize_report`
+3. `clause_role_classification`
+4. `dimension_review`
+5. `rule_evaluation`
+6. `consistency_review`
+7. `finalize_report`
 
 这样 `engine.py` 只负责装配输入源、触发 pipeline 和控制 LLM 增强，规则扩展和结果归并不再散落在主编排代码里。
+
+其中新增的 `clause_role_classification` 会对条款标注角色，例如采购约束条款、投标文件模板、政策说明、定义说明、附件引用等，用于后续降低模板误报。
 
 当前规则执行采用“双层规则架构”：
 
@@ -258,3 +261,10 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - `pending_confirmation_items.json`：汇总所有“需人工确认”的 LLM 语义补充结果与基础人工复核项
 - `opinion_letter.md`：面向正式流转的审查意见书模板文本
 - `formal_review_opinion.md`：按“问题标题、条款位置、原文摘录、问题类型、风险等级、合规判断、法律/政策依据”结构输出的高风险正式审查意见
+
+`formal_review_opinion.md` 在输出前会经过正式出具过滤：
+
+- 仅保留高风险问题
+- 要求存在较强证据锚点
+- 会过滤模板文本、定义说明、附件引用等弱证据来源
+- 会校验问题标题与原文摘录是否基本一致

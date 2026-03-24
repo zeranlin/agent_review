@@ -6,7 +6,7 @@ from PIL import Image
 
 from agent_review.engine import TenderReviewEngine
 from agent_review.llm import QwenReviewEnhancer
-from agent_review.models import AdoptionStatus, ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
+from agent_review.models import AdoptionStatus, ClauseRole, ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
@@ -121,11 +121,13 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     assert [item.stage_name for item in report.stage_records] == [
         "document_structure",
         "clause_extraction",
+        "clause_role_classification",
         "dimension_review",
         "rule_evaluation",
         "consistency_review",
         "finalize_report",
     ]
+    assert all(isinstance(item.clause_role, ClauseRole) for item in report.extracted_clauses)
 
 
 def test_load_document_supports_docx(tmp_path: Path) -> None:
@@ -562,6 +564,25 @@ def test_formal_review_opinion_can_render_high_risk_fields() -> None:
     assert "- 风险等级:" in formal
     assert "- 合规判断:" in formal
     assert "- 法律/政策依据:" in formal
+
+
+def test_formal_review_opinion_filters_template_and_weak_hits() -> None:
+    text = """
+    法定代表人证明书
+    附：代表人性别：_____年龄：_________ 身份证号码：__________________
+    一、名词解释
+    采购代理机构：本项目是指某采购中心，对招标文件拥有最终的解释权。
+    本项目属于专门面向中小企业采购的项目。
+    对小型、微型企业给予价格扣除。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+
+    formal = render_formal_review_opinion(report)
+
+    assert "性别限制" not in formal
+    assert "年龄限制" not in formal
+    assert "采购人单方解释或决定条款" not in formal
+    assert "专门面向中小企业却仍保留价格扣除" in formal
 
 
 def test_report_contains_specialist_tables() -> None:

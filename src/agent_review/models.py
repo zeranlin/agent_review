@@ -55,6 +55,17 @@ class AdoptionStatus(str, Enum):
     manual = "需人工确认"
 
 
+class ClauseRole(str, Enum):
+    procurement_requirement = "采购约束条款"
+    qualification_or_scoring = "资格或评分条款"
+    contract_term = "合同履约条款"
+    form_template = "投标文件模板"
+    policy_explanation = "政策说明文本"
+    document_definition = "定义或程序说明"
+    appendix_reference = "附件引用"
+    unknown = "未识别"
+
+
 @dataclass(slots=True)
 class Evidence:
     quote: str
@@ -197,11 +208,13 @@ class ExtractedClause:
     field_name: str
     content: str
     source_anchor: str
+    clause_role: ClauseRole = ClauseRole.unknown
     adoption_status: AdoptionStatus = AdoptionStatus.rule_based
     review_note: str = ""
 
     def to_dict(self) -> dict[str, str]:
         payload = asdict(self)
+        payload["clause_role"] = self.clause_role.value
         payload["adoption_status"] = self.adoption_status.value
         return payload
 

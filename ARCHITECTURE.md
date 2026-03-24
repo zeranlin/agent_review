@@ -211,11 +211,13 @@
 - 字段名称
 - 条款内容
 - 来源定位
+- 条款角色标签
 
 职责：
 
 - 把文档中的事实转成结构化字段
 - 为风险规则匹配提供标准化输入
+- 进一步区分采购约束条款、资格/评分条款、合同履约条款、投标文件模板、政策说明文本、定义说明和附件引用
 
 ### 6. 规则与风险层
 
@@ -308,12 +310,15 @@
 
 1. `document_structure`
 2. `clause_extraction`
-3. `dimension_review`
-4. `rule_evaluation`
-5. `consistency_review`
-6. `finalize_report`
+3. `clause_role_classification`
+4. `dimension_review`
+5. `rule_evaluation`
+6. `consistency_review`
+7. `finalize_report`
 
 这样可以把 `engine.py` 从厚流程脚本收敛为轻量编排入口，并让每一步都保留稳定的中间状态、计数信息和执行记录。
+
+其中 `clause_role_classification` 专门负责识别模板文本、定义说明、附件引用等弱证据来源，避免其直接穿透到正式风险结论。
 
 ## 运行产物
 
@@ -343,6 +348,7 @@
 - `enhanced_report.json`
 - `enhanced_report.md`
 - `opinion_letter.md`
+- `formal_review_opinion.md`
 - `run_manifest.json`
 - `llm_tasks.json`
 - `high_risk_review_checklist.json`
@@ -372,6 +378,13 @@
 - `rule_based`：来自规则链和确定性主链路的结果
 - `可直接采用`：LLM 补充结果置信度较高，可直接合并到增强报告
 - `需人工确认`：LLM 补充结果存在歧义或上下文依赖，需要进入待确认问题单
+
+对于正式审查意见输出，还应增加“正式出具过滤层”：
+
+- 无直接证据锚点的问题不进入正式意见
+- 来自模板文本、定义说明、附件引用的问题默认不进入正式意见
+- 问题标题需与原文摘录具备基本语义一致性
+- 正式意见输出仅保留通过过滤的高风险问题
 
 ## 设计原则
 
