@@ -83,6 +83,12 @@ def render_markdown(report: ReviewReport) -> str:
             lines.append(f"- 证据: {evidence_text}")
         else:
             lines.append("- 证据: 当前文本中未抽取到直接证据。")
+        if finding.legal_basis:
+            basis_text = "；".join(
+                f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
+                for item in finding.legal_basis
+            )
+            lines.append(f"- 法规依据: {basis_text}")
         lines.append(f"- 建议动作: {finding.next_action}")
         lines.append("")
 
@@ -101,6 +107,12 @@ def render_markdown(report: ReviewReport) -> str:
             lines.append(f"- 证据: {evidence_text}")
         else:
             lines.append("- 证据: 当前文本中未抽取到直接证据。")
+        if finding.legal_basis:
+            basis_text = "；".join(
+                f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
+                for item in finding.legal_basis
+            )
+            lines.append(f"- 法规依据: {basis_text}")
         lines.append(f"- 建议动作: {finding.next_action}")
         lines.append("")
 

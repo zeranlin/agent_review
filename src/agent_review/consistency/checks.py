@@ -156,6 +156,7 @@ def convert_consistency_checks_to_findings(
                 title=check.topic,
                 rationale=check.detail,
                 evidence=[],
+                legal_basis=check.legal_basis,
                 confidence=0.74,
                 next_action="核查相关章节并统一项目属性、金额口径、政策口径或合同表述。",
             )

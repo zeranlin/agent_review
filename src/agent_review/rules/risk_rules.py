@@ -91,6 +91,7 @@ def convert_risk_hits_to_findings(risk_hits: Iterable[RiskHit]) -> list[Finding]
                 title=hit.rule_name,
                 rationale=hit.rationale,
                 evidence=[Evidence(quote=hit.matched_text, section_hint=hit.source_anchor)],
+                legal_basis=hit.legal_basis,
                 confidence=0.8 if hit.severity in {Severity.high, Severity.critical} else 0.68,
                 next_action=next_action,
             )

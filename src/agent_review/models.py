@@ -59,6 +59,17 @@ class Evidence:
 
 
 @dataclass(slots=True)
+class LegalBasis:
+    source_name: str
+    article_hint: str
+    summary: str
+    basis_type: str = "规范性依据"
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class Finding:
     dimension: str
     finding_type: FindingType
@@ -66,6 +77,7 @@ class Finding:
     title: str
     rationale: str
     evidence: list[Evidence] = field(default_factory=list)
+    legal_basis: list[LegalBasis] = field(default_factory=list)
     confidence: float = 0.0
     next_action: str = ""
 
@@ -74,6 +86,7 @@ class Finding:
         payload["finding_type"] = self.finding_type.value
         payload["severity"] = self.severity.value
         payload["evidence"] = [item.to_dict() for item in self.evidence]
+        payload["legal_basis"] = [item.to_dict() for item in self.legal_basis]
         return payload
 
 
@@ -188,10 +201,12 @@ class RiskHit:
     matched_text: str
     rationale: str
     source_anchor: str
+    legal_basis: list[LegalBasis] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["severity"] = self.severity.value
+        payload["legal_basis"] = [item.to_dict() for item in self.legal_basis]
         return payload
 
 
@@ -200,9 +215,12 @@ class ConsistencyCheck:
     topic: str
     status: str
     detail: str
+    legal_basis: list[LegalBasis] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, str]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["legal_basis"] = [item.to_dict() for item in self.legal_basis]
+        return payload
 
 
 @dataclass(slots=True)

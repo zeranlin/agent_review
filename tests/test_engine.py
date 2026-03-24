@@ -50,6 +50,7 @@ def test_detects_restrictive_terms_warning() -> None:
 
     assert any(item.title == "发现潜在限制性竞争表述" for item in report.findings)
     assert any(item.rule_name == "指定品牌/原厂限制" for item in report.risk_hits)
+    assert any(item.legal_basis for item in report.risk_hits if item.rule_name == "指定品牌/原厂限制")
     assert not any(item.rule_name == "主观评分表述" for item in report.risk_hits)
     assert report.overall_conclusion in {ConclusionLevel.revise, ConclusionLevel.reject}
 
@@ -432,6 +433,18 @@ def test_markdown_report_uses_v2_sections() -> None:
     assert "## 中风险问题" in markdown
     assert "## 审查边界说明" in markdown
     assert "## 中小企业政策一致性表" in markdown
+
+
+def test_markdown_can_render_legal_basis() -> None:
+    text = """
+    采购需求
+    本项目要求原厂服务团队。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    markdown = render_markdown(report)
+
+    assert "法规依据" in markdown
+    assert "中华人民共和国政府采购法" in markdown
 
 
 def test_report_contains_specialist_tables() -> None:

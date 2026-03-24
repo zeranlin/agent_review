@@ -11,6 +11,7 @@ from .consistency import (
     derive_conclusion,
 )
 from .extractors import extract_clauses
+from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_risk_hits
 from .merge import (
     build_specialist_tables,
     dedupe_findings,
@@ -184,7 +185,7 @@ class ReviewPipeline:
             clauses=state.extracted_clauses,
         )
         state.rule_selection = rule_selection
-        state.risk_hits = dedupe_risk_hits(risk_hits)
+        state.risk_hits = annotate_risk_hits(dedupe_risk_hits(risk_hits))
         state.findings.extend(convert_risk_hits_to_findings(state.risk_hits))
         state.specialist_tables = build_specialist_tables(state.risk_hits)
         executed_modules = rule_selection.core_modules + rule_selection.enhancement_modules
@@ -202,10 +203,12 @@ class ReviewPipeline:
         )
 
     def _stage_consistency_review(self, state: ReviewPipelineState) -> None:
-        state.consistency_checks = check_consistency(
-            state.normalized_text,
-            state.extracted_clauses,
-            state.source_documents,
+        state.consistency_checks = annotate_consistency_checks(
+            check_consistency(
+                state.normalized_text,
+                state.extracted_clauses,
+                state.source_documents,
+            )
         )
         consistency_findings = convert_consistency_checks_to_findings(state.consistency_checks)
         state.findings.extend(consistency_findings)
@@ -220,7 +223,7 @@ class ReviewPipeline:
         )
 
     def _stage_finalize_report(self, state: ReviewPipelineState) -> None:
-        state.findings = dedupe_findings(state.findings)
+        state.findings = annotate_findings(dedupe_findings(state.findings))
         state.manual_review_queue = dedupe_strings(state.manual_review_queue)
         state.relative_strengths = dedupe_strings(
             collect_relative_strengths(state.section_index, state.findings)
