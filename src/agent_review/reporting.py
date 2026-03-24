@@ -15,6 +15,7 @@ def render_markdown(report: ReviewReport) -> str:
         "",
         "## 文件解析",
         "",
+        f"- 运行模式: {report.review_mode.value}",
         f"- 解析器: {report.parse_result.parser_name}",
         f"- 源文件格式: {report.parse_result.source_format}",
         f"- 页数: {report.parse_result.page_count if report.parse_result.page_count is not None else '未提供'}",

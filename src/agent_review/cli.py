@@ -5,22 +5,40 @@ import sys
 
 from .engine import TenderReviewEngine
 from .llm import QwenReviewEnhancer
+from .models import ReviewMode
+from .outputs import write_review_artifacts
 from .reporting import render_json, render_markdown
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Review a tender document for compliance risks.")
-    parser.add_argument("--input", required=True, help="Path to a UTF-8 text file.")
+    parser.add_argument("--input", required=True, help="待审查文件路径。")
     parser.add_argument(
         "--format",
         choices=("markdown", "json"),
         default="markdown",
-        help="Output format.",
+        help="终端输出格式。",
     )
     parser.add_argument(
         "--use-llm",
         action="store_true",
         help="启用本地 OpenAI 兼容 LLM，对总体结论和修改建议做增强。",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=(ReviewMode.fast.value, ReviewMode.enhanced.value),
+        default=ReviewMode.fast.value,
+        help="运行模式：fast 只输出基础报告，enhanced 在基础报告上做 LLM 增强。",
+    )
+    parser.add_argument(
+        "--artifacts-dir",
+        help="审查产物输出目录。默认写入 runs/<文件名>/。",
+    )
+    parser.add_argument(
+        "--llm-timeout",
+        type=float,
+        default=60.0,
+        help="LLM 单次调用超时时间（秒）。",
     )
     return parser
 
@@ -29,9 +47,20 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
-    enhancer = QwenReviewEnhancer() if args.use_llm else None
-    engine = TenderReviewEngine(review_enhancer=enhancer)
-    report = engine.review_file(args.input)
+    review_mode = ReviewMode(args.mode)
+    enhanced_enabled = args.use_llm or review_mode == ReviewMode.enhanced
+
+    base_engine = TenderReviewEngine(review_mode=ReviewMode.fast)
+    base_report = base_engine.review_file(args.input)
+
+    if enhanced_enabled:
+        enhancer = QwenReviewEnhancer(timeout=args.llm_timeout)
+        engine = TenderReviewEngine(review_enhancer=enhancer, review_mode=ReviewMode.enhanced)
+        report = engine.review_file(args.input)
+    else:
+        report = base_report
+
+    write_review_artifacts(report=report, base_report=base_report, output_dir=args.artifacts_dir)
 
     if args.format == "json":
         sys.stdout.write(render_json(report))

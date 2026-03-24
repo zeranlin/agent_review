@@ -35,6 +35,11 @@ class ConclusionLevel(str, Enum):
     reject = "存在实质性不合规问题，不建议直接发布"
 
 
+class ReviewMode(str, Enum):
+    fast = "fast"
+    enhanced = "enhanced"
+
+
 @dataclass(slots=True)
 class Evidence:
     quote: str
@@ -190,6 +195,7 @@ class Recommendation:
 
 @dataclass(slots=True)
 class ReviewReport:
+    review_mode: ReviewMode
     parse_result: ParseResult
     file_info: FileInfo
     scope_statement: str
@@ -209,6 +215,7 @@ class ReviewReport:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "review_mode": self.review_mode.value,
             "parse_result": self.parse_result.to_dict(),
             "file_info": self.file_info.to_dict(),
             "scope_statement": self.scope_statement,

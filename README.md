@@ -122,10 +122,16 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 - 总体结论摘要润色
 - 修改建议优化
 
+运行模式：
+
+- `fast`：只跑确定性主链路，快速生成基础报告
+- `enhanced`：先生成基础报告，再调用 LLM 增强总体结论和修改建议
+
 启用方式：
 
 ```bash
-PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --format markdown --use-llm
+PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --format markdown --mode fast
+PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --format markdown --mode enhanced --use-llm
 ```
 
 默认会读取以下配置；如未设置，则回退到当前本地预设：
@@ -139,3 +145,19 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 
 - Base URL: `http://112.111.54.86:10011/v1`
 - Model: `qwen3.5-27b`
+
+## 双产物输出
+
+每次运行默认都会输出两份产物到 `runs/<文件名>/`：
+
+- `base_report.json`
+- `base_report.md`
+- `enhanced_report.json`
+- `enhanced_report.md`
+
+其中：
+
+- 在 `fast` 模式下，基础报告和最终报告内容相同
+- 在 `enhanced` 模式下，基础报告保留确定性结果，增强报告叠加 LLM 输出
+
+这样即使 LLM 超时或失败，也不会影响基础报告交付。

@@ -15,8 +15,18 @@ class NullReviewEnhancer:
 
 
 class QwenReviewEnhancer:
-    def __init__(self, client: OpenAICompatibleClient | None = None) -> None:
-        self.client = client or OpenAICompatibleClient(QwenLocalConfig.from_env_or_default())
+    def __init__(
+        self,
+        client: OpenAICompatibleClient | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        if client is not None:
+            self.client = client
+        else:
+            config = QwenLocalConfig.from_env_or_default()
+            if timeout is not None:
+                config.timeout = timeout
+            self.client = OpenAICompatibleClient(config)
 
     def enhance(self, report: ReviewReport) -> ReviewReport:
         try:

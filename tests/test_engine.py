@@ -4,7 +4,8 @@ from docx import Document
 from PIL import Image
 
 from agent_review.engine import TenderReviewEngine
-from agent_review.models import ConclusionLevel, FileType, FindingType, Recommendation
+from agent_review.models import ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
+from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document
 
 
@@ -104,9 +105,34 @@ def test_engine_can_apply_llm_enhancer() -> None:
     采购需求详见附件。
     评分标准见附表。
     """
-    engine = TenderReviewEngine(review_enhancer=FakeEnhancer())
+    engine = TenderReviewEngine(review_enhancer=FakeEnhancer(), review_mode=ReviewMode.enhanced)
     report = engine.review_text(text, document_name="demo.txt")
 
     assert report.llm_enhanced is True
     assert report.summary == "这是经过LLM增强的结论摘要。"
     assert report.recommendations[0].suggestion == "这是经过LLM增强的建议。"
+
+
+def test_fast_mode_skips_enhancer() -> None:
+    text = "项目概况\n采购需求详见附件。"
+    engine = TenderReviewEngine(review_enhancer=FakeEnhancer(), review_mode=ReviewMode.fast)
+    report = engine.review_text(text, document_name="demo.txt")
+
+    assert report.review_mode == ReviewMode.fast
+    assert report.llm_enhanced is False
+
+
+def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
+    text = "项目概况\n采购需求详见附件。"
+    base_engine = TenderReviewEngine(review_mode=ReviewMode.fast)
+    base_report = base_engine.review_text(text, document_name="demo.txt")
+
+    enhanced_engine = TenderReviewEngine(review_enhancer=FakeEnhancer(), review_mode=ReviewMode.enhanced)
+    enhanced_report = enhanced_engine.review_text(text, document_name="demo.txt")
+
+    bundle = write_review_artifacts(enhanced_report, base_report, tmp_path)
+
+    assert Path(bundle.base_json_path).exists()
+    assert Path(bundle.base_markdown_path).exists()
+    assert Path(bundle.final_json_path).exists()
+    assert Path(bundle.final_markdown_path).exists()

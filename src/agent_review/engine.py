@@ -4,6 +4,8 @@ from pathlib import Path
 
 from .checklist import DEFAULT_DIMENSIONS
 from .models import ConclusionLevel
+from .llm import NullReviewEnhancer
+from .models import ReviewMode
 from .consistency import (
     check_consistency,
     collect_relative_strengths,
@@ -11,7 +13,6 @@ from .consistency import (
     derive_conclusion,
 )
 from .extractors import extract_clauses
-from .llm import NullReviewEnhancer
 from .models import (
     Evidence,
     Finding,
@@ -36,9 +37,11 @@ class TenderReviewEngine:
         self,
         dimensions: list[ReviewDimension] | None = None,
         review_enhancer: object | None = None,
+        review_mode: ReviewMode = ReviewMode.fast,
     ) -> None:
         self.dimensions = dimensions or DEFAULT_DIMENSIONS
         self.review_enhancer = review_enhancer or NullReviewEnhancer()
+        self.review_mode = review_mode
 
     def review_text(self, text: str, document_name: str = "input.txt") -> ReviewReport:
         normalized_text = normalize_text(text)
@@ -70,6 +73,7 @@ class TenderReviewEngine:
         overall_conclusion = derive_conclusion(findings)
         summary = self._build_summary(findings, manual_review_queue, overall_conclusion)
         report = ReviewReport(
+            review_mode=self.review_mode,
             parse_result=_build_parse_result_for_text(normalized_text, document_name),
             file_info=file_info,
             scope_statement=scope_statement,
@@ -87,7 +91,7 @@ class TenderReviewEngine:
             manual_review_queue=manual_review_queue,
             reviewed_dimensions=reviewed_dimensions,
         )
-        return self.review_enhancer.enhance(report)
+        return self.review_enhancer.enhance(report) if self.review_mode == ReviewMode.enhanced else report
 
     def review_file(self, path: str | Path) -> ReviewReport:
         document_name, parse_result = load_document(path)
@@ -120,6 +124,7 @@ class TenderReviewEngine:
         overall_conclusion = derive_conclusion(findings)
         summary = self._build_summary(findings, manual_review_queue, overall_conclusion)
         report = ReviewReport(
+            review_mode=self.review_mode,
             parse_result=parse_result,
             file_info=file_info,
             scope_statement=scope_statement,
@@ -137,7 +142,7 @@ class TenderReviewEngine:
             manual_review_queue=manual_review_queue,
             reviewed_dimensions=reviewed_dimensions,
         )
-        return self.review_enhancer.enhance(report)
+        return self.review_enhancer.enhance(report) if self.review_mode == ReviewMode.enhanced else report
 
     @staticmethod
     def _check_consistency(text: str) -> list[ConsistencyCheck]:
