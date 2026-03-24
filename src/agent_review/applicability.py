@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from .models import (
     ApplicabilityCheck,
     ApplicabilityItem,
@@ -8,6 +10,9 @@ from .models import (
     ReviewPoint,
 )
 from .review_point_catalog import resolve_review_point_definition
+
+
+RelationEvaluator = Callable[[dict[str, list[ExtractedClause]]], tuple[bool, list[str]]]
 
 
 def build_applicability_checks(
@@ -23,32 +28,14 @@ def build_applicability_checks(
         exclusion_results: list[ApplicabilityItem] = []
 
         for condition in definition.required_conditions:
-            matched, matched_by_fields, matched_fields = _matches_condition(
-                haystack, clause_mapping, condition.clause_fields, condition.signal_groups
-            )
+            matched, detail = _evaluate_condition(definition.catalog_id, condition.name, clause_mapping, haystack, condition.clause_fields, condition.signal_groups)
             status = ApplicabilityStatus.satisfied if matched else ApplicabilityStatus.insufficient
-            detail = (
-                _matched_detail("要件", matched_by_fields, matched_fields)
-                if matched
-                else _unmatched_detail("要件", condition.clause_fields)
-            )
-            requirement_results.append(
-                ApplicabilityItem(name=condition.name, status=status, detail=detail)
-            )
+            requirement_results.append(ApplicabilityItem(name=condition.name, status=status, detail=detail))
 
         for condition in definition.exclusion_conditions:
-            matched, matched_by_fields, matched_fields = _matches_condition(
-                haystack, clause_mapping, condition.clause_fields, condition.signal_groups
-            )
+            matched, detail = _evaluate_condition(definition.catalog_id, condition.name, clause_mapping, haystack, condition.clause_fields, condition.signal_groups)
             status = ApplicabilityStatus.excluded if matched else ApplicabilityStatus.not_applicable
-            detail = (
-                _matched_detail("排除条件", matched_by_fields, matched_fields)
-                if matched
-                else _unmatched_detail("排除条件", condition.clause_fields)
-            )
-            exclusion_results.append(
-                ApplicabilityItem(name=condition.name, status=status, detail=detail)
-            )
+            exclusion_results.append(ApplicabilityItem(name=condition.name, status=status, detail=detail))
 
         applicable = bool(
             (not requirement_results or all(item.status == ApplicabilityStatus.satisfied for item in requirement_results))
@@ -74,9 +61,9 @@ def _build_haystack(point: ReviewPoint, clause_mapping: dict[str, list[Extracted
     texts.extend(item.quote for item in point.evidence_bundle.supporting_evidence)
     texts.extend(item.quote for item in point.evidence_bundle.conflicting_evidence)
     texts.extend(item.quote for item in point.evidence_bundle.rebuttal_evidence)
-    for sources in point.source_findings:
-        if sources.startswith("risk_hit:"):
-            texts.append(sources.replace("risk_hit:", "", 1))
+    for source in point.source_findings:
+        if source.startswith("risk_hit:"):
+            texts.append(source.replace("risk_hit:", "", 1))
     texts.extend(
         clause.content
         for clauses in clause_mapping.values()
@@ -92,6 +79,41 @@ def _build_haystack(point: ReviewPoint, clause_mapping: dict[str, list[Extracted
         }
     )
     return " ".join(texts)
+
+
+def _evaluate_condition(
+    catalog_id: str,
+    condition_name: str,
+    clause_mapping: dict[str, list[ExtractedClause]],
+    haystack: str,
+    clause_fields: list[str],
+    signal_groups: list[list[str]],
+) -> tuple[bool, str]:
+    relation_match = _evaluate_relation(catalog_id, condition_name, clause_mapping)
+    if relation_match is not None:
+        return relation_match
+
+    matched, matched_by_fields, matched_fields = _matches_condition(
+        haystack,
+        clause_mapping,
+        clause_fields,
+        signal_groups,
+    )
+    if matched:
+        return True, _matched_detail("要件", matched_by_fields, matched_fields)
+    return False, _unmatched_detail("要件", clause_fields)
+
+
+def _evaluate_relation(
+    catalog_id: str,
+    condition_name: str,
+    clause_mapping: dict[str, list[ExtractedClause]],
+) -> tuple[bool, str] | None:
+    evaluator = RELATION_EVALUATORS.get((catalog_id, condition_name))
+    if evaluator is None:
+        return None
+    matched, details = evaluator(clause_mapping)
+    return matched, "；".join(details)
 
 
 def _matches_condition(
@@ -139,3 +161,136 @@ def _unmatched_detail(prefix: str, clause_fields: list[str]) -> str:
     if clause_fields:
         return f"当前结构化条款中尚未完整满足该{prefix}字段要求：{', '.join(clause_fields)}。"
     return f"当前审查点证据中尚未完整定位到该{prefix}信号。"
+
+
+def _first_value(clause_mapping: dict[str, list[ExtractedClause]], field_name: str) -> str:
+    clauses = clause_mapping.get(field_name, [])
+    for clause in clauses:
+        if clause.normalized_value:
+            return clause.normalized_value
+    return clauses[0].content if clauses else ""
+
+
+def _collect_tags(clause_mapping: dict[str, list[ExtractedClause]], field_name: str) -> set[str]:
+    tags: set[str] = set()
+    for clause in clause_mapping.get(field_name, []):
+        tags.update(clause.relation_tags)
+    return tags
+
+
+def _equals_relation(field_name: str, expected_value: str, label: str) -> RelationEvaluator:
+    def evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[bool, list[str]]:
+        actual = _first_value(clause_mapping, field_name)
+        if actual == expected_value:
+            return True, [f"结构化字段关系成立：{field_name}={actual}，满足{label}。"]
+        if not actual:
+            return False, [f"结构化字段缺失：{field_name}。"]
+        return False, [f"结构化字段关系未成立：{field_name}={actual}，不满足{label}。"]
+
+    return evaluator
+
+
+def _contains_relation(field_name: str, expected_fragment: str, label: str) -> RelationEvaluator:
+    def evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[bool, list[str]]:
+        actual = _first_value(clause_mapping, field_name)
+        if actual and expected_fragment in actual:
+            return True, [f"结构化字段关系成立：{field_name} 包含 {expected_fragment}，满足{label}。"]
+        if not actual:
+            return False, [f"结构化字段缺失：{field_name}。"]
+        return False, [f"结构化字段关系未成立：{field_name}={actual}，未体现{expected_fragment}。"]
+
+    return evaluator
+
+
+def _missing_relation(field_name: str, label: str) -> RelationEvaluator:
+    def evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[bool, list[str]]:
+        actual = _first_value(clause_mapping, field_name)
+        if not actual:
+            return True, [f"结构化字段关系成立：{field_name} 缺失，符合{label}。"]
+        return False, [f"结构化字段关系未成立：{field_name} 已抽取为 {actual}。"]
+
+    return evaluator
+
+
+def _exists_relation(field_name: str, label: str) -> RelationEvaluator:
+    def evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[bool, list[str]]:
+        actual = _first_value(clause_mapping, field_name)
+        if actual:
+            return True, [f"结构化字段关系成立：{field_name}={actual}，满足{label}。"]
+        return False, [f"结构化字段缺失：{field_name}。"]
+
+    return evaluator
+
+
+def _payment_assessment_link_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[bool, list[str]]:
+    payment_value = _first_value(clause_mapping, "付款节点")
+    payment_tags = _collect_tags(clause_mapping, "付款节点")
+    assessment_value = _first_value(clause_mapping, "考核条款")
+    assessment_tags = _collect_tags(clause_mapping, "考核条款")
+    if payment_value and assessment_value and (
+        "考核联动" in payment_tags or "关联付款" in assessment_tags or "尾款" in payment_tags
+    ):
+        return True, [f"结构化字段关系成立：付款节点={payment_value}，考核条款={assessment_value}，且存在尾款/考核联动。"]
+    if not payment_value or not assessment_value:
+        return False, ["结构化字段不足：需同时抽取付款节点和考核条款。"]
+    return False, [f"已抽取付款节点与考核条款，但尚未识别尾款/付款联动标签：付款标签={sorted(payment_tags)}，考核标签={sorted(assessment_tags)}。"]
+
+
+def _service_template_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[bool, list[str]]:
+    project_type = _first_value(clause_mapping, "项目属性")
+    declaration = _first_value(clause_mapping, "中小企业声明函类型")
+    if project_type == "服务" and "制造商" in declaration:
+        return True, [f"结构化字段关系成立：项目属性={project_type}，声明函类型={declaration}，出现服务项目套用货物模板。"]
+    if not project_type or not declaration:
+        return False, ["结构化字段不足：需同时抽取项目属性和中小企业声明函类型。"]
+    return False, [f"结构化字段关系未成立：项目属性={project_type}，声明函类型={declaration}。"]
+
+
+def _goods_template_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[bool, list[str]]:
+    project_type = _first_value(clause_mapping, "项目属性")
+    declaration = _first_value(clause_mapping, "中小企业声明函类型")
+    if project_type == "货物" and declaration and "制造商" not in declaration:
+        return True, [f"结构化字段关系成立：项目属性={project_type}，声明函类型={declaration}，未体现制造商口径。"]
+    if not project_type or not declaration:
+        return False, ["结构化字段不足：需同时抽取项目属性和中小企业声明函类型。"]
+    return False, [f"结构化字段关系未成立：项目属性={project_type}，声明函类型={declaration}。"]
+
+
+def _project_statement_conflict_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[bool, list[str]]:
+    project_type = _first_value(clause_mapping, "项目属性")
+    declaration = _first_value(clause_mapping, "中小企业声明函类型")
+    if project_type == "服务" and declaration and "制造商" in declaration:
+        return True, [f"结构化字段关系成立：服务项目对应声明函却出现制造商口径，项目属性={project_type}，声明函类型={declaration}。"]
+    if project_type == "货物" and declaration and "制造商" not in declaration:
+        return True, [f"结构化字段关系成立：货物项目声明函缺少制造商口径，项目属性={project_type}，声明函类型={declaration}。"]
+    if not project_type or not declaration:
+        return False, ["结构化字段不足：需同时抽取项目属性和中小企业声明函类型。"]
+    return False, [f"结构化字段关系未成立：项目属性={project_type}，声明函类型={declaration}。"]
+
+
+RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
+    ("RP-SME-001", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
+    ("RP-SME-001", "文件仍保留价格扣除"): _equals_relation("是否仍保留价格扣除条款", "是", "文件仍保留价格扣除"),
+    ("RP-SME-002", "项目属性为服务"): _equals_relation("项目属性", "服务", "项目属性为服务"),
+    ("RP-SME-002", "声明函出现制造商口径"): _contains_relation("中小企业声明函类型", "制造商", "声明函出现制造商口径"),
+    ("RP-SME-003", "项目属性为货物"): _equals_relation("项目属性", "货物", "项目属性为货物"),
+    ("RP-SME-003", "声明函缺少制造商口径"): _goods_template_mismatch_evaluator,
+    ("RP-SME-004", "文件涉及预留份额"): _equals_relation("是否为预留份额采购", "是", "文件涉及预留份额"),
+    ("RP-SME-004", "已明确比例信息"): _exists_relation("分包比例", "已明确比例信息"),
+    ("RP-CONTRACT-005", "存在付款节点"): _contains_relation("付款节点", "存在", "存在付款节点"),
+    ("RP-CONTRACT-005", "存在考核条款"): _payment_assessment_link_evaluator,
+    ("RP-STRUCT-005", "存在项目属性"): _project_statement_conflict_evaluator,
+    ("RP-STRUCT-005", "存在声明函类型"): _project_statement_conflict_evaluator,
+    ("RP-TPL-002", "项目属性为服务"): _service_template_mismatch_evaluator,
+    ("RP-TPL-002", "声明函出现制造商口径"): _service_template_mismatch_evaluator,
+    ("RP-TPL-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
+    ("RP-TPL-003", "保留价格扣除模板"): _equals_relation("是否仍保留价格扣除条款", "是", "保留价格扣除模板"),
+    ("RP-CONS-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
+    ("RP-CONS-003", "存在价格扣除"): _equals_relation("是否仍保留价格扣除条款", "是", "存在价格扣除"),
+    ("RP-CONS-004", "存在验收标准"): _contains_relation("验收标准", "存在", "存在验收标准"),
+    ("RP-CONS-004", "存在付款节点"): _contains_relation("付款节点", "存在", "存在付款节点"),
+    ("RP-CONS-005", "存在中小企业政策"): _equals_relation("是否专门面向中小企业", "是", "存在中小企业政策"),
+    ("RP-CONS-005", "存在分包条款"): _contains_relation("是否允许分包", "允许", "存在分包条款"),
+    ("RP-CONS-007", "存在联合体条款"): _contains_relation("是否允许联合体", "允许", "存在联合体条款"),
+    ("RP-CONS-007", "存在分包条款"): _contains_relation("是否允许分包", "允许", "存在分包条款"),
+}

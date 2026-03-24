@@ -326,12 +326,15 @@ class ExtractedClause:
     field_name: str
     content: str
     source_anchor: str
+    normalized_value: str = ""
+    relation_tags: list[str] = field(default_factory=list)
     clause_role: ClauseRole = ClauseRole.unknown
     adoption_status: AdoptionStatus = AdoptionStatus.rule_based
     review_note: str = ""
 
     def to_dict(self) -> dict[str, str]:
         payload = asdict(self)
+        payload["relation_tags"] = list(self.relation_tags)
         payload["clause_role"] = self.clause_role.value
         payload["adoption_status"] = self.adoption_status.value
         return payload

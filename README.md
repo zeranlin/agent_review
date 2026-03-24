@@ -94,7 +94,8 @@ pyproject.toml              # 包配置与测试配置
 - `EvidenceBundle`：为每个审查点汇总直接证据、辅助证据、冲突证据、反证、缺失证据和条款角色
 - `FormalAdjudication`：在正式意见输出前，单独记录该审查点是进入正式意见、待人工确认还是被过滤
 - `ApplicabilityCheck`：围绕审查点的法规要件、排除条件和适法性判断
-- `ApplicabilityCheck` 优先依赖结构化条款字段判断要件，不足时再退回证据文本兜底
+- `ApplicabilityCheck` 优先依赖结构化条款字段和字段关系判断要件，不足时再退回证据文本兜底
+- `ExtractedClause` 现在会同时保留原文、规范化值和关系标签，例如 `项目属性=服务`、`是否允许分包=不允许`、`付款节点=存在+尾款+考核联动`
 - `ReviewQualityGate`：围绕模板噪音、弱证据和重复问题的质量关卡
 - `ReviewPointCatalog`：为高频审查点提供标准化目录、要件和场景标签
 

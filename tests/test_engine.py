@@ -4,17 +4,22 @@ import json
 from docx import Document
 from PIL import Image
 
+from agent_review.applicability import build_applicability_checks
 from agent_review.engine import TenderReviewEngine
+from agent_review.extractors.clauses import extract_clauses
 from agent_review.llm import QwenReviewEnhancer
 from agent_review.models import (
     AdoptionStatus,
     ClauseRole,
     ConclusionLevel,
+    EvidenceBundle,
     FileType,
     FindingType,
     Recommendation,
     ReviewMode,
+    ReviewPoint,
     ReviewPointStatus,
+    Severity,
 )
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
@@ -187,6 +192,68 @@ def test_applicability_prefers_structured_clause_fields() -> None:
     assert "结构化字段" in sme_check.requirement_results[0].detail
     assert service_template_check.applicable is True
     assert any("中小企业声明函类型" in item.detail for item in service_template_check.requirement_results)
+
+
+def test_extract_clauses_normalizes_structured_values() -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购。
+    中小企业声明函（货物）：全部货物由中小企业制造。
+    本项目仍适用价格扣除。
+    本采购包不接受联合体投标，不允许合同分包。
+    付款方式：尾款于验收合格后支付，且与满意度考核结果挂钩。
+    """
+
+    clauses = {item.field_name: item for item in extract_clauses(text)}
+
+    assert clauses["项目属性"].normalized_value == "服务"
+    assert clauses["是否专门面向中小企业"].normalized_value == "是"
+    assert "制造商" in clauses["中小企业声明函类型"].normalized_value
+    assert clauses["是否仍保留价格扣除条款"].normalized_value == "是"
+    assert clauses["是否允许联合体"].normalized_value == "不允许"
+    assert clauses["是否允许分包"].normalized_value == "不允许"
+    assert "尾款" in clauses["付款节点"].relation_tags
+    assert "考核联动" in clauses["付款节点"].relation_tags
+
+
+def test_applicability_uses_structured_field_relations() -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函（货物）：全部货物由中小企业制造。
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    付款方式：尾款于验收合格后支付。
+    尾款根据满意度考核结果支付。
+    """
+
+    clauses = extract_clauses(text)
+    points = [
+        ReviewPoint(
+            point_id="RP-T-001",
+            catalog_id="RP-SME-002",
+            title="服务项目声明函类型疑似错用货物模板",
+            dimension="中小企业政策风险",
+            severity=Severity.high,
+            status=ReviewPointStatus.confirmed,
+            rationale="结构化字段已抽到服务项目和制造商口径。",
+            evidence_bundle=EvidenceBundle(),
+        ),
+        ReviewPoint(
+            point_id="RP-T-002",
+            catalog_id="RP-CONTRACT-005",
+            title="尾款支付与考核条款联动风险",
+            dimension="合同与履约风险",
+            severity=Severity.high,
+            status=ReviewPointStatus.confirmed,
+            rationale="结构化字段已抽到尾款支付与考核联动。",
+            evidence_bundle=EvidenceBundle(),
+        ),
+    ]
+    applicability_map = {item.catalog_id: item for item in build_applicability_checks(points, clauses)}
+
+    assert applicability_map["RP-SME-002"].applicable is True
+    assert any("项目属性=服务" in item.detail for item in applicability_map["RP-SME-002"].requirement_results)
+    assert applicability_map["RP-CONTRACT-005"].applicable is True
+    assert any("尾款/考核联动" in item.detail for item in applicability_map["RP-CONTRACT-005"].requirement_results)
 
 
 def test_load_document_supports_docx(tmp_path: Path) -> None:
