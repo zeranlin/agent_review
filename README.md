@@ -142,8 +142,15 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 
 - `txt` / `md`：直接文本读取
 - `docx`：段落和表格抽取
-- `pdf`：使用 `pypdf` 提取页文本，并尝试对 PDF 内嵌图片做 OCR 补充
+- `pdf`：使用 `pypdf` 提取页文本，并对 PDF 内嵌图片执行 OCR 补充
 - 图片文件：使用 `pytesseract` 执行 OCR
+
+当前 OCR 增强已包含：
+
+- 图片预处理
+- 多轮 OCR 尝试
+- 图片表格型内容的结构化抽取
+- PDF 内嵌图片 OCR 补充
 
 注意：
 

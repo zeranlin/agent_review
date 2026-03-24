@@ -9,6 +9,7 @@ from agent_review.llm import QwenReviewEnhancer
 from agent_review.models import ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
+from agent_review.parsers.ocr import run_ocr
 from agent_review.reporting import render_markdown
 
 
@@ -149,6 +150,35 @@ def test_load_document_supports_image_ocr_with_warning_when_tesseract_missing(tm
     assert parse_result.source_format == "png"
     assert parse_result.page_count == 1
     assert isinstance(parse_result.warnings, list)
+
+
+def test_run_ocr_can_extract_table_like_rows(monkeypatch, tmp_path: Path) -> None:
+    image_path = tmp_path / "table.png"
+    image = Image.new("RGB", (200, 120), color="white")
+    image.save(image_path)
+
+    def fake_image_to_string(_image, lang=None):
+        return "预算金额 100000\n最高限价 90000"
+
+    def fake_image_to_data(_image, lang=None, output_type=None):
+        return {
+            "text": ["预算金额", "100000", "最高限价", "90000", "备注"],
+            "conf": ["90", "88", "92", "87", "86"],
+            "block_num": [1, 1, 1, 1, 2],
+            "par_num": [1, 1, 1, 1, 1],
+            "line_num": [1, 1, 2, 2, 1],
+            "left": [10, 120, 10, 120, 10],
+        }
+
+    monkeypatch.setattr("agent_review.parsers.ocr.pytesseract.image_to_string", fake_image_to_string)
+    monkeypatch.setattr("agent_review.parsers.ocr.pytesseract.image_to_data", fake_image_to_data)
+
+    result = run_ocr(image_path)
+
+    assert "预算金额" in result.text
+    assert result.tables
+    assert result.tables[0].source == "ocr_table"
+    assert result.tables[0].row_count == 2
 
 
 def test_load_documents_can_merge_multiple_sources(tmp_path: Path) -> None:
