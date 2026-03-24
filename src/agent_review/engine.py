@@ -22,7 +22,14 @@ from .models import (
     Severity,
 )
 from .parsers import load_document, normalize_text
-from .rules import build_recommendations, convert_risk_hits_to_findings, match_risk_rules
+from .rules import (
+    build_recommendations,
+    convert_risk_hits_to_findings,
+    match_contract_performance_risks,
+    match_personnel_boundary_risks,
+    match_risk_rules,
+    match_sme_policy_risks,
+)
 from .structure import build_file_info, build_scope_statement, detect_file_type, locate_sections
 
 
@@ -51,6 +58,9 @@ class TenderReviewEngine:
         section_index = locate_sections(normalized_text)
         extracted_clauses = extract_clauses(normalized_text)
         risk_hits = match_risk_rules(normalized_text)
+        risk_hits.extend(match_sme_policy_risks(normalized_text, extracted_clauses))
+        risk_hits.extend(match_personnel_boundary_risks(normalized_text, extracted_clauses))
+        risk_hits.extend(match_contract_performance_risks(normalized_text, extracted_clauses))
         consistency_checks = check_consistency(normalized_text)
         findings: list[Finding] = []
         manual_review_queue: list[str] = []
@@ -102,6 +112,9 @@ class TenderReviewEngine:
         section_index = locate_sections(normalized_text)
         extracted_clauses = extract_clauses(normalized_text)
         risk_hits = match_risk_rules(normalized_text)
+        risk_hits.extend(match_sme_policy_risks(normalized_text, extracted_clauses))
+        risk_hits.extend(match_personnel_boundary_risks(normalized_text, extracted_clauses))
+        risk_hits.extend(match_contract_performance_risks(normalized_text, extracted_clauses))
         consistency_checks = check_consistency(normalized_text)
         findings: list[Finding] = []
         manual_review_queue: list[str] = []

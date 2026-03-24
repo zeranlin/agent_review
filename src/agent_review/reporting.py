@@ -10,6 +10,17 @@ def render_json(report: ReviewReport) -> str:
 
 
 def render_markdown(report: ReviewReport) -> str:
+    issue_findings = [
+        item
+        for item in report.findings
+        if item.finding_type != FindingType.pass_
+    ]
+    issue_findings.sort(
+        key=lambda item: {"critical": 0, "high": 1, "medium": 2, "low": 3}[item.severity.value]
+    )
+    high_risk_findings = [item for item in issue_findings if item.severity.value in {"critical", "high"}]
+    medium_risk_findings = [item for item in issue_findings if item.severity.value == "medium"]
+
     lines = [
         f"# 招标文件审查报告",
         "",
@@ -26,7 +37,6 @@ def render_markdown(report: ReviewReport) -> str:
         f"- 文档: {report.file_info.document_name}",
         f"- 文件类型: {report.file_info.file_type.value}",
         f"- 审查范围: {report.file_info.review_scope}",
-        f"- 审查边界: {report.file_info.review_boundary}",
         "",
         "## 总体结论",
         "",
@@ -34,18 +44,28 @@ def render_markdown(report: ReviewReport) -> str:
         f"- 摘要: {report.summary}",
         f"- LLM增强: {'是' if report.llm_enhanced else '否'}",
         "",
-        "## 主要问题",
+        "## 高风险问题",
     ]
 
-    issue_findings = [
-        item
-        for item in report.findings
-        if item.finding_type != FindingType.pass_
-    ]
-    issue_findings.sort(
-        key=lambda item: {"critical": 0, "high": 1, "medium": 2, "low": 3}[item.severity.value]
-    )
-    for index, finding in enumerate(issue_findings, start=1):
+    for index, finding in enumerate(high_risk_findings, start=1):
+        lines.append(f"### {index}. {finding.title}")
+        lines.append(f"- 维度: {finding.dimension}")
+        lines.append(f"- 类型: {finding.finding_type.value}")
+        lines.append(f"- 严重程度: {finding.severity.value}")
+        lines.append(f"- 置信度: {finding.confidence:.2f}")
+        lines.append(f"- 理由: {finding.rationale}")
+        if finding.evidence:
+            evidence_text = "；".join(
+                f"“{item.quote}”({item.section_hint})" for item in finding.evidence
+            )
+            lines.append(f"- 证据: {evidence_text}")
+        else:
+            lines.append("- 证据: 当前文本中未抽取到直接证据。")
+        lines.append(f"- 建议动作: {finding.next_action}")
+        lines.append("")
+
+    lines.append("## 中风险问题")
+    for index, finding in enumerate(medium_risk_findings, start=1):
         lines.append(f"### {index}. {finding.title}")
         lines.append(f"- 维度: {finding.dimension}")
         lines.append(f"- 类型: {finding.finding_type.value}")
@@ -106,6 +126,15 @@ def render_markdown(report: ReviewReport) -> str:
         for item in report.manual_review_queue:
             lines.append(f"- {item}")
         lines.append("")
+
+    lines.append("## 审查边界说明")
+    lines.append(f"- {report.file_info.review_boundary}")
+    if report.parse_result.warnings:
+        for item in report.parse_result.warnings:
+            lines.append(f"- {item}")
+    if report.manual_review_queue:
+        lines.append("- 当前仍存在需补充附件、补充材料或人工复核后方可完整定性的内容。")
+    lines.append("")
 
     lines.append("## 已审查维度")
     lines.append(f"- {', '.join(report.reviewed_dimensions)}")

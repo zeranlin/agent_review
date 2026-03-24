@@ -7,6 +7,7 @@ from agent_review.engine import TenderReviewEngine
 from agent_review.models import ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document
+from agent_review.reporting import render_markdown
 
 
 def test_detects_manual_review_for_attachment_markers() -> None:
@@ -49,6 +50,28 @@ def test_detects_restrictive_terms_warning() -> None:
     assert any(item.rule_name == "指定品牌/原厂限制" for item in report.risk_hits)
     assert not any(item.rule_name == "主观评分表述" for item in report.risk_hits)
     assert report.overall_conclusion in {ConclusionLevel.revise, ConclusionLevel.reject}
+
+
+def test_detects_sme_personnel_and_contract_risks() -> None:
+    text = """
+    项目名称：某服务项目
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    年龄要求35岁以下，限女性，身高160以上。
+    人员更换须经采购人同意，采购人有权直接指挥现场人员。
+    采购人拥有最终解释权。
+    尾款根据采购人满意度考核后支付。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    titles = {item.title for item in report.findings}
+
+    assert "专门面向中小企业却仍保留价格扣除" in titles
+    assert "服务项目声明函类型疑似错用货物模板" in titles
+    assert "性别限制" in titles
+    assert "采购人直接指挥" in titles
+    assert "采购人单方解释或决定条款" in titles
+    assert "尾款支付与考核条款联动风险" in titles
 
 
 def test_missing_dimension_generates_missing_evidence() -> None:
@@ -136,3 +159,18 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.base_markdown_path).exists()
     assert Path(bundle.final_json_path).exists()
     assert Path(bundle.final_markdown_path).exists()
+
+
+def test_markdown_report_uses_v2_sections() -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    年龄要求35岁以下。
+    采购人拥有最终解释权。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    markdown = render_markdown(report)
+
+    assert "## 高风险问题" in markdown
+    assert "## 中风险问题" in markdown
+    assert "## 审查边界说明" in markdown
