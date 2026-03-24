@@ -8,7 +8,6 @@ from .consistency import (
     check_consistency,
     collect_relative_strengths,
     convert_consistency_checks_to_findings,
-    derive_conclusion,
 )
 from .extractors import classify_extracted_clauses, extract_clauses
 from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_risk_hits
@@ -41,6 +40,7 @@ from .models import (
     TaskRecord,
     TaskStatus,
 )
+from .quality import derive_conclusion_by_evidence
 from .rules import build_recommendations, convert_risk_hits_to_findings, execute_rule_registry
 from .structure import build_file_info, build_scope_statement, detect_file_type, locate_sections
 
@@ -250,7 +250,11 @@ class ReviewPipeline:
             collect_relative_strengths(state.section_index, state.findings)
         )
         state.recommendations = dedupe_recommendations(build_recommendations(state.findings))
-        state.overall_conclusion = derive_conclusion(state.findings)
+        state.overall_conclusion = derive_conclusion_by_evidence(
+            state.findings,
+            state.parse_result.text,
+            state.extracted_clauses,
+        )
         state.summary = _build_summary(
             findings=state.findings,
             manual_review_queue=state.manual_review_queue,
