@@ -21,7 +21,9 @@ def match_contract_performance_risks(text: str, clauses) -> list[RiskHit]:
         )
 
     for clause in mapping.get("考核条款", []):
-        severity = Severity.high if "满意" in clause.content or "采购人" in clause.content else Severity.medium
+        if not any(token in clause.content for token in ["付款", "支付", "尾款", "满意度", "扣款", "评价"]):
+            continue
+        severity = Severity.high if "满意" in clause.content or any(token in clause.content for token in ["付款", "支付", "尾款", "扣款"]) else Severity.medium
         hits.append(
             RiskHit(
                 risk_group="合同与履约风险",

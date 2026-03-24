@@ -16,6 +16,10 @@ def match_personnel_boundary_risks(text: str, clauses) -> list[RiskHit]:
     }
     for field_name, rationale in high_risk_terms.items():
         for clause in mapping.get(field_name, []):
+            if any(token in clause.content for token in ["法定代表人", "身份证号码", "退休年龄", "参保", "保险"]):
+                continue
+            if field_name == "容貌体形要求" and not any(token in clause.content for token in ["容貌", "体形", "五官", "仪容", "端庄"]):
+                continue
             hits.append(
                 RiskHit(
                     risk_group="人员条件与用工边界风险",
@@ -29,6 +33,8 @@ def match_personnel_boundary_risks(text: str, clauses) -> list[RiskHit]:
 
     for field_name in ["采购人审批录用", "采购人批准更换", "采购人直接指挥"]:
         for clause in mapping.get(field_name, []):
+            if field_name == "采购人审批录用" and not any(token in clause.content for token in ["录用", "聘用", "上岗"]):
+                continue
             hits.append(
                 RiskHit(
                     risk_group="人员条件与用工边界风险",

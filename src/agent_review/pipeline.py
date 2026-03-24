@@ -256,7 +256,7 @@ class ReviewPipeline:
         )
         state.rule_selection = rule_selection
         state.risk_hits = annotate_risk_hits(dedupe_risk_hits(risk_hits))
-        state.review_points.extend(build_review_points_from_risk_hits(state.risk_hits))
+        state.review_points.extend(build_review_points_from_risk_hits(state.risk_hits, state.extracted_clauses))
         state.specialist_tables = build_specialist_tables(state.risk_hits)
         state.stage_records.append(
             RunStageRecord(

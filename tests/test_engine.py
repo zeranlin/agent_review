@@ -258,13 +258,43 @@ def test_task_evidence_assembler_can_capture_conflicting_and_rebuttal_evidence()
     personnel_task = task_map["RP-PER-001"]
     policy_task = task_map["RP-SME-001"]
 
-    assert personnel_task.evidence_bundle.conflicting_evidence
-    assert any("性别限制" in note or "冲突" in note for note in personnel_task.evidence_bundle.missing_evidence_notes)
+    assert not personnel_task.evidence_bundle.direct_evidence
+    assert personnel_task.evidence_bundle.supporting_evidence
     assert policy_task.evidence_bundle.conflicting_evidence or policy_task.evidence_bundle.rebuttal_evidence
     assert any(
         "价格扣除不适用" in note or "反证" in note or "冲突" in note
         for note in policy_task.evidence_bundle.missing_evidence_notes
     )
+
+
+def test_false_positive_extractors_do_not_misclassify_template_or_ip_lines() -> None:
+    text = """
+    附：代表人性别：_____年龄：_________ 身份证号码：__________________
+    使用过程中不会产生因第三方提出侵犯其专利权、商标权或其它知识产权而引起的纠纷。
+    5.以联合体形式投标的，应符合以下规定：
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    fields = {item.field_name: item.content for item in report.extracted_clauses}
+    assert "年龄限制" not in fields
+    assert "容貌体形要求" not in fields
+    assert "是否有限制产地厂家商标" not in fields
+    assert "是否要求专利" not in fields
+
+
+def test_false_positive_rules_do_not_promote_general_management_or_template_lines() -> None:
+    text = """
+    项目属性：服务
+    附：代表人性别：_____年龄：_________ 身份证号码：__________________
+    员工达到退休年龄的须购买意外险等必要的商业保险。
+    设施设备维修计划报采购人审批。
+    中标人在日常管理中建立量化考核并报采购人审核备案。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    titles = {item.title for item in report.findings}
+    assert "年龄限制" not in titles
+    assert "采购人审批录用" not in titles
+    assert "考核条款可能控制付款或履约评价" not in titles
+    assert "扣款机制可能过度依赖单方考核" not in titles
 
 
 def test_applicability_prefers_structured_clause_fields() -> None:

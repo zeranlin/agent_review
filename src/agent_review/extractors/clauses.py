@@ -84,9 +84,11 @@ def classify_clause_role(text: str) -> ClauseRole:
     return ClauseRole.unknown
 
 
-def _simple_keyword_extractor(keywords: list[str]) -> ClauseExtractor:
+def _simple_keyword_extractor(keywords: list[str], *, exclude_tokens: list[str] | None = None) -> ClauseExtractor:
     def extractor(lines: list[str]) -> ExtractedClause | None:
         for line_no, line in enumerate(lines, start=1):
+            if exclude_tokens and any(token in line for token in exclude_tokens):
+                continue
             if any(keyword in line for keyword in keywords):
                 return _build_clause(line, line_no)
         return None
@@ -202,6 +204,26 @@ def _payment_extractor(lines: list[str]) -> ExtractedClause | None:
     return None
 
 
+def _deduction_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in ["扣款", "扣罚", "罚款"]):
+            continue
+        if any(token in line for token in ["较大数额罚款", "行政处罚", "经营活动", "刑事处罚"]):
+            continue
+        return _build_clause(line, line_no, normalized_value="存在", relation_tags=["扣款机制"])
+    return None
+
+
+def _patent_requirement_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        if "专利" not in line:
+            continue
+        if any(token in line for token in ["专利权", "知识产权", "侵犯", "纠纷", "不会产生"]):
+            continue
+        return _build_clause(line, line_no, normalized_value="存在", relation_tags=["专利要求"])
+    return None
+
+
 def _assessment_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if not any(token in line for token in ["考核", "绩效考核", "满意度"]):
@@ -229,11 +251,44 @@ def _acceptance_extractor(lines: list[str]) -> ExtractedClause | None:
 def _personnel_line_extractor(keywords: list[str], normalized_value: str, relation_tags: list[str] | None = None) -> ClauseExtractor:
     def extractor(lines: list[str]) -> ExtractedClause | None:
         for line_no, line in enumerate(lines, start=1):
-            if any(keyword in line for keyword in keywords):
+            if not any(keyword in line for keyword in keywords):
+                continue
+            if any(token in line for token in ["法定代表人", "身份证号码", "退休年龄", "参保", "保险", "联合体形式投标"]):
+                continue
+            if normalized_value == "存在" and relation_tags:
+                if "采购人审批录用" in relation_tags and not any(token in line for token in ["录用", "聘用", "上岗", "应聘"]):
+                    continue
+                if "容貌体形要求" in relation_tags and not any(token in line for token in ["容貌", "体形", "五官", "仪容", "端庄"]):
+                    continue
                 return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags or [])
         return None
 
     return extractor
+
+
+def _origin_brand_restriction_extractor(lines: list[str]) -> ExtractedClause | None:
+    requirement_tokens = ["指定", "限定", "采用", "必须", "应当", "要求", "提供"]
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in ["产地", "厂家", "商标", "品牌", "原厂"]):
+            continue
+        if any(token in line for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权"]):
+            continue
+        if not any(token in line for token in requirement_tokens):
+            continue
+        return _build_clause(line, line_no, normalized_value="存在", relation_tags=["限制产地厂家商标"])
+    return None
+
+
+def _age_restriction_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in ["岁以下", "岁以上", "年龄"]):
+            continue
+        if any(token in line for token in ["法定代表人", "身份证号码", "退休年龄", "参保", "保险"]):
+            continue
+        if "年龄" in line and not any(token in line for token in ["岁以下", "岁以上", "年龄要求", "限", "不得超过"]):
+            continue
+        return _build_clause(line, line_no, normalized_value="存在", relation_tags=["年龄限制"])
+    return None
 
 
 def _build_clause(
@@ -270,12 +325,12 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("资格条款", "是否允许分包", _allowance_extractor(["分包"], ["不允许合同分包", "不得分包", "不允许分包"], ["允许分包", "可以分包"])),
     ("技术条款", "样品要求", _simple_keyword_extractor(["样品"])),
     ("技术条款", "现场演示要求", _simple_keyword_extractor(["演示"])),
-    ("技术条款", "是否指定品牌", _simple_keyword_extractor(["品牌", "原厂"])),
-    ("技术条款", "是否要求专利", _simple_keyword_extractor(["专利"])),
+    ("技术条款", "是否指定品牌", _simple_keyword_extractor(["品牌", "原厂"], exclude_tokens=["商标权", "声明函", "注册商标"])),
+    ("技术条款", "是否要求专利", _patent_requirement_extractor),
     ("技术条款", "是否要求检测报告", _simple_keyword_extractor(["检测报告"])),
     ("技术条款", "是否要求认证证书", _simple_keyword_extractor(["认证证书", "证书"])),
     ("技术条款", "是否设置★实质性条款", _simple_keyword_extractor(["★"])),
-    ("技术条款", "是否有限制产地厂家商标", _simple_keyword_extractor(["产地", "厂家", "商标"])),
+    ("技术条款", "是否有限制产地厂家商标", _origin_brand_restriction_extractor),
     ("评分条款", "评分方法", _simple_keyword_extractor(["评分方法", "综合评分", "评标办法"])),
     ("评分条款", "价格分", _simple_keyword_extractor(["价格分"])),
     ("评分条款", "技术分", _simple_keyword_extractor(["技术分"])),
@@ -294,15 +349,15 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("合同条款", "质保期", _simple_keyword_extractor(["质保期"])),
     ("合同条款", "履约保证金", _simple_keyword_extractor(["履约保证金"])),
     ("合同条款", "考核条款", _assessment_extractor),
-    ("合同条款", "扣款条款", _simple_keyword_extractor(["扣款", "扣罚", "罚款"])),
+    ("合同条款", "扣款条款", _deduction_extractor),
     ("合同条款", "解约条款", _simple_keyword_extractor(["解约", "解除合同"])),
     ("合同条款", "单方解释权", _simple_keyword_extractor(["解释权", "以采购人意见为准", "以采购人解释为准"])),
     ("人员条款", "性别限制", _personnel_line_extractor(["男性", "女性", "限女性", "限男性"], "存在", ["性别限制"])),
-    ("人员条款", "年龄限制", _personnel_line_extractor(["年龄", "岁以下", "岁以上"], "存在", ["年龄限制"])),
+    ("人员条款", "年龄限制", _age_restriction_extractor),
     ("人员条款", "身高限制", _personnel_line_extractor(["身高"], "存在", ["身高限制"])),
     ("人员条款", "容貌体形要求", _personnel_line_extractor(["容貌", "体形", "五官端正"], "存在", ["容貌体形要求"])),
     ("人员条款", "学历职称要求", _personnel_line_extractor(["学历", "职称"], "存在", ["学历职称要求"])),
-    ("人员条款", "采购人审批录用", _personnel_line_extractor(["采购人审批", "批准录用", "录用审批"], "存在", ["采购人审批录用"])),
+    ("人员条款", "采购人审批录用", _personnel_line_extractor(["批准录用", "录用审批", "录用须经采购人审批", "聘用须经采购人审批"], "存在", ["采购人审批录用"])),
     ("人员条款", "采购人批准更换", _personnel_line_extractor(["批准更换", "人员更换须经采购人同意"], "存在", ["采购人批准更换"])),
     ("人员条款", "采购人直接指挥", _personnel_line_extractor(["采购人有权直接指挥", "服从采购人安排"], "存在", ["采购人直接指挥"])),
     ("政策条款", "是否专门面向中小企业", _boolean_policy_extractor(["专门面向中小企业", "中小微企业采购"], ["专门面向中小企业", "面向中小微企业"])),

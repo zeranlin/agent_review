@@ -152,7 +152,7 @@ def infer_role_from_text(text: str) -> ClauseRole:
 def evidence_supports_title(title: str, quote: str) -> bool:
     checks = {
         "性别限制": [["性别", "男性", "女性"]],
-        "年龄限制": [["年龄"]],
+        "年龄限制": [["年龄", "岁以下", "岁以上"]],
         "身高限制": [["身高"]],
         "容貌体形要求": [["容貌", "体形", "五官"]],
         "产地厂家商标限制": [["产地", "厂家", "商标", "品牌", "原厂"]],
@@ -167,6 +167,14 @@ def evidence_supports_title(title: str, quote: str) -> bool:
     groups = checks.get(title)
     if not groups:
         return True
+    if title == "年龄限制" and any(token in quote for token in ["退休年龄", "参保", "保险", "法定代表人", "身份证号码"]):
+        return False
+    if title == "产地厂家商标限制" and any(token in quote for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权"]):
+        return False
+    if title == "专利要求" and any(token in quote for token in ["专利权", "知识产权", "侵犯", "纠纷", "不会产生"]):
+        return False
+    if title == "采购人单方解释或决定条款" and "采购代理机构" in quote:
+        return False
     return all(any(token in quote for token in group) for group in groups)
 
 

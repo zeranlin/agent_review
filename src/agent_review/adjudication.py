@@ -108,19 +108,26 @@ def build_review_points_from_findings(
 
 def build_review_points_from_risk_hits(
     risk_hits: Iterable[RiskHit],
+    extracted_clauses: list[ExtractedClause] | None = None,
 ) -> list[ReviewPoint]:
     review_points: list[ReviewPoint] = []
+    extracted_clauses = extracted_clauses or []
     for index, hit in enumerate(risk_hits, start=1):
         direct = []
         if hit.matched_text:
             direct.append(Evidence(quote=hit.matched_text, section_hint=hit.source_anchor))
+        clause_roles = _dedupe_clause_roles(
+            clause.clause_role
+            for clause in extracted_clauses
+            if clause.source_anchor == hit.source_anchor or clause.content == hit.matched_text
+        )
         bundle = EvidenceBundle(
             direct_evidence=direct,
             supporting_evidence=[],
             conflicting_evidence=[],
             rebuttal_evidence=[],
             missing_evidence_notes=[] if direct else [f"{hit.rule_name} 当前未抽到直接证据。"],
-            clause_roles=[],
+            clause_roles=clause_roles,
             sufficiency_summary=(
                 "规则命中已提供直接证据，可进入后续裁决。"
                 if direct
@@ -672,7 +679,11 @@ def _resolve_review_point_roles(
     clause_roles = [
         clause.clause_role
         for clause in extracted_clauses
-        if quote and clause.content == quote and clause.clause_role != ClauseRole.unknown
+        if (
+            quote
+            and (clause.content == quote or quote in clause.content or clause.content in quote)
+            and clause.clause_role != ClauseRole.unknown
+        )
     ]
     if clause_roles:
         return _dedupe_clause_roles(clause_roles)
