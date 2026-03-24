@@ -213,6 +213,7 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - `enhanced_report.json`
 - `enhanced_report.md`
 - `opinion_letter.md`
+- `formal_review_opinion.md`
 - `run_manifest.json`
 - `llm_tasks.json`
 - `high_risk_review_checklist.json`
@@ -256,3 +257,4 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - `high_risk_review_checklist.json`：从高风险/严重风险问题自动汇总出的复核清单
 - `pending_confirmation_items.json`：汇总所有“需人工确认”的 LLM 语义补充结果与基础人工复核项
 - `opinion_letter.md`：面向正式流转的审查意见书模板文本
+- `formal_review_opinion.md`：按“问题标题、条款位置、原文摘录、问题类型、风险等级、合规判断、法律/政策依据”结构输出的高风险正式审查意见

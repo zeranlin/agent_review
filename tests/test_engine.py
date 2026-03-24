@@ -11,7 +11,11 @@ from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
 from agent_review.parsers.vision_ocr import VisionOcrResult
-from agent_review.reporting import render_markdown, render_opinion_letter
+from agent_review.reporting import (
+    render_formal_review_opinion,
+    render_markdown,
+    render_opinion_letter,
+)
 
 
 def test_detects_manual_review_for_attachment_markers() -> None:
@@ -444,6 +448,7 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.final_json_path).exists()
     assert Path(bundle.final_markdown_path).exists()
     assert Path(bundle.opinion_letter_path).exists()
+    assert Path(bundle.formal_review_opinion_path).exists()
     assert Path(bundle.manifest_path).exists()
     assert Path(bundle.llm_tasks_path).exists()
     assert Path(bundle.high_risk_review_path).exists()
@@ -455,6 +460,7 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert manifest["artifact_paths"]["base_report"]["json"] == bundle.base_json_path
     assert manifest["artifact_paths"]["final_report"]["json"] == bundle.final_json_path
     assert manifest["artifact_paths"]["opinion_letter"] == bundle.opinion_letter_path
+    assert manifest["artifact_paths"]["formal_review_opinion"] == bundle.formal_review_opinion_path
     assert manifest["stage_records"]
     assert "core_modules" in manifest["rule_selection"]
     assert "enhancement_modules" in manifest["rule_selection"]
@@ -535,6 +541,27 @@ def test_opinion_letter_can_render_formal_sections() -> None:
     assert "## 四、主要审查意见" in opinion
     assert "## 五、修改建议" in opinion
     assert "## 七、审查边界说明" in opinion
+
+
+def test_formal_review_opinion_can_render_high_risk_fields() -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    年龄要求35岁以下。
+    采购人拥有最终解释权。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+
+    formal = render_formal_review_opinion(report)
+
+    assert "# 招标文件高风险正式审查意见" in formal
+    assert "- 问题标题:" in formal
+    assert "- 条款位置:" in formal
+    assert "- 原文摘录:" in formal
+    assert "- 问题类型:" in formal
+    assert "- 风险等级:" in formal
+    assert "- 合规判断:" in formal
+    assert "- 法律/政策依据:" in formal
 
 
 def test_report_contains_specialist_tables() -> None:
