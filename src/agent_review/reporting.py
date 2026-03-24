@@ -182,7 +182,31 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append("## ReviewPoint")
         for item in report.review_points[:10]:
             lines.append(
-                f"- {item.point_id} {item.title}: {item.status.value}，{item.evidence_bundle.sufficiency_summary}"
+                f"- {item.point_id} [{item.catalog_id}] {item.title}: {item.status.value}，{item.evidence_bundle.sufficiency_summary}"
+            )
+        lines.append("")
+
+    if report.review_point_catalog:
+        lines.append("## 审查点目录")
+        for item in report.review_point_catalog[:10]:
+            lines.append(
+                f"- [{item.catalog_id}] {item.title}: 默认等级 {item.default_severity.value}，适用场景 {', '.join(item.scenario_tags) if item.scenario_tags else '通用'}"
+            )
+        lines.append("")
+
+    if report.applicability_checks:
+        lines.append("## 适法性检查")
+        for item in report.applicability_checks[:10]:
+            lines.append(
+                f"- {item.point_id}: {'适用' if item.applicable else '待确认'}，{item.summary}"
+            )
+        lines.append("")
+
+    if report.quality_gates:
+        lines.append("## 质量关卡")
+        for item in report.quality_gates[:10]:
+            lines.append(
+                f"- {item.point_id}: {item.status.value}，{'；'.join(item.reasons)}"
             )
         lines.append("")
 
@@ -190,7 +214,7 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append("## Formal Adjudication")
         for item in report.formal_adjudication[:10]:
             lines.append(
-                f"- {item.point_id} {item.title}: {item.disposition.value}，{item.rationale}"
+                f"- {item.point_id} [{item.catalog_id}] {item.title}: {item.disposition.value}，{item.rationale}"
             )
         lines.append("")
 
@@ -258,6 +282,24 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append(f"- {report.llm_semantic_review.verdict_review}")
         lines.append("")
 
+    if report.llm_semantic_review.role_review_notes:
+        lines.append("## LLM角色复核")
+        for item in report.llm_semantic_review.role_review_notes:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    if report.llm_semantic_review.evidence_review_notes:
+        lines.append("## LLM证据复核")
+        for item in report.llm_semantic_review.evidence_review_notes:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    if report.llm_semantic_review.applicability_review_notes:
+        lines.append("## LLM适法性复核")
+        for item in report.llm_semantic_review.applicability_review_notes:
+            lines.append(f"- {item}")
+        lines.append("")
+
     cross_file_checks = [
         item for item in report.consistency_checks if "跨文件" in item.topic
     ]
@@ -294,13 +336,14 @@ def render_markdown(report: ReviewReport) -> str:
 
 
 def render_opinion_letter(report: ReviewReport) -> str:
-    issue_findings = [item for item in report.findings if item.finding_type != FindingType.pass_]
-    issue_findings.sort(
-        key=lambda item: {"critical": 0, "high": 1, "medium": 2, "low": 3}[item.severity.value]
-    )
-    high_risk_findings = [item for item in issue_findings if item.severity.value in {"critical", "high"}]
-    medium_risk_findings = [item for item in issue_findings if item.severity.value == "medium"]
     document_list = report.source_documents or []
+    point_index = {item.point_id: item for item in report.review_points}
+    formal_included = [
+        item for item in report.formal_adjudication if item.included_in_formal
+    ]
+    formal_manual = [
+        item for item in report.formal_adjudication if item.disposition.value == "manual_confirmation"
+    ]
 
     lines = [
         "# 招标文件审查意见书",
@@ -330,36 +373,38 @@ def render_opinion_letter(report: ReviewReport) -> str:
         ]
     )
 
-    if not issue_findings:
-        lines.append("本次审查未发现明确问题项。")
-    else:
-        if high_risk_findings:
-            lines.append("### （一）高风险问题")
-            for index, finding in enumerate(high_risk_findings, start=1):
-                lines.append(f"{index}. {finding.title}")
-                lines.append(f"问题说明：{finding.rationale}")
-                if finding.legal_basis:
-                    basis_text = "；".join(
-                        f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
-                        for item in finding.legal_basis
-                    )
-                    lines.append(f"依据提示：{basis_text}")
-                lines.append(f"处理建议：{finding.next_action}")
-                lines.append("")
+    if not formal_included and not formal_manual:
+        lines.append("本次审查未形成可直接写入正式意见的确认问题项。")
+    if formal_included:
+        lines.append("### （一）高风险问题")
+        for index, adjudication in enumerate(formal_included, start=1):
+            point = point_index.get(adjudication.point_id)
+            if point is None:
+                continue
+            lines.append(f"{index}. [{point.catalog_id}] {point.title}")
+            lines.append(f"问题说明：{point.rationale}")
+            lines.append(f"事实要件：{adjudication.applicability_summary}")
+            lines.append(f"证据摘录：{adjudication.primary_quote or '当前未形成稳定原文摘录。'}")
+            if point.legal_basis:
+                basis_text = "；".join(
+                    f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
+                    for item in point.legal_basis
+                )
+                lines.append(f"依据提示：{basis_text}")
+            lines.append("处理建议：建议按 formal 审查意见优先整改，并复核关联条款及附件。")
+            lines.append("")
 
-        if medium_risk_findings:
-            lines.append("### （二）中风险问题")
-            for index, finding in enumerate(medium_risk_findings, start=1):
-                lines.append(f"{index}. {finding.title}")
-                lines.append(f"问题说明：{finding.rationale}")
-                if finding.legal_basis:
-                    basis_text = "；".join(
-                        f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
-                        for item in finding.legal_basis
-                    )
-                    lines.append(f"依据提示：{basis_text}")
-                lines.append(f"处理建议：{finding.next_action}")
-                lines.append("")
+    if formal_manual:
+        lines.append("### （二）待进一步核定的问题")
+        for index, adjudication in enumerate(formal_manual, start=1):
+            point = point_index.get(adjudication.point_id)
+            if point is None:
+                continue
+            lines.append(f"{index}. [{point.catalog_id}] {point.title}")
+            lines.append(f"问题说明：{point.rationale}")
+            lines.append(f"待核定原因：{adjudication.rationale}")
+            lines.append(f"要件判断：{adjudication.applicability_summary}")
+            lines.append("")
 
     lines.extend(
         [
@@ -454,7 +499,7 @@ def _build_formal_review_items(report: ReviewReport) -> list[dict[str, str]]:
                 "原文摘录": quote,
                 "问题类型": issue_type,
                 "风险等级": "高风险" if point.severity.value == "high" else "严重风险",
-                "合规判断": compliance,
+                "合规判断": f"{compliance}；要件判断：{adjudication.applicability_summary}",
                 "法律/政策依据": basis_text,
             }
         )

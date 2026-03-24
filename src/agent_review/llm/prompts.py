@@ -38,6 +38,35 @@ CONSISTENCY_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规审查
 3. 输出必须是 JSON，不要使用 Markdown。
 """
 
+ROLE_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规审查助手。
+
+你的任务是对现有 ReviewPoint 的条款角色判断做复核，识别是否存在模板、定义说明、附件引用被误判成采购约束条款的情况。
+
+要求：
+1. 保持审慎，只指出有明确理由的角色误判风险。
+2. 输出必须是 JSON，不要使用 Markdown。
+"""
+
+EVIDENCE_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规审查助手。
+
+你的任务是对现有 ReviewPoint 的证据包做复核，指出哪些审查点证据充分，哪些仍缺关键直接证据或存在反证风险。
+
+要求：
+1. 不要重复生成已有 finding。
+2. 只输出面向复核的说明，不直接替代 formal 裁决。
+3. 输出必须是 JSON，不要使用 Markdown。
+"""
+
+APPLICABILITY_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规审查助手。
+
+你的任务是对现有审查点的适法性判断做复核，判断当前事实是否足以支撑法规要件成立。
+
+要求：
+1. 仅基于输入的审查点、证据和适法性结果回答。
+2. 如果要件不足，应明确指出不足点。
+3. 输出必须是 JSON，不要使用 Markdown。
+"""
+
 VERDICT_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规审查助手。
 
 你的任务是在总体结论形成前，基于现有结构化审查结果给出裁决复核意见，并生成最终摘要。
@@ -155,6 +184,62 @@ def build_consistency_review_prompt(report: ReviewReport) -> str:
 """
 
 
+def build_role_review_prompt(report: ReviewReport) -> str:
+    payload = {
+        "document_name": report.file_info.document_name,
+        "review_points": [item.to_dict() for item in report.review_points],
+        "extracted_clauses": [item.to_dict() for item in report.extracted_clauses],
+    }
+    return f"""请根据以下结构化审查结果，输出 JSON：
+
+{json.dumps(payload, ensure_ascii=False, indent=2)}
+
+输出格式：
+{{
+  "role_review_notes": [
+    "对某个 ReviewPoint 的角色复核说明"
+  ]
+}}
+"""
+
+
+def build_evidence_review_prompt(report: ReviewReport) -> str:
+    payload = {
+        "document_name": report.file_info.document_name,
+        "review_points": [item.to_dict() for item in report.review_points],
+    }
+    return f"""请根据以下结构化审查结果，输出 JSON：
+
+{json.dumps(payload, ensure_ascii=False, indent=2)}
+
+输出格式：
+{{
+  "evidence_review_notes": [
+    "对某个 ReviewPoint 的证据复核说明"
+  ]
+}}
+"""
+
+
+def build_applicability_review_prompt(report: ReviewReport) -> str:
+    payload = {
+        "document_name": report.file_info.document_name,
+        "review_points": [item.to_dict() for item in report.review_points],
+        "applicability_checks": [item.to_dict() for item in report.applicability_checks],
+    }
+    return f"""请根据以下结构化审查结果，输出 JSON：
+
+{json.dumps(payload, ensure_ascii=False, indent=2)}
+
+输出格式：
+{{
+  "applicability_review_notes": [
+    "对某个 ReviewPoint 适法性判断的复核说明"
+  ]
+}}
+"""
+
+
 def build_verdict_review_prompt(report: ReviewReport) -> str:
     payload = {
         "document_name": report.file_info.document_name,
@@ -164,6 +249,7 @@ def build_verdict_review_prompt(report: ReviewReport) -> str:
         "relative_strengths": report.relative_strengths,
         "specialist_tables": report.specialist_tables.to_dict(),
         "consistency_checks": [item.to_dict() for item in report.consistency_checks],
+        "formal_adjudication": [item.to_dict() for item in report.formal_adjudication],
     }
     return f"""请根据以下结构化审查结果，输出 JSON：
 

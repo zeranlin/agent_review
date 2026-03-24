@@ -139,11 +139,16 @@ def test_missing_dimension_generates_missing_evidence() -> None:
         "rule_evaluation",
         "consistency_review",
         "review_point_assembly",
+        "applicability_check",
+        "review_quality_gate",
         "formal_adjudication",
         "finalize_report",
     ]
     assert all(isinstance(item.clause_role, ClauseRole) for item in report.extracted_clauses)
     assert report.review_points
+    assert report.review_point_catalog
+    assert report.applicability_checks
+    assert report.quality_gates
     assert report.formal_adjudication
 
 
@@ -272,6 +277,33 @@ class FakeClient:
                 },
                 ensure_ascii=False,
             )
+        if "条款角色判断做复核" in system_prompt:
+            return json.dumps(
+                {
+                    "role_review_notes": [
+                        "部分审查点证据接近模板或定义说明边界，formal 前仍应结合条款角色过滤。"
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        if "证据包做复核" in system_prompt:
+            return json.dumps(
+                {
+                    "evidence_review_notes": [
+                        "中小企业政策冲突审查点证据较强，但付款与满意度联动类问题仍需补充合同原文。"
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        if "适法性判断做复核" in system_prompt:
+            return json.dumps(
+                {
+                    "applicability_review_notes": [
+                        "专门面向中小企业且保留价格扣除的要件基本满足，可直接进入 formal 审查意见。"
+                    ]
+                },
+                ensure_ascii=False,
+            )
         if "补充近似但未命中的专项风险" in system_prompt:
             return json.dumps(
                 {
@@ -363,11 +395,17 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert any(item.adoption_status == AdoptionStatus.direct for item in enhanced_report.llm_semantic_review.specialist_findings)
     assert any(item.adoption_status == AdoptionStatus.manual for item in enhanced_report.llm_semantic_review.consistency_findings)
     assert enhanced_report.llm_semantic_review.verdict_review
+    assert enhanced_report.llm_semantic_review.role_review_notes
+    assert enhanced_report.llm_semantic_review.evidence_review_notes
+    assert enhanced_report.llm_semantic_review.applicability_review_notes
     assert enhanced_report.pending_confirmation_items
     assert any(item.stage_name == "llm_semantic_review" for item in enhanced_report.stage_records)
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
     assert llm_tasks == {
         "llm_clause_supplement": "completed",
+        "llm_role_review": "completed",
+        "llm_evidence_review": "completed",
+        "llm_applicability_review": "completed",
         "llm_specialist_review": "completed",
         "llm_consistency_review": "completed",
         "llm_verdict_review": "completed",
@@ -375,6 +413,9 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     markdown = render_markdown(enhanced_report)
     assert "## LLM补充条款" in markdown
     assert "## LLM裁决复核" in markdown
+    assert "## LLM角色复核" in markdown
+    assert "## LLM证据复核" in markdown
+    assert "## LLM适法性复核" in markdown
     assert "## 待确认问题单" in markdown
 
 
@@ -558,6 +599,7 @@ def test_opinion_letter_can_render_formal_sections() -> None:
     assert "# 招标文件审查意见书" in opinion
     assert "## 三、审查结论" in opinion
     assert "## 四、主要审查意见" in opinion
+    assert "事实要件：" in opinion
     assert "## 五、修改建议" in opinion
     assert "## 七、审查边界说明" in opinion
 

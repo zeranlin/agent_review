@@ -5,6 +5,9 @@ from pathlib import Path
 
 from .adjudication import (
     build_formal_adjudication,
+    build_point_applicability_checks,
+    build_point_quality_gates,
+    build_review_point_catalog_snapshot,
     build_review_points_from_consistency_checks,
     build_review_points_from_findings,
     build_review_points_from_risk_hits,
@@ -27,6 +30,7 @@ from .merge import (
 )
 from .models import (
     AdoptionStatus,
+    ApplicabilityCheck,
     ConclusionLevel,
     Evidence,
     FileInfo,
@@ -39,6 +43,7 @@ from .models import (
     ReviewMode,
     ReviewReport,
     ReviewWorkItem,
+    ReviewQualityGate,
     RuleSelection,
     RunStageRecord,
     SectionIndex,
@@ -70,6 +75,9 @@ class ReviewPipelineState:
     manual_review_queue: list[str] = field(default_factory=list)
     reviewed_dimensions: list[str] = field(default_factory=list)
     review_points: list = field(default_factory=list)
+    review_point_catalog: list = field(default_factory=list)
+    applicability_checks: list[ApplicabilityCheck] = field(default_factory=list)
+    quality_gates: list[ReviewQualityGate] = field(default_factory=list)
     formal_adjudication: list = field(default_factory=list)
     specialist_tables: object | None = None
     rule_selection: RuleSelection = field(default_factory=RuleSelection)
@@ -92,6 +100,8 @@ class ReviewPipeline:
             self._stage_rule_evaluation,
             self._stage_consistency_review,
             self._stage_review_point_assembly,
+            self._stage_applicability_check,
+            self._stage_review_quality_gate,
             self._stage_formal_adjudication,
             self._stage_finalize_report,
         )
@@ -133,6 +143,9 @@ class ReviewPipeline:
             reviewed_dimensions=state.reviewed_dimensions,
             source_documents=state.source_documents,
             review_points=state.review_points,
+            review_point_catalog=state.review_point_catalog,
+            applicability_checks=state.applicability_checks,
+            quality_gates=state.quality_gates,
             formal_adjudication=state.formal_adjudication,
             high_risk_review_items=_build_high_risk_review_items(state.findings),
             pending_confirmation_items=_build_pending_confirmation_items(
@@ -264,6 +277,7 @@ class ReviewPipeline:
 
     def _stage_review_point_assembly(self, state: ReviewPipelineState) -> None:
         state.review_points = merge_review_points(state.review_points)
+        state.review_point_catalog = build_review_point_catalog_snapshot(state.review_points)
         state.stage_records.append(
             RunStageRecord(
                 stage_name="review_point_assembly",
@@ -273,9 +287,35 @@ class ReviewPipeline:
             )
         )
 
+    def _stage_applicability_check(self, state: ReviewPipelineState) -> None:
+        state.applicability_checks = build_point_applicability_checks(state.review_points)
+        applicable_count = sum(1 for item in state.applicability_checks if item.applicable)
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="applicability_check",
+                status="completed",
+                item_count=applicable_count,
+                detail=f"完成 {len(state.applicability_checks)} 个审查点的适法性检查，其中 {applicable_count} 个当前满足适用条件。",
+            )
+        )
+
+    def _stage_review_quality_gate(self, state: ReviewPipelineState) -> None:
+        state.quality_gates = build_point_quality_gates(state.review_points)
+        passed_count = sum(1 for item in state.quality_gates if item.status.value == "passed")
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="review_quality_gate",
+                status="completed",
+                item_count=passed_count,
+                detail=f"完成 review_quality_gate，{passed_count} 个审查点通过质量关卡。",
+            )
+        )
+
     def _stage_formal_adjudication(self, state: ReviewPipelineState) -> None:
         state.formal_adjudication = build_formal_adjudication(
             state.review_points,
+            state.applicability_checks,
+            state.quality_gates,
             state.parse_result.text,
             state.extracted_clauses,
         )

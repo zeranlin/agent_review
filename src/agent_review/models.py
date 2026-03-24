@@ -79,6 +79,27 @@ class FormalDisposition(str, Enum):
     filtered_out = "filtered_out"
 
 
+class EvidenceLevel(str, Enum):
+    strong = "strong"
+    moderate = "moderate"
+    weak = "weak"
+    missing = "missing"
+
+
+class ApplicabilityStatus(str, Enum):
+    satisfied = "satisfied"
+    unsatisfied = "unsatisfied"
+    insufficient = "insufficient"
+    excluded = "excluded"
+    not_applicable = "not_applicable"
+
+
+class QualityGateStatus(str, Enum):
+    passed = "passed"
+    manual_confirmation = "manual_confirmation"
+    filtered = "filtered"
+
+
 @dataclass(slots=True)
 class Evidence:
     quote: str
@@ -97,6 +118,89 @@ class LegalBasis:
 
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
+
+
+@dataclass(slots=True)
+class ReviewPointCondition:
+    name: str
+    signal_groups: list[list[str]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ReviewPointDefinition:
+    catalog_id: str
+    title: str
+    dimension: str
+    default_severity: Severity
+    scenario_tags: list[str] = field(default_factory=list)
+    required_conditions: list[ReviewPointCondition] = field(default_factory=list)
+    exclusion_conditions: list[ReviewPointCondition] = field(default_factory=list)
+    basis_hint: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "catalog_id": self.catalog_id,
+            "title": self.title,
+            "dimension": self.dimension,
+            "default_severity": self.default_severity.value,
+            "scenario_tags": self.scenario_tags,
+            "required_conditions": [item.to_dict() for item in self.required_conditions],
+            "exclusion_conditions": [item.to_dict() for item in self.exclusion_conditions],
+            "basis_hint": self.basis_hint,
+        }
+
+
+@dataclass(slots=True)
+class ApplicabilityItem:
+    name: str
+    status: ApplicabilityStatus
+    detail: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "status": self.status.value,
+            "detail": self.detail,
+        }
+
+
+@dataclass(slots=True)
+class ApplicabilityCheck:
+    point_id: str
+    catalog_id: str
+    applicable: bool
+    requirement_results: list[ApplicabilityItem] = field(default_factory=list)
+    exclusion_results: list[ApplicabilityItem] = field(default_factory=list)
+    summary: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "point_id": self.point_id,
+            "catalog_id": self.catalog_id,
+            "applicable": self.applicable,
+            "requirement_results": [item.to_dict() for item in self.requirement_results],
+            "exclusion_results": [item.to_dict() for item in self.exclusion_results],
+            "summary": self.summary,
+        }
+
+
+@dataclass(slots=True)
+class ReviewQualityGate:
+    point_id: str
+    status: QualityGateStatus
+    reasons: list[str] = field(default_factory=list)
+    duplicate_of: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "point_id": self.point_id,
+            "status": self.status.value,
+            "reasons": self.reasons,
+            "duplicate_of": self.duplicate_of,
+        }
 
 
 @dataclass(slots=True)
@@ -347,6 +451,9 @@ class LLMSemanticReview:
     specialist_findings: list[Finding] = field(default_factory=list)
     consistency_findings: list[Finding] = field(default_factory=list)
     verdict_review: str = ""
+    role_review_notes: list[str] = field(default_factory=list)
+    evidence_review_notes: list[str] = field(default_factory=list)
+    applicability_review_notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -354,6 +461,9 @@ class LLMSemanticReview:
             "specialist_findings": [item.to_dict() for item in self.specialist_findings],
             "consistency_findings": [item.to_dict() for item in self.consistency_findings],
             "verdict_review": self.verdict_review,
+            "role_review_notes": self.role_review_notes,
+            "evidence_review_notes": self.evidence_review_notes,
+            "applicability_review_notes": self.applicability_review_notes,
         }
 
 
@@ -375,24 +485,31 @@ class EvidenceBundle:
     direct_evidence: list[Evidence] = field(default_factory=list)
     supporting_evidence: list[Evidence] = field(default_factory=list)
     conflicting_evidence: list[Evidence] = field(default_factory=list)
+    rebuttal_evidence: list[Evidence] = field(default_factory=list)
     missing_evidence_notes: list[str] = field(default_factory=list)
     clause_roles: list[ClauseRole] = field(default_factory=list)
     sufficiency_summary: str = ""
+    evidence_level: EvidenceLevel = EvidenceLevel.missing
+    evidence_score: float = 0.0
 
     def to_dict(self) -> dict[str, object]:
         return {
             "direct_evidence": [item.to_dict() for item in self.direct_evidence],
             "supporting_evidence": [item.to_dict() for item in self.supporting_evidence],
             "conflicting_evidence": [item.to_dict() for item in self.conflicting_evidence],
+            "rebuttal_evidence": [item.to_dict() for item in self.rebuttal_evidence],
             "missing_evidence_notes": self.missing_evidence_notes,
             "clause_roles": [item.value for item in self.clause_roles],
             "sufficiency_summary": self.sufficiency_summary,
+            "evidence_level": self.evidence_level.value,
+            "evidence_score": self.evidence_score,
         }
 
 
 @dataclass(slots=True)
 class ReviewPoint:
     point_id: str
+    catalog_id: str
     title: str
     dimension: str
     severity: Severity
@@ -405,6 +522,7 @@ class ReviewPoint:
     def to_dict(self) -> dict[str, object]:
         return {
             "point_id": self.point_id,
+            "catalog_id": self.catalog_id,
             "title": self.title,
             "dimension": self.dimension,
             "severity": self.severity.value,
@@ -419,6 +537,7 @@ class ReviewPoint:
 @dataclass(slots=True)
 class FormalAdjudication:
     point_id: str
+    catalog_id: str
     title: str
     disposition: FormalDisposition
     rationale: str
@@ -427,10 +546,13 @@ class FormalAdjudication:
     primary_quote: str = ""
     evidence_sufficient: bool = False
     legal_basis_applicable: bool = False
+    applicability_summary: str = ""
+    quality_gate_status: QualityGateStatus = QualityGateStatus.passed
 
     def to_dict(self) -> dict[str, object]:
         return {
             "point_id": self.point_id,
+            "catalog_id": self.catalog_id,
             "title": self.title,
             "disposition": self.disposition.value,
             "rationale": self.rationale,
@@ -439,6 +561,8 @@ class FormalAdjudication:
             "primary_quote": self.primary_quote,
             "evidence_sufficient": self.evidence_sufficient,
             "legal_basis_applicable": self.legal_basis_applicable,
+            "applicability_summary": self.applicability_summary,
+            "quality_gate_status": self.quality_gate_status.value,
         }
 
 
@@ -464,6 +588,9 @@ class ReviewReport:
     reviewed_dimensions: list[str]
     source_documents: list[SourceDocument] = field(default_factory=list)
     review_points: list[ReviewPoint] = field(default_factory=list)
+    review_point_catalog: list[ReviewPointDefinition] = field(default_factory=list)
+    applicability_checks: list[ApplicabilityCheck] = field(default_factory=list)
+    quality_gates: list[ReviewQualityGate] = field(default_factory=list)
     formal_adjudication: list[FormalAdjudication] = field(default_factory=list)
     high_risk_review_items: list[ReviewWorkItem] = field(default_factory=list)
     pending_confirmation_items: list[ReviewWorkItem] = field(default_factory=list)
@@ -494,6 +621,9 @@ class ReviewReport:
             "reviewed_dimensions": self.reviewed_dimensions,
             "source_documents": [item.to_dict() for item in self.source_documents],
             "review_points": [item.to_dict() for item in self.review_points],
+            "review_point_catalog": [item.to_dict() for item in self.review_point_catalog],
+            "applicability_checks": [item.to_dict() for item in self.applicability_checks],
+            "quality_gates": [item.to_dict() for item in self.quality_gates],
             "formal_adjudication": [item.to_dict() for item in self.formal_adjudication],
             "high_risk_review_items": [item.to_dict() for item in self.high_risk_review_items],
             "pending_confirmation_items": [item.to_dict() for item in self.pending_confirmation_items],

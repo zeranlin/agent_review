@@ -79,8 +79,10 @@ pyproject.toml              # 包配置与测试配置
 5. `rule_evaluation`
 6. `consistency_review`
 7. `review_point_assembly`
-8. `formal_adjudication`
-9. `finalize_report`
+8. `applicability_check`
+9. `review_quality_gate`
+10. `formal_adjudication`
+11. `finalize_report`
 
 这样 `engine.py` 只负责装配输入源、触发 pipeline 和控制 LLM 增强，规则扩展和结果归并不再散落在主编排代码里。
 
@@ -89,8 +91,11 @@ pyproject.toml              # 包配置与测试配置
 当前还新增了 3 个“审查点驱动”核心骨架：
 
 - `ReviewPoint`：以审查点为核心组织问题，而不是直接围绕单条 finding 输出
-- `EvidenceBundle`：为每个审查点汇总直接证据、辅助证据、缺失证据和条款角色
+- `EvidenceBundle`：为每个审查点汇总直接证据、辅助证据、冲突证据、反证、缺失证据和条款角色
 - `FormalAdjudication`：在正式意见输出前，单独记录该审查点是进入正式意见、待人工确认还是被过滤
+- `ApplicabilityCheck`：围绕审查点的法规要件、排除条件和适法性判断
+- `ReviewQualityGate`：围绕模板噪音、弱证据和重复问题的质量关卡
+- `ReviewPointCatalog`：为高频审查点提供标准化目录、要件和场景标签
 
 当前内部主链也已开始切换为“`ReviewPoint` 优先”：
 
@@ -98,7 +103,7 @@ pyproject.toml              # 包配置与测试配置
 - 规则层优先产出 `ReviewPoint`
 - 一致性层优先产出 `ReviewPoint`
 - `Finding` 不再作为这两层的第一产物，而是在汇总阶段由 `ReviewPoint` 统一回写，以兼容既有报告、意见书和 JSON 输出
-- `formal_adjudication` 直接围绕 `ReviewPoint + EvidenceBundle + 法规依据` 做正式裁决，不再依赖回写后的 `Finding`
+- `formal_adjudication` 直接围绕 `ReviewPoint + EvidenceBundle + ApplicabilityCheck + ReviewQualityGate` 做正式裁决，不再依赖回写后的 `Finding`
 
 当前规则执行采用“双层规则架构”：
 
@@ -179,9 +184,12 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 
 当前版本已提供一个最小可用的 LLM 增强层，默认不启用。
 
-启用后，LLM 会围绕 4 个关键节点做语义增强，包括：
+启用后，LLM 会围绕 7 个关键节点做语义增强，包括：
 
 - 条款抽取后的语义补全，补抓规则未显式抽出的隐含条款事实
+- ReviewPoint 的条款角色复核，识别模板、定义说明、附件引用等角色误判
+- ReviewPoint 的证据复核，识别证据是否充分、是否仍缺关键直接证据
+- ReviewPoint 的适法性复核，识别法规要件是否真正成立
 - 专项规则后的语义复核，补抓近似但未命中的专项风险
 - 一致性矩阵后的深层冲突分析，补抓跨章节、跨表格、跨措辞的隐性矛盾
 - 高风险结论前的裁决复核，提示是否仍存在未被规则覆盖的实质性风险
@@ -262,7 +270,7 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - 各 stage 执行状态
 - 报告、专项表和人工复核产物的落盘路径
 
-`llm_tasks.json` 会单独记录 4 个 LLM 语义子任务状态：
+`llm_tasks.json` 会单独记录 7 个 LLM 语义子任务状态：
 
 - `llm_clause_supplement`
 - `llm_specialist_review`

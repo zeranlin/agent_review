@@ -177,6 +177,9 @@ def _build_run_manifest(
             "tasks": [item.to_dict() for item in report.task_records if item.task_name.startswith("llm_")],
             "semantic_review": {
                 "clause_supplement_count": len(report.llm_semantic_review.clause_supplements),
+                "role_review_count": len(report.llm_semantic_review.role_review_notes),
+                "evidence_review_count": len(report.llm_semantic_review.evidence_review_notes),
+                "applicability_review_count": len(report.llm_semantic_review.applicability_review_notes),
                 "specialist_finding_count": len(report.llm_semantic_review.specialist_findings),
                 "consistency_finding_count": len(report.llm_semantic_review.consistency_findings),
                 "verdict_review": report.llm_semantic_review.verdict_review,
@@ -190,6 +193,12 @@ def _build_run_manifest(
             "warnings": report.parse_result.warnings,
         },
         "rule_selection": report.rule_selection.to_dict(),
+        "review_point_summary": {
+            "count": len(report.review_points),
+            "catalog_count": len(report.review_point_catalog),
+            "applicability_count": len(report.applicability_checks),
+            "quality_gate_count": len(report.quality_gates),
+        },
         "stage_records": [item.to_dict() for item in report.stage_records],
         "task_records": [item.to_dict() for item in report.task_records],
         "artifact_paths": {

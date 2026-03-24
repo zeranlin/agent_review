@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from .applicability import build_applicability_checks
 from .models import (
+    ApplicabilityCheck,
     ClauseRole,
     ConsistencyCheck,
     Evidence,
+    EvidenceLevel,
     EvidenceBundle,
     ExtractedClause,
     Finding,
@@ -13,12 +16,16 @@ from .models import (
     FormalAdjudication,
     FormalDisposition,
     LegalBasis,
+    QualityGateStatus,
     RiskHit,
     ReviewPoint,
     ReviewPointStatus,
+    ReviewQualityGate,
     Severity,
 )
 from .quality import evidence_supports_title, infer_evidence_roles, infer_role_from_text, line_text_from_anchor, search_line_by_keyword
+from .review_point_catalog import resolve_review_point_definition, snapshot_catalog_for_points
+from .review_quality_gate import build_review_quality_gates
 
 
 def build_review_points(
@@ -53,6 +60,11 @@ def build_review_points_from_findings(
         review_points.append(
             ReviewPoint(
                 point_id=f"RP-{index:03d}",
+                catalog_id=resolve_review_point_definition(
+                    primary.title,
+                    primary.dimension,
+                    primary.severity,
+                ).catalog_id,
                 title=primary.title,
                 dimension=primary.dimension,
                 severity=primary.severity,
@@ -80,6 +92,7 @@ def build_review_points_from_risk_hits(
             direct_evidence=direct,
             supporting_evidence=[],
             conflicting_evidence=[],
+            rebuttal_evidence=[],
             missing_evidence_notes=[] if direct else [f"{hit.rule_name} 当前未抽到直接证据。"],
             clause_roles=[],
             sufficiency_summary=(
@@ -87,10 +100,17 @@ def build_review_points_from_risk_hits(
                 if direct
                 else "规则命中尚缺直接证据，需补充原文定位。"
             ),
+            evidence_level=_derive_evidence_level(direct, []),
+            evidence_score=_derive_evidence_score(direct, []),
         )
         review_points.append(
             ReviewPoint(
                 point_id=f"RULE-{index:03d}",
+                catalog_id=resolve_review_point_definition(
+                    hit.rule_name,
+                    hit.risk_group,
+                    hit.severity,
+                ).catalog_id,
                 title=hit.rule_name,
                 dimension=hit.risk_group,
                 severity=hit.severity,
@@ -118,6 +138,11 @@ def build_review_points_from_consistency_checks(
         review_points.append(
             ReviewPoint(
                 point_id=f"CONS-{index:03d}",
+                catalog_id=resolve_review_point_definition(
+                    check.topic,
+                    "跨条款一致性检查",
+                    Severity.high,
+                ).catalog_id,
                 title=check.topic,
                 dimension="跨条款一致性检查",
                 severity=Severity.high,
@@ -127,9 +152,12 @@ def build_review_points_from_consistency_checks(
                     direct_evidence=[],
                     supporting_evidence=[],
                     conflicting_evidence=[],
+                    rebuttal_evidence=[],
                     missing_evidence_notes=[f"{check.topic} 当前未形成可直接引用的冲突条款。"],
                     clause_roles=[],
                     sufficiency_summary="当前为一致性疑点，需结合原文或附件补充直接证据。",
+                    evidence_level=EvidenceLevel.missing,
+                    evidence_score=0.0,
                 ),
                 legal_basis=check.legal_basis,
                 source_findings=[f"consistency_check:{check.topic}"],
@@ -156,6 +184,11 @@ def merge_review_points(review_points: Iterable[ReviewPoint]) -> list[ReviewPoin
         merged.append(
             ReviewPoint(
                 point_id=f"RP-{index:03d}",
+                catalog_id=resolve_review_point_definition(
+                    primary.title,
+                    primary.dimension,
+                    primary.severity,
+                ).catalog_id,
                 title=primary.title,
                 dimension=primary.dimension,
                 severity=primary.severity,
@@ -203,11 +236,17 @@ def convert_review_points_to_findings(
 
 def build_formal_adjudication(
     review_points: list[ReviewPoint],
+    applicability_checks: list[ApplicabilityCheck],
+    quality_gates: list[ReviewQualityGate],
     report_text: str,
     extracted_clauses: list[ExtractedClause],
 ) -> list[FormalAdjudication]:
+    applicability_index = {item.point_id: item for item in applicability_checks}
+    quality_gate_index = {item.point_id: item for item in quality_gates}
     results: list[FormalAdjudication] = []
     for point in review_points:
+        applicability = applicability_index.get(point.point_id)
+        quality_gate = quality_gate_index.get(point.point_id)
         section_hint, quote = _resolve_review_point_evidence(point, report_text)
         roles = _resolve_review_point_roles(point, extracted_clauses, quote)
         has_direct = bool(point.evidence_bundle.direct_evidence)
@@ -228,7 +267,9 @@ def build_formal_adjudication(
             }
             for role in roles
         )
-        legal_basis_applicable = bool(point.legal_basis)
+        legal_basis_applicable = bool(point.legal_basis) and (
+            applicability.applicable if applicability is not None else True
+        )
         evidence_sufficient = bool(
             has_direct
             and strong_anchor
@@ -238,7 +279,12 @@ def build_formal_adjudication(
             and not weak_role_only
         )
 
-        if point.status == ReviewPointStatus.identified or point.severity not in {Severity.high, Severity.critical}:
+        applicability_summary = applicability.summary if applicability else "未进行适法性检查。"
+        quality_status = quality_gate.status if quality_gate else QualityGateStatus.passed
+        if quality_status == QualityGateStatus.filtered:
+            disposition = FormalDisposition.filtered_out
+            rationale = "当前审查点未通过 review_quality_gate，暂不进入正式意见。"
+        elif point.status == ReviewPointStatus.identified or point.severity not in {Severity.high, Severity.critical}:
             disposition = FormalDisposition.filtered_out
             rationale = "当前审查点不属于正式意见输出范围，暂不进入高风险正式裁决。"
         elif evidence_sufficient and legal_basis_applicable:
@@ -259,6 +305,7 @@ def build_formal_adjudication(
         results.append(
             FormalAdjudication(
                 point_id=point.point_id,
+                catalog_id=point.catalog_id,
                 title=point.title,
                 disposition=disposition,
                 rationale=rationale,
@@ -267,9 +314,23 @@ def build_formal_adjudication(
                 primary_quote=quote,
                 evidence_sufficient=evidence_sufficient,
                 legal_basis_applicable=legal_basis_applicable,
+                applicability_summary=applicability_summary,
+                quality_gate_status=quality_status,
             )
         )
     return results
+
+
+def build_review_point_catalog_snapshot(review_points: list[ReviewPoint]):
+    return snapshot_catalog_for_points(review_points)
+
+
+def build_point_applicability_checks(review_points: list[ReviewPoint]) -> list[ApplicabilityCheck]:
+    return build_applicability_checks(review_points)
+
+
+def build_point_quality_gates(review_points: list[ReviewPoint]) -> list[ReviewQualityGate]:
+    return build_review_quality_gates(review_points)
 
 
 def build_evidence_bundle(
@@ -310,9 +371,12 @@ def build_evidence_bundle(
         direct_evidence=direct_evidence,
         supporting_evidence=supporting_evidence,
         conflicting_evidence=[],
+        rebuttal_evidence=[],
         missing_evidence_notes=missing_notes,
         clause_roles=dedup_roles,
         sufficiency_summary=sufficiency_summary,
+        evidence_level=_derive_evidence_level(direct_evidence, supporting_evidence),
+        evidence_score=_derive_evidence_score(direct_evidence, supporting_evidence),
     )
 
 
@@ -366,9 +430,12 @@ def _merge_evidence_bundles(bundles: Iterable[EvidenceBundle]) -> EvidenceBundle
         direct_evidence=direct,
         supporting_evidence=supporting,
         conflicting_evidence=conflicting,
+        rebuttal_evidence=[],
         missing_evidence_notes=missing_notes,
         clause_roles=clause_roles,
         sufficiency_summary=summary,
+        evidence_level=_derive_evidence_level(direct, supporting),
+        evidence_score=_derive_evidence_score(direct, supporting),
     )
 
 
@@ -481,6 +548,30 @@ def _confidence_from_review_point(point: ReviewPoint) -> float:
     if point.evidence_bundle.supporting_evidence:
         return min(0.88, base + 0.03)
     return base
+
+
+def _derive_evidence_level(
+    direct_evidence: list[Evidence],
+    supporting_evidence: list[Evidence],
+) -> EvidenceLevel:
+    if direct_evidence:
+        return EvidenceLevel.strong
+    if len(supporting_evidence) >= 2:
+        return EvidenceLevel.moderate
+    if supporting_evidence:
+        return EvidenceLevel.weak
+    return EvidenceLevel.missing
+
+
+def _derive_evidence_score(
+    direct_evidence: list[Evidence],
+    supporting_evidence: list[Evidence],
+) -> float:
+    if direct_evidence:
+        return min(1.0, 0.75 + 0.08 * len(direct_evidence))
+    if supporting_evidence:
+        return min(0.7, 0.35 + 0.1 * len(supporting_evidence))
+    return 0.0
 
 
 def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tuple[str, str]:

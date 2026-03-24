@@ -37,10 +37,12 @@
 5. 抽取关键条款，形成条款抽取表。
 6. 对抽取结果运行风险规则匹配，并优先组装为 `ReviewPoint`。
 7. 对跨条款信息执行一致性检查，并优先组装为 `ReviewPoint`。
-8. 围绕 `ReviewPoint` 汇聚证据包、执行 formal adjudication，再回写兼容用的 `Finding`。
-9. 综合风险等级、证据完整性和审查边界，生成总体结论。
-10. 输出主要问题、相对规范项和逐条修改建议。
-11. 持久化整套运行产物，供人工复核和后续 agent 复用。
+8. 围绕 `ReviewPoint` 汇聚 `EvidenceBundle`。
+9. 对每个 `ReviewPoint` 执行 `ApplicabilityCheck` 和 `ReviewQualityGate`。
+10. 执行 `formal_adjudication`，再回写兼容用的 `Finding`。
+11. 综合风险等级、证据完整性和审查边界，生成总体结论。
+12. 输出主要问题、相对规范项和逐条修改建议。
+13. 持久化整套运行产物，供人工复核和后续 agent 复用。
 
 在多文件场景下，正文、采购需求附件、评分细则、合同草案、补遗文件应先形成“联合审查上下文”，再进入后续抽取、规则和一致性阶段。
 
@@ -231,6 +233,8 @@
 - 一致性疑点到 `ReviewPoint` 的转换
 - 多来源 `ReviewPoint` 的合并、去重与编号
 - `EvidenceBundle` 汇总
+- `ApplicabilityCheck` 生成
+- `ReviewQualityGate` 生成
 
 职责：
 
