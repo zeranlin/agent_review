@@ -244,6 +244,13 @@ def render_markdown(report: ReviewReport) -> str:
             lines.append(f"- 场景判断：{report.llm_semantic_review.scenario_review_summary}")
         for item in report.llm_semantic_review.dynamic_review_tasks:
             lines.append(f"- [{item.catalog_id}] {item.title}：{item.dimension}")
+            if item.evidence_hints:
+                lines.append(f"  证据提示：{'；'.join(item.evidence_hints)}")
+            if item.rebuttal_templates:
+                lines.append(
+                    "  反证模板："
+                    + " / ".join("、".join(group) for group in item.rebuttal_templates)
+                )
         lines.append("")
 
     _append_specialist_table(lines, "项目结构一致性表", report.specialist_tables.project_structure)

@@ -139,6 +139,9 @@ class ReviewPointDefinition:
     scenario_tags: list[str] = field(default_factory=list)
     required_conditions: list[ReviewPointCondition] = field(default_factory=list)
     exclusion_conditions: list[ReviewPointCondition] = field(default_factory=list)
+    evidence_hints: list[str] = field(default_factory=list)
+    rebuttal_templates: list[list[str]] = field(default_factory=list)
+    enhancement_fields: list[str] = field(default_factory=list)
     basis_hint: str = ""
 
     def to_dict(self) -> dict[str, object]:
@@ -150,6 +153,9 @@ class ReviewPointDefinition:
             "scenario_tags": self.scenario_tags,
             "required_conditions": [item.to_dict() for item in self.required_conditions],
             "exclusion_conditions": [item.to_dict() for item in self.exclusion_conditions],
+            "evidence_hints": self.evidence_hints,
+            "rebuttal_templates": self.rebuttal_templates,
+            "enhancement_fields": self.enhancement_fields,
             "basis_hint": self.basis_hint,
         }
 

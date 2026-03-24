@@ -25,6 +25,69 @@ def collect_task_facts(
     return assembler(definition, extracted_clauses)
 
 
+def enhance_dynamic_task_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+    bundle: EvidenceBundle,
+    status: ReviewPointStatus,
+    rationale: str,
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    if not definition.catalog_id.startswith("RP-DYN-"):
+        return bundle, status, rationale
+
+    extra_clauses = _collect_dynamic_enhancement_clauses(definition, extracted_clauses)
+    rebuttal_clauses = _collect_dynamic_rebuttal_clauses(definition, extracted_clauses)
+    if not extra_clauses and not rebuttal_clauses:
+        return _append_dynamic_hints(definition, bundle), status, rationale
+
+    direct = _dedupe_evidence(
+        [*bundle.direct_evidence, *[_to_evidence(item) for item in extra_clauses[:3]]]
+    )
+    supporting = _dedupe_evidence(
+        [*bundle.supporting_evidence, *[_to_evidence(item) for item in extra_clauses[3:7]]]
+    )
+    rebuttal = _dedupe_evidence(
+        [*bundle.rebuttal_evidence, *[_to_evidence(item) for item in rebuttal_clauses[:4]]]
+    )
+    conflicting = _dedupe_evidence(
+        [*bundle.conflicting_evidence, *[_to_evidence(item) for item in rebuttal_clauses[:2]]]
+    )
+    all_relevant = _dedupe_clauses([*extra_clauses, *rebuttal_clauses])
+    missing_notes = list(bundle.missing_evidence_notes)
+    if definition.evidence_hints:
+        missing_notes.extend(
+            f"动态任务补证提示：{hint}" for hint in definition.evidence_hints if hint
+        )
+    if rebuttal_clauses:
+        missing_notes.append("动态任务已命中反证模板，formal 前需优先核查反证是否阻断定性。")
+
+    evidence_level, evidence_score = _derive_bundle_strength(direct, supporting, conflicting, rebuttal)
+    enhanced_status = _derive_task_status(direct, supporting, conflicting, rebuttal)
+    enhanced_bundle = EvidenceBundle(
+        direct_evidence=direct,
+        supporting_evidence=supporting,
+        conflicting_evidence=conflicting,
+        rebuttal_evidence=rebuttal,
+        missing_evidence_notes=_dedupe_strings(missing_notes),
+        clause_roles=_dedupe_role_values([*bundle.clause_roles, *_dedupe_roles(all_relevant)]),
+        sufficiency_summary=_build_bundle_summary(
+            direct,
+            supporting,
+            conflicting,
+            rebuttal,
+            [],
+        ),
+        evidence_level=evidence_level,
+        evidence_score=evidence_score,
+    )
+    enhanced_rationale = rationale
+    if extra_clauses:
+        enhanced_rationale += " 动态任务已追加一轮专属组证增强。"
+    if rebuttal_clauses:
+        enhanced_rationale += " 同时识别到反证模板，已纳入反证链。"
+    return enhanced_bundle, enhanced_status, enhanced_rationale
+
+
 def _assemble_generic_task_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
@@ -243,6 +306,57 @@ def _assemble_bundle_for_definition(
     return bundle, status, rationale
 
 
+def _collect_dynamic_enhancement_clauses(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    relevant = _collect_relevant_clauses(definition, extracted_clauses)
+    if definition.enhancement_fields:
+        relevant.extend(_collect_by_fields(extracted_clauses, definition.enhancement_fields))
+    return _dedupe_clauses(relevant)
+
+
+def _collect_dynamic_rebuttal_clauses(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ExtractedClause]:
+    if not definition.rebuttal_templates:
+        return []
+    matched: list[ExtractedClause] = []
+    for clause in extracted_clauses:
+        haystack = " ".join([clause.content, clause.normalized_value, " ".join(clause.relation_tags)])
+        for template in definition.rebuttal_templates:
+            if all(token in haystack for token in template):
+                matched.append(clause)
+                break
+    return _dedupe_clauses(matched)
+
+
+def _append_dynamic_hints(
+    definition: ReviewPointDefinition,
+    bundle: EvidenceBundle,
+) -> EvidenceBundle:
+    if not definition.evidence_hints:
+        return bundle
+    notes = _dedupe_strings(
+        [
+            *bundle.missing_evidence_notes,
+            *[f"动态任务补证提示：{hint}" for hint in definition.evidence_hints if hint],
+        ]
+    )
+    return EvidenceBundle(
+        direct_evidence=bundle.direct_evidence,
+        supporting_evidence=bundle.supporting_evidence,
+        conflicting_evidence=bundle.conflicting_evidence,
+        rebuttal_evidence=bundle.rebuttal_evidence,
+        missing_evidence_notes=notes,
+        clause_roles=bundle.clause_roles,
+        sufficiency_summary=bundle.sufficiency_summary,
+        evidence_level=bundle.evidence_level,
+        evidence_score=bundle.evidence_score,
+    )
+
+
 def _collect_relevant_clauses(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
@@ -398,6 +512,41 @@ def _dedupe_roles(clauses: list[ExtractedClause]) -> list[ClauseRole]:
             continue
         seen.add(role)
         result.append(role)
+    return result
+
+
+def _dedupe_role_values(roles: list[ClauseRole]) -> list[ClauseRole]:
+    seen: set[ClauseRole] = set()
+    result: list[ClauseRole] = []
+    for role in roles:
+        if role == ClauseRole.unknown or role in seen:
+            continue
+        seen.add(role)
+        result.append(role)
+    return result
+
+
+def _dedupe_evidence(evidence_items: list[Evidence]) -> list[Evidence]:
+    seen: set[tuple[str, str]] = set()
+    result: list[Evidence] = []
+    for item in evidence_items:
+        key = (item.quote, item.section_hint)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        cleaned = value.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        result.append(cleaned)
     return result
 
 

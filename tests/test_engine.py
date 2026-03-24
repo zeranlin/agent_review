@@ -536,6 +536,11 @@ class FakeClient:
                             "scenario_tags": ["dynamic", "hybrid"],
                             "focus_fields": ["项目属性", "采购标的", "合同履行期限"],
                             "signal_groups": [["人工管护", "抚育", "管护"], ["承揽合同"]],
+                            "evidence_hints": [
+                                "优先采集项目属性、采购标的、合同履行期限和合同类型条款"
+                            ],
+                            "rebuttal_templates": [["仅供货", "不含人工服务"]],
+                            "enhancement_fields": ["项目属性", "采购标的", "合同履行期限"],
                             "basis_hint": "当货物采购混入持续性服务和承揽口径时，应核查项目属性和合同类型是否错配。",
                         }
                     ],
@@ -709,6 +714,9 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert enhanced_report.llm_semantic_review.clause_supplements
     assert enhanced_report.llm_semantic_review.scenario_review_summary
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks
+    assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].evidence_hints
+    assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].rebuttal_templates
+    assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].enhancement_fields
     assert any(item.title == "项目属性与采购内容结构错配" for item in enhanced_report.review_points)
     assert enhanced_report.llm_semantic_review.clause_supplements[0].adoption_status == AdoptionStatus.manual
     assert any(item.title == "评分因素与履约考核存在隐性耦合" for item in enhanced_report.findings)
@@ -737,6 +745,8 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     markdown = render_markdown(enhanced_report)
     assert "## LLM补充条款" in markdown
     assert "## LLM场景识别与动态任务" in markdown
+    assert "证据提示" in markdown
+    assert "反证模板" in markdown
     assert "## LLM裁决复核" in markdown
     assert "## LLM角色复核" in markdown
     assert "## LLM证据复核" in markdown
@@ -765,6 +775,32 @@ def test_llm_second_review_can_downgrade_formal_adjudication() -> None:
     assert target.disposition.value == "manual_confirmation"
     assert target.included_in_formal is False
     assert "LLM二审" in target.rationale
+
+
+def test_dynamic_tasks_can_add_evidence_hints_rebuttal_templates_and_enhanced_assembly() -> None:
+    text = """
+    项目属性：货物
+    采购标的：苗木供货，仅供货，不含人工服务。
+    合同履行期限：1095日。
+    造林内容包含人工管护、抚育和运水。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+    enhanced_report = QwenReviewEnhancer(client=FakeClient()).enhance(base_report)
+
+    dynamic_point = next(item for item in enhanced_report.review_points if item.title == "项目属性与采购内容结构错配")
+    assert any("动态任务补证提示" in note for note in dynamic_point.evidence_bundle.missing_evidence_notes)
+    assert dynamic_point.evidence_bundle.rebuttal_evidence
+    assert any(
+        "仅供货" in item.quote or "不含人工服务" in item.quote
+        for item in dynamic_point.evidence_bundle.rebuttal_evidence
+    )
+    assert any(
+        "项目属性=货物" in item.quote
+        for item in dynamic_point.evidence_bundle.direct_evidence + dynamic_point.evidence_bundle.supporting_evidence
+    )
+    assert "专属组证增强" in dynamic_point.rationale
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:

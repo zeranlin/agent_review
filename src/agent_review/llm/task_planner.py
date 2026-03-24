@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..fact_collectors import collect_task_facts
+from ..fact_collectors import collect_task_facts, enhance_dynamic_task_evidence
 from ..models import (
     ExtractedClause,
     ReviewPoint,
@@ -34,6 +34,13 @@ def parse_dynamic_review_tasks(raw_items: object) -> list[ReviewPointDefinition]
             cleaned = [str(value).strip() for value in group if str(value).strip()]
             if cleaned:
                 signal_groups.append(cleaned)
+        rebuttal_templates = []
+        for group in item.get("rebuttal_templates", []):
+            if not isinstance(group, list):
+                continue
+            cleaned = [str(value).strip() for value in group if str(value).strip()]
+            if cleaned:
+                rebuttal_templates.append(cleaned)
 
         required_conditions: list[ReviewPointCondition] = []
         if focus_fields:
@@ -68,6 +75,17 @@ def parse_dynamic_review_tasks(raw_items: object) -> list[ReviewPointDefinition]
                 ],
                 required_conditions=required_conditions,
                 exclusion_conditions=[],
+                evidence_hints=[
+                    str(value).strip()
+                    for value in item.get("evidence_hints", [])
+                    if str(value).strip()
+                ],
+                rebuttal_templates=rebuttal_templates,
+                enhancement_fields=[
+                    str(value).strip()
+                    for value in item.get("enhancement_fields", [])
+                    if str(value).strip()
+                ],
                 basis_hint=str(item.get("basis_hint", "")).strip(),
             )
         )
@@ -81,6 +99,13 @@ def build_dynamic_review_points(
     review_points: list[ReviewPoint] = []
     for index, definition in enumerate(definitions, start=1):
         evidence_bundle, status, rationale = collect_task_facts(definition, extracted_clauses)
+        evidence_bundle, status, rationale = enhance_dynamic_task_evidence(
+            definition,
+            extracted_clauses,
+            evidence_bundle,
+            status,
+            rationale,
+        )
         review_points.append(
             ReviewPoint(
                 point_id=f"DYN-{index:03d}",
