@@ -16,9 +16,28 @@ from ..models import (
     RunStageRecord,
     Severity,
     SpecialistTables,
+    TaskRecord,
+    TaskStatus,
 )
 from .client import OpenAICompatibleClient, QwenLocalConfig
-from .prompts import REVIEW_ENHANCER_SYSTEM_PROMPT, build_review_enhancer_prompt
+from .prompts import (
+    CLAUSE_SUPPLEMENT_SYSTEM_PROMPT,
+    CONSISTENCY_REVIEW_SYSTEM_PROMPT,
+    SPECIALIST_REVIEW_SYSTEM_PROMPT,
+    VERDICT_REVIEW_SYSTEM_PROMPT,
+    build_clause_supplement_prompt,
+    build_consistency_review_prompt,
+    build_specialist_review_prompt,
+    build_verdict_review_prompt,
+)
+
+
+LLM_TASK_ORDER = [
+    "llm_clause_supplement",
+    "llm_specialist_review",
+    "llm_consistency_review",
+    "llm_verdict_review",
+]
 
 
 class NullReviewEnhancer:
@@ -41,67 +60,202 @@ class QwenReviewEnhancer:
             self.client = OpenAICompatibleClient(config)
 
     def enhance(self, report: ReviewReport) -> ReviewReport:
+        semantic_review = LLMSemanticReview()
+        task_records = _seed_llm_task_records(report.task_records)
+        specialist_tables = report.specialist_tables
+        recommendations = report.recommendations
+        summary = report.summary
+        warnings: list[str] = []
+
+        clause_payload, clause_error = self._run_task(
+            task_name="llm_clause_supplement",
+            task_records=task_records,
+            system_prompt=CLAUSE_SUPPLEMENT_SYSTEM_PROMPT,
+            user_prompt=build_clause_supplement_prompt(report),
+            skip_when=False,
+            skip_detail="",
+        )
+        if clause_payload:
+            semantic_review.clause_supplements = _parse_clause_supplements(
+                clause_payload.get("clause_supplements")
+            )
+        if clause_error:
+            warnings.append(clause_error)
+
+        specialist_skip = not any(
+            getattr(report.specialist_tables, table_name)
+            for table_name in [
+                "project_structure",
+                "sme_policy",
+                "personnel_boundary",
+                "contract_performance",
+                "template_conflicts",
+            ]
+        )
+        specialist_payload, specialist_error = self._run_task(
+            task_name="llm_specialist_review",
+            task_records=task_records,
+            system_prompt=SPECIALIST_REVIEW_SYSTEM_PROMPT,
+            user_prompt=build_specialist_review_prompt(report),
+            skip_when=specialist_skip,
+            skip_detail="当前专项表为空，跳过专项语义复核。",
+        )
+        if specialist_payload:
+            semantic_review.specialist_findings = _parse_findings(
+                specialist_payload.get("specialist_findings"),
+                default_dimension="专项语义复核",
+            )
+            specialist_tables = _merge_specialist_summaries(
+                specialist_tables,
+                specialist_payload.get("specialist_summaries"),
+            )
+            recommendations = dedupe_recommendations(
+                _merge_recommendations(report, specialist_payload.get("recommendations"))
+            )
+        if specialist_error:
+            warnings.append(specialist_error)
+
+        consistency_payload, consistency_error = self._run_task(
+            task_name="llm_consistency_review",
+            task_records=task_records,
+            system_prompt=CONSISTENCY_REVIEW_SYSTEM_PROMPT,
+            user_prompt=build_consistency_review_prompt(report),
+            skip_when=not report.consistency_checks,
+            skip_detail="当前一致性矩阵为空，跳过深层一致性复核。",
+        )
+        if consistency_payload:
+            semantic_review.consistency_findings = _parse_findings(
+                consistency_payload.get("consistency_findings"),
+                default_dimension="深层一致性复核",
+            )
+        if consistency_error:
+            warnings.append(consistency_error)
+
+        verdict_payload, verdict_error = self._run_task(
+            task_name="llm_verdict_review",
+            task_records=task_records,
+            system_prompt=VERDICT_REVIEW_SYSTEM_PROMPT,
+            user_prompt=build_verdict_review_prompt(report),
+            skip_when=False,
+            skip_detail="",
+        )
+        if verdict_payload:
+            summary = str(verdict_payload.get("summary", "")).strip() or summary
+            semantic_review.verdict_review = str(verdict_payload.get("verdict_review", "")).strip()
+        if verdict_error:
+            warnings.append(verdict_error)
+
+        merged_clauses = dedupe_extracted_clauses(
+            report.extracted_clauses + semantic_review.clause_supplements
+        )
+        merged_findings = dedupe_findings(
+            report.findings
+            + semantic_review.specialist_findings
+            + semantic_review.consistency_findings
+        )
+        stage_records = list(report.stage_records) + [
+            RunStageRecord(
+                stage_name="llm_semantic_review",
+                status="completed" if not warnings else "partial",
+                item_count=(
+                    len(semantic_review.clause_supplements)
+                    + len(semantic_review.specialist_findings)
+                    + len(semantic_review.consistency_findings)
+                ),
+                detail="已记录 4 个 LLM 语义子任务状态。",
+            )
+        ]
+        llm_enhanced = any(item.status == TaskStatus.completed for item in task_records if item.task_name in LLM_TASK_ORDER)
+        return replace(
+            report,
+            summary=summary,
+            recommendations=recommendations,
+            specialist_tables=specialist_tables,
+            extracted_clauses=merged_clauses,
+            findings=merged_findings,
+            llm_semantic_review=semantic_review,
+            llm_enhanced=llm_enhanced,
+            llm_warnings=warnings,
+            stage_records=stage_records,
+            task_records=task_records,
+        )
+
+    def _run_task(
+        self,
+        task_name: str,
+        task_records: list[TaskRecord],
+        system_prompt: str,
+        user_prompt: str,
+        skip_when: bool,
+        skip_detail: str,
+    ) -> tuple[dict | None, str | None]:
+        record = _find_task_record(task_records, task_name)
+        if skip_when:
+            record.status = TaskStatus.skipped
+            record.detail = skip_detail
+            record.item_count = 0
+            return None, None
+
+        record.status = TaskStatus.running
+        record.detail = "任务执行中。"
         try:
             raw = self.client.generate_text(
-                system_prompt=REVIEW_ENHANCER_SYSTEM_PROMPT,
-                user_prompt=build_review_enhancer_prompt(report),
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
             )
             parsed = _parse_json_response(raw)
-            semantic_review = _parse_semantic_review(parsed.get("semantic_review"))
-            summary = str(parsed.get("summary", "")).strip() or report.summary
-            recommendations = _merge_recommendations(report, parsed.get("recommendations"))
-            specialist_tables = _merge_specialist_summaries(
-                report.specialist_tables, parsed.get("specialist_summaries")
-            )
-            merged_clauses = dedupe_extracted_clauses(
-                report.extracted_clauses + semantic_review.clause_supplements
-            )
-            merged_findings = dedupe_findings(
-                report.findings
-                + semantic_review.specialist_findings
-                + semantic_review.consistency_findings
-            )
-            stage_records = list(report.stage_records) + [
-                RunStageRecord(
-                    stage_name="llm_semantic_review",
-                    status="completed",
-                    item_count=(
-                        len(semantic_review.clause_supplements)
-                        + len(semantic_review.specialist_findings)
-                        + len(semantic_review.consistency_findings)
-                    ),
-                    detail=(
-                        "完成条款补全、专项语义复核、深层一致性分析与裁决复核。"
-                    ),
-                )
-            ]
-            return replace(
-                report,
-                summary=summary,
-                recommendations=dedupe_recommendations(recommendations),
-                specialist_tables=specialist_tables,
-                extracted_clauses=merged_clauses,
-                findings=merged_findings,
-                llm_semantic_review=semantic_review,
-                llm_enhanced=True,
-                llm_warnings=[],
-                stage_records=stage_records,
-            )
+            record.status = TaskStatus.completed
+            record.detail = "任务已完成。"
+            record.item_count = _count_task_items(task_name, parsed)
+            return parsed, None
         except Exception as exc:
-            stage_records = list(report.stage_records) + [
-                RunStageRecord(
-                    stage_name="llm_semantic_review",
-                    status="failed",
-                    item_count=0,
-                    detail=str(exc),
+            record.status = _infer_task_status(exc)
+            record.detail = str(exc)
+            record.item_count = 0
+            return None, f"{task_name} 未生效：{exc}"
+
+
+def _seed_llm_task_records(existing_records: list[TaskRecord]) -> list[TaskRecord]:
+    results = list(existing_records)
+    for task_name in LLM_TASK_ORDER:
+        if not any(item.task_name == task_name for item in results):
+            results.append(
+                TaskRecord(
+                    task_name=task_name,
+                    status=TaskStatus.pending,
+                    detail="等待执行。",
+                    item_count=None,
                 )
-            ]
-            return replace(
-                report,
-                llm_enhanced=False,
-                llm_warnings=[f"LLM 增强未生效：{exc}"],
-                stage_records=stage_records,
             )
+    return results
+
+
+def _find_task_record(task_records: list[TaskRecord], task_name: str) -> TaskRecord:
+    for item in task_records:
+        if item.task_name == task_name:
+            return item
+    task_record = TaskRecord(task_name=task_name, status=TaskStatus.pending, detail="等待执行。")
+    task_records.append(task_record)
+    return task_record
+
+
+def _count_task_items(task_name: str, parsed: dict) -> int:
+    if task_name == "llm_clause_supplement":
+        return len(parsed.get("clause_supplements", []))
+    if task_name == "llm_specialist_review":
+        return len(parsed.get("specialist_findings", []))
+    if task_name == "llm_consistency_review":
+        return len(parsed.get("consistency_findings", []))
+    if task_name == "llm_verdict_review":
+        return 1 if parsed.get("verdict_review") or parsed.get("summary") else 0
+    return 0
+
+
+def _infer_task_status(exc: Exception) -> TaskStatus:
+    message = str(exc).lower()
+    if "timed out" in message or "timeout" in message:
+        return TaskStatus.timed_out
+    return TaskStatus.failed
 
 
 def _merge_recommendations(report: ReviewReport, raw_recommendations: object) -> list[Recommendation]:
@@ -148,23 +302,6 @@ def _merge_specialist_summaries(
     return specialist_tables
 
 
-def _parse_semantic_review(raw_review: object) -> LLMSemanticReview:
-    if not isinstance(raw_review, dict):
-        return LLMSemanticReview()
-    return LLMSemanticReview(
-        clause_supplements=_parse_clause_supplements(raw_review.get("clause_supplements")),
-        specialist_findings=_parse_findings(
-            raw_review.get("specialist_findings"),
-            default_dimension="专项语义复核",
-        ),
-        consistency_findings=_parse_findings(
-            raw_review.get("consistency_findings"),
-            default_dimension="深层一致性复核",
-        ),
-        verdict_review=str(raw_review.get("verdict_review", "")).strip(),
-    )
-
-
 def _parse_clause_supplements(raw_items: object) -> list[ExtractedClause]:
     if not isinstance(raw_items, list):
         return []
@@ -175,7 +312,7 @@ def _parse_clause_supplements(raw_items: object) -> list[ExtractedClause]:
         category = str(item.get("category", "")).strip()
         field_name = str(item.get("field_name", "")).strip()
         content = str(item.get("content", "")).strip()
-        source_anchor = str(item.get("source_anchor", "")).strip() or "llm_semantic_review"
+        source_anchor = str(item.get("source_anchor", "")).strip() or "llm_clause_supplement"
         if not category or not field_name or not content:
             continue
         results.append(
@@ -201,7 +338,7 @@ def _parse_findings(raw_items: object, default_dimension: str) -> list[Finding]:
         if not title or not rationale:
             continue
         severity = _parse_severity(item.get("severity"))
-        source_anchor = str(item.get("source_anchor", "")).strip() or "llm_semantic_review"
+        source_anchor = str(item.get("source_anchor", "")).strip() or default_dimension
         results.append(
             Finding(
                 dimension=str(item.get("dimension", "")).strip() or default_dimension,

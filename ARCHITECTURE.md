@@ -322,9 +322,26 @@
 - `enhanced_report.json`
 - `enhanced_report.md`
 - `run_manifest.json`
+- `llm_tasks.json`
 - 五类专项表独立 JSON
 - stage 执行记录
 - LLM warning / timeout 信息
+
+其中 `llm_tasks.json` 用于显式记录 4 个 LLM 语义子任务：
+
+1. `llm_clause_supplement`
+2. `llm_specialist_review`
+3. `llm_consistency_review`
+4. `llm_verdict_review`
+
+每个子任务都应具备独立状态，至少包括：
+
+- `pending`
+- `running`
+- `completed`
+- `failed`
+- `timed_out`
+- `skipped`
 
 ## 设计原则
 

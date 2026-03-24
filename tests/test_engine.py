@@ -158,19 +158,23 @@ class FakeEnhancer:
 
 class FakeClient:
     def generate_text(self, system_prompt: str, user_prompt: str) -> str:
-        return json.dumps(
-            {
-                "summary": "这是经过LLM语义复核增强后的总体结论摘要。",
-                "semantic_review": {
+        if "补充可能遗漏但有文本依据的条款事实" in system_prompt:
+            return json.dumps(
+                {
                     "clause_supplements": [
                         {
                             "category": "政策条款",
                             "field_name": "分包比例",
                             "content": "文件疑似提及分包落实中小企业政策，但比例未在现有抽取结果中单列。",
                             "source_anchor": "line:8",
-                            "rationale": "文本出现分包和中小企业并列描述。",
                         }
-                    ],
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        if "补充近似但未命中的专项风险" in system_prompt:
+            return json.dumps(
+                {
                     "specialist_findings": [
                         {
                             "dimension": "专项语义复核",
@@ -181,6 +185,21 @@ class FakeClient:
                             "next_action": "拆分投标评分承诺与履约考核口径。",
                         }
                     ],
+                    "specialist_summaries": {
+                        "sme_policy": "中小企业政策专项仍存在模板与执行口径混杂问题。"
+                    },
+                    "recommendations": [
+                        {
+                            "related_issue": "评分因素与履约考核存在隐性耦合",
+                            "suggestion": "拆分评审承诺与履约考核条款，避免形成双重约束。",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        if "补充跨章节、跨表格、跨措辞的深层冲突" in system_prompt:
+            return json.dumps(
+                {
                     "consistency_findings": [
                         {
                             "dimension": "深层一致性复核",
@@ -190,18 +209,14 @@ class FakeClient:
                             "source_anchor": "line:15",
                             "next_action": "将付款条件改为客观验收节点。",
                         }
-                    ],
-                    "verdict_review": "基于现有事实，除已命中规则外，仍存在评分、考核、付款联动的隐性实质性风险，建议人工重点复核。",
+                    ]
                 },
-                "specialist_summaries": {
-                    "sme_policy": "中小企业政策专项仍存在模板与执行口径混杂问题。"
-                },
-                "recommendations": [
-                    {
-                        "related_issue": "评分因素与履约考核存在隐性耦合",
-                        "suggestion": "拆分评审承诺与履约考核条款，避免形成双重约束。",
-                    }
-                ],
+                ensure_ascii=False,
+            )
+        return json.dumps(
+            {
+                "summary": "这是经过LLM语义复核增强后的总体结论摘要。",
+                "verdict_review": "基于现有事实，除已命中规则外，仍存在评分、考核、付款联动的隐性实质性风险，建议人工重点复核。",
             },
             ensure_ascii=False,
         )
@@ -241,6 +256,13 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert any(item.title == "付款条件与满意度表述存在隐性冲突" for item in enhanced_report.findings)
     assert enhanced_report.llm_semantic_review.verdict_review
     assert any(item.stage_name == "llm_semantic_review" for item in enhanced_report.stage_records)
+    llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
+    assert llm_tasks == {
+        "llm_clause_supplement": "completed",
+        "llm_specialist_review": "completed",
+        "llm_consistency_review": "completed",
+        "llm_verdict_review": "completed",
+    }
     markdown = render_markdown(enhanced_report)
     assert "## LLM补充条款" in markdown
     assert "## LLM裁决复核" in markdown
@@ -270,6 +292,7 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.final_json_path).exists()
     assert Path(bundle.final_markdown_path).exists()
     assert Path(bundle.manifest_path).exists()
+    assert Path(bundle.llm_tasks_path).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["base"]).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["final"]).exists()
 
@@ -277,6 +300,8 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert manifest["artifact_paths"]["base_report"]["json"] == bundle.base_json_path
     assert manifest["artifact_paths"]["final_report"]["json"] == bundle.final_json_path
     assert manifest["stage_records"]
+    llm_tasks_payload = json.loads(Path(bundle.llm_tasks_path).read_text(encoding="utf-8"))
+    assert all(item["task_name"].startswith("llm_") for item in llm_tasks_payload["tasks"])
 
 
 def test_write_review_artifacts_outputs_specialist_table_files(tmp_path: Path) -> None:

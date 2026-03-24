@@ -176,6 +176,7 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - `enhanced_report.json`
 - `enhanced_report.md`
 - `run_manifest.json`
+- `llm_tasks.json`
 - `project_structure_table.base.json`
 - `project_structure_table.json`
 - `sme_policy_table.base.json`
@@ -200,3 +201,12 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - 解析摘要
 - 各 stage 执行状态
 - 报告与专项表的落盘路径
+
+`llm_tasks.json` 会单独记录 4 个 LLM 语义子任务状态：
+
+- `llm_clause_supplement`
+- `llm_specialist_review`
+- `llm_consistency_review`
+- `llm_verdict_review`
+
+每个任务都会显式标记为 `pending`、`running`、`completed`、`failed`、`timed_out` 或 `skipped`，便于人工判断增强链路是否完整执行。

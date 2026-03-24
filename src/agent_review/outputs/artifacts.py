@@ -16,6 +16,7 @@ class ArtifactBundle:
     final_json_path: str
     final_markdown_path: str
     manifest_path: str
+    llm_tasks_path: str
     specialist_table_paths: dict[str, dict[str, str]]
 
 
@@ -42,6 +43,11 @@ def write_review_artifacts(
         base_report=base_report,
         report=report,
     )
+    llm_tasks_path = target_dir / "llm_tasks.json"
+    llm_tasks_path.write_text(
+        json.dumps(_build_llm_tasks_payload(report), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     manifest_path = target_dir / "run_manifest.json"
     manifest_payload = _build_run_manifest(
         target_dir=target_dir,
@@ -52,6 +58,7 @@ def write_review_artifacts(
         base_markdown_path=base_markdown_path,
         final_json_path=final_json_path,
         final_markdown_path=final_markdown_path,
+        llm_tasks_path=llm_tasks_path,
     )
     manifest_path.write_text(
         json.dumps(manifest_payload, ensure_ascii=False, indent=2),
@@ -65,6 +72,7 @@ def write_review_artifacts(
         final_json_path=str(final_json_path),
         final_markdown_path=str(final_markdown_path),
         manifest_path=str(manifest_path),
+        llm_tasks_path=str(llm_tasks_path),
         specialist_table_paths=specialist_table_paths,
     )
 
@@ -117,6 +125,7 @@ def _build_run_manifest(
     base_markdown_path: Path,
     final_json_path: Path,
     final_markdown_path: Path,
+    llm_tasks_path: Path,
 ) -> dict[str, object]:
     return {
         "schema_version": "1.0",
@@ -128,6 +137,8 @@ def _build_run_manifest(
             "requested": report.review_mode.value == "enhanced",
             "enhanced": report.llm_enhanced,
             "warnings": report.llm_warnings,
+            "tasks_path": str(llm_tasks_path),
+            "tasks": [item.to_dict() for item in report.task_records if item.task_name.startswith("llm_")],
             "semantic_review": {
                 "clause_supplement_count": len(report.llm_semantic_review.clause_supplements),
                 "specialist_finding_count": len(report.llm_semantic_review.specialist_findings),
@@ -143,6 +154,7 @@ def _build_run_manifest(
             "warnings": report.parse_result.warnings,
         },
         "stage_records": [item.to_dict() for item in report.stage_records],
+        "task_records": [item.to_dict() for item in report.task_records],
         "artifact_paths": {
             "base_report": {
                 "json": str(base_json_path),
@@ -155,5 +167,16 @@ def _build_run_manifest(
                 "review_mode": report.review_mode.value,
             },
             "specialist_tables": specialist_table_paths,
+            "llm_tasks": str(llm_tasks_path),
         },
+    }
+
+
+def _build_llm_tasks_payload(report: ReviewReport) -> dict[str, object]:
+    return {
+        "document_name": report.file_info.document_name,
+        "review_mode": report.review_mode.value,
+        "llm_enhanced": report.llm_enhanced,
+        "warnings": report.llm_warnings,
+        "tasks": [item.to_dict() for item in report.task_records if item.task_name.startswith("llm_")],
     }

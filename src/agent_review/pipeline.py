@@ -33,6 +33,8 @@ from .models import (
     RunStageRecord,
     SectionIndex,
     Severity,
+    TaskRecord,
+    TaskStatus,
 )
 from .rules import build_recommendations, convert_risk_hits_to_findings, execute_rule_registry
 from .structure import build_file_info, build_scope_statement, detect_file_type, locate_sections
@@ -109,6 +111,15 @@ class ReviewPipeline:
             manual_review_queue=state.manual_review_queue,
             reviewed_dimensions=state.reviewed_dimensions,
             stage_records=state.stage_records,
+            task_records=[
+                TaskRecord(
+                    task_name=item.stage_name,
+                    status=TaskStatus.completed if item.status == "completed" else TaskStatus.failed,
+                    detail=item.detail,
+                    item_count=item.item_count,
+                )
+                for item in state.stage_records
+            ],
         )
 
     def _stage_document_structure(self, state: ReviewPipelineState) -> None:

@@ -40,6 +40,15 @@ class ReviewMode(str, Enum):
     enhanced = "enhanced"
 
 
+class TaskStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    timed_out = "timed_out"
+    skipped = "skipped"
+
+
 @dataclass(slots=True)
 class Evidence:
     quote: str
@@ -238,6 +247,22 @@ class RunStageRecord:
 
 
 @dataclass(slots=True)
+class TaskRecord:
+    task_name: str
+    status: TaskStatus
+    detail: str = ""
+    item_count: int | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "task_name": self.task_name,
+            "status": self.status.value,
+            "detail": self.detail,
+            "item_count": self.item_count,
+        }
+
+
+@dataclass(slots=True)
 class LLMSemanticReview:
     clause_supplements: list[ExtractedClause] = field(default_factory=list)
     specialist_findings: list[Finding] = field(default_factory=list)
@@ -274,6 +299,7 @@ class ReviewReport:
     manual_review_queue: list[str]
     reviewed_dimensions: list[str]
     stage_records: list[RunStageRecord] = field(default_factory=list)
+    task_records: list[TaskRecord] = field(default_factory=list)
     llm_semantic_review: LLMSemanticReview = field(default_factory=LLMSemanticReview)
 
     def to_dict(self) -> dict[str, object]:
@@ -297,5 +323,6 @@ class ReviewReport:
             "manual_review_queue": self.manual_review_queue,
             "reviewed_dimensions": self.reviewed_dimensions,
             "stage_records": [item.to_dict() for item in self.stage_records],
+            "task_records": [item.to_dict() for item in self.task_records],
             "llm_semantic_review": self.llm_semantic_review.to_dict(),
         }
