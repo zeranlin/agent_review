@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from .engine import TenderReviewEngine
+from .llm import QwenReviewEnhancer
 from .reporting import render_json, render_markdown
 
 
@@ -16,6 +17,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="markdown",
         help="Output format.",
     )
+    parser.add_argument(
+        "--use-llm",
+        action="store_true",
+        help="启用本地 OpenAI 兼容 LLM，对总体结论和修改建议做增强。",
+    )
     return parser
 
 
@@ -23,7 +29,8 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
-    engine = TenderReviewEngine()
+    enhancer = QwenReviewEnhancer() if args.use_llm else None
+    engine = TenderReviewEngine(review_enhancer=enhancer)
     report = engine.review_file(args.input)
 
     if args.format == "json":

@@ -112,3 +112,30 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 
 - 当前环境如果没有安装 `tesseract` 可执行程序，图片 OCR 会返回 warning，但不会让整次审查失败。
 - `.doc` 仍建议先转换为 `.docx` 或 PDF 后再审查。
+
+## LLM 增强
+
+当前版本已提供一个最小可用的 LLM 增强层，默认不启用。
+
+启用后，LLM 会参与：
+
+- 总体结论摘要润色
+- 修改建议优化
+
+启用方式：
+
+```bash
+PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --format markdown --use-llm
+```
+
+默认会读取以下配置；如未设置，则回退到当前本地预设：
+
+- `AGENT_REVIEW_LLM_BASE_URL`
+- `AGENT_REVIEW_LLM_MODEL`
+- `AGENT_REVIEW_LLM_API_KEY`
+- `AGENT_REVIEW_LLM_TIMEOUT`
+
+当前本地预设为：
+
+- Base URL: `http://112.111.54.86:10011/v1`
+- Model: `qwen3.5-27b`

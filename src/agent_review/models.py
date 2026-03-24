@@ -195,6 +195,8 @@ class ReviewReport:
     scope_statement: str
     overall_conclusion: ConclusionLevel
     summary: str
+    llm_enhanced: bool
+    llm_warnings: list[str]
     findings: list[Finding]
     relative_strengths: list[str]
     section_index: list[SectionIndex]
@@ -212,6 +214,8 @@ class ReviewReport:
             "scope_statement": self.scope_statement,
             "overall_conclusion": self.overall_conclusion.value,
             "summary": self.summary,
+            "llm_enhanced": self.llm_enhanced,
+            "llm_warnings": self.llm_warnings,
             "findings": [finding.to_dict() for finding in self.findings],
             "relative_strengths": self.relative_strengths,
             "section_index": [item.to_dict() for item in self.section_index],

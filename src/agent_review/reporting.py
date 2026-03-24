@@ -31,6 +31,7 @@ def render_markdown(report: ReviewReport) -> str:
         "",
         f"- 结论等级: {report.overall_conclusion.value}",
         f"- 摘要: {report.summary}",
+        f"- LLM增强: {'是' if report.llm_enhanced else '否'}",
         "",
         "## 主要问题",
     ]
@@ -85,6 +86,12 @@ def render_markdown(report: ReviewReport) -> str:
     if report.parse_result.warnings:
         lines.append("## 解析提示")
         for item in report.parse_result.warnings:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    if report.llm_warnings:
+        lines.append("## LLM提示")
+        for item in report.llm_warnings:
             lines.append(f"- {item}")
         lines.append("")
 

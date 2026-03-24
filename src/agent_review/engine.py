@@ -11,6 +11,7 @@ from .consistency import (
     derive_conclusion,
 )
 from .extractors import extract_clauses
+from .llm import NullReviewEnhancer
 from .models import (
     Evidence,
     Finding,
@@ -31,8 +32,13 @@ class TenderReviewEngine:
     integrating OCR, retrieval, or LLM-backed reasoning.
     """
 
-    def __init__(self, dimensions: list[ReviewDimension] | None = None) -> None:
+    def __init__(
+        self,
+        dimensions: list[ReviewDimension] | None = None,
+        review_enhancer: object | None = None,
+    ) -> None:
         self.dimensions = dimensions or DEFAULT_DIMENSIONS
+        self.review_enhancer = review_enhancer or NullReviewEnhancer()
 
     def review_text(self, text: str, document_name: str = "input.txt") -> ReviewReport:
         normalized_text = normalize_text(text)
@@ -63,12 +69,14 @@ class TenderReviewEngine:
         recommendations = build_recommendations(findings)
         overall_conclusion = derive_conclusion(findings)
         summary = self._build_summary(findings, manual_review_queue, overall_conclusion)
-        return ReviewReport(
+        report = ReviewReport(
             parse_result=_build_parse_result_for_text(normalized_text, document_name),
             file_info=file_info,
             scope_statement=scope_statement,
             overall_conclusion=overall_conclusion,
             summary=summary,
+            llm_enhanced=False,
+            llm_warnings=[],
             findings=findings,
             relative_strengths=relative_strengths,
             section_index=section_index,
@@ -79,6 +87,7 @@ class TenderReviewEngine:
             manual_review_queue=manual_review_queue,
             reviewed_dimensions=reviewed_dimensions,
         )
+        return self.review_enhancer.enhance(report)
 
     def review_file(self, path: str | Path) -> ReviewReport:
         document_name, parse_result = load_document(path)
@@ -110,12 +119,14 @@ class TenderReviewEngine:
         recommendations = build_recommendations(findings)
         overall_conclusion = derive_conclusion(findings)
         summary = self._build_summary(findings, manual_review_queue, overall_conclusion)
-        return ReviewReport(
+        report = ReviewReport(
             parse_result=parse_result,
             file_info=file_info,
             scope_statement=scope_statement,
             overall_conclusion=overall_conclusion,
             summary=summary,
+            llm_enhanced=False,
+            llm_warnings=[],
             findings=findings,
             relative_strengths=relative_strengths,
             section_index=section_index,
@@ -126,6 +137,7 @@ class TenderReviewEngine:
             manual_review_queue=manual_review_queue,
             reviewed_dimensions=reviewed_dimensions,
         )
+        return self.review_enhancer.enhance(report)
 
     @staticmethod
     def _check_consistency(text: str) -> list[ConsistencyCheck]:

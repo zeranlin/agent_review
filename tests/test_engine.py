@@ -4,7 +4,7 @@ from docx import Document
 from PIL import Image
 
 from agent_review.engine import TenderReviewEngine
-from agent_review.models import ConclusionLevel, FileType, FindingType
+from agent_review.models import ConclusionLevel, FileType, FindingType, Recommendation
 from agent_review.parsers import load_document
 
 
@@ -86,3 +86,27 @@ def test_load_document_supports_image_ocr_with_warning_when_tesseract_missing(tm
     assert parse_result.source_format == "png"
     assert parse_result.page_count == 1
     assert isinstance(parse_result.warnings, list)
+
+
+class FakeEnhancer:
+    def enhance(self, report):
+        report.summary = "这是经过LLM增强的结论摘要。"
+        report.llm_enhanced = True
+        report.recommendations = [
+            Recommendation(related_issue="测试问题", suggestion="这是经过LLM增强的建议。")
+        ]
+        return report
+
+
+def test_engine_can_apply_llm_enhancer() -> None:
+    text = """
+    项目概况
+    采购需求详见附件。
+    评分标准见附表。
+    """
+    engine = TenderReviewEngine(review_enhancer=FakeEnhancer())
+    report = engine.review_text(text, document_name="demo.txt")
+
+    assert report.llm_enhanced is True
+    assert report.summary == "这是经过LLM增强的结论摘要。"
+    assert report.recommendations[0].suggestion == "这是经过LLM增强的建议。"
