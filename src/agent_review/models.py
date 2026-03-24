@@ -175,6 +175,10 @@ class ApplicabilityCheck:
     applicable: bool
     requirement_results: list[ApplicabilityItem] = field(default_factory=list)
     exclusion_results: list[ApplicabilityItem] = field(default_factory=list)
+    satisfied_conditions: list[str] = field(default_factory=list)
+    missing_conditions: list[str] = field(default_factory=list)
+    blocking_conditions: list[str] = field(default_factory=list)
+    requirement_chain_complete: bool = False
     summary: str = ""
 
     def to_dict(self) -> dict[str, object]:
@@ -184,6 +188,10 @@ class ApplicabilityCheck:
             "applicable": self.applicable,
             "requirement_results": [item.to_dict() for item in self.requirement_results],
             "exclusion_results": [item.to_dict() for item in self.exclusion_results],
+            "satisfied_conditions": self.satisfied_conditions,
+            "missing_conditions": self.missing_conditions,
+            "blocking_conditions": self.blocking_conditions,
+            "requirement_chain_complete": self.requirement_chain_complete,
             "summary": self.summary,
         }
 

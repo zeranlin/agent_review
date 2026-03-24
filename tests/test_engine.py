@@ -260,8 +260,11 @@ def test_applicability_prefers_structured_clause_fields() -> None:
 
     assert sme_check.applicable is True
     assert "结构化字段" in sme_check.requirement_results[0].detail
+    assert sme_check.requirement_chain_complete is True
+    assert "项目专门面向中小企业" in sme_check.satisfied_conditions
     assert service_template_check.applicable is True
     assert any("中小企业声明函类型" in item.detail for item in service_template_check.requirement_results)
+    assert service_template_check.requirement_chain_complete is True
 
 
 def test_extract_clauses_normalizes_structured_values() -> None:
@@ -324,6 +327,23 @@ def test_applicability_uses_structured_field_relations() -> None:
     assert any("项目属性=服务" in item.detail for item in applicability_map["RP-SME-002"].requirement_results)
     assert applicability_map["RP-CONTRACT-005"].applicable is True
     assert any("尾款/考核联动" in item.detail for item in applicability_map["RP-CONTRACT-005"].requirement_results)
+
+
+def test_applicability_requirement_chain_reports_missing_and_blocking_conditions() -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购。
+    价格扣除不适用本项目。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    policy_check = applicability_map["RP-SME-001"]
+
+    assert policy_check.applicable is False
+    assert policy_check.requirement_chain_complete is False
+    assert "文件仍保留价格扣除" in policy_check.missing_conditions
+    assert "存在冲突证据" in policy_check.blocking_conditions
+    assert "要件链被阻断" in policy_check.summary or "要件链未闭合" in policy_check.summary
 
 
 def test_load_document_supports_docx(tmp_path: Path) -> None:
