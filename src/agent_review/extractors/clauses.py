@@ -209,10 +209,13 @@ def _amount_extractor(keywords: list[str]) -> ClauseExtractor:
         for line_no, line in enumerate(lines, start=1):
             if not any(keyword in line for keyword in keywords):
                 continue
-            match = re.search(r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)", line.replace("，", ","))
+            normalized_line = line.replace("，", ",")
+            candidate_tokens = re.findall(r"\d[\d,]*(?:\.\d+)?", normalized_line)
             normalized_value = ""
-            if match:
-                normalized_value = match.group(1).replace(",", "")
+            if candidate_tokens:
+                # Prefer the longest numeric token to avoid OCR fragments like "268" winning over "2680443.18".
+                best = max(candidate_tokens, key=lambda token: (len(token.replace(",", "")), "." in token))
+                normalized_value = best.replace(",", "")
             return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=[normalized_value] if normalized_value else [])
         return None
 

@@ -254,6 +254,13 @@ def _first_value(clause_mapping: dict[str, list[ExtractedClause]], field_name: s
     return clauses[0].content if clauses else ""
 
 
+def _first_normalized_or_content(clause_mapping: dict[str, list[ExtractedClause]], field_name: str) -> str:
+    clauses = clause_mapping.get(field_name, [])
+    if not clauses:
+        return ""
+    return clauses[0].normalized_value or clauses[0].content
+
+
 def _collect_tags(clause_mapping: dict[str, list[ExtractedClause]], field_name: str) -> set[str]:
     tags: set[str] = set()
     for clause in clause_mapping.get(field_name, []):
@@ -320,8 +327,8 @@ def _payment_assessment_link_evaluator(clause_mapping: dict[str, list[ExtractedC
 
 
 def _contract_type_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
-    project_type = _first_value(clause_mapping, "项目属性")
-    contract_type = _first_value(clause_mapping, "合同类型")
+    project_type = _first_normalized_or_content(clause_mapping, "项目属性")
+    contract_type = _first_normalized_or_content(clause_mapping, "合同类型")
     service_tags = _collect_tags(clause_mapping, "采购内容构成") | _collect_tags(clause_mapping, "是否含持续性服务")
     if not project_type or not contract_type:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取项目属性和合同类型。"]
@@ -335,8 +342,8 @@ def _contract_type_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedCl
 
 
 def _continuous_service_in_goods_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
-    project_type = _first_value(clause_mapping, "项目属性")
-    service_flag = _first_value(clause_mapping, "是否含持续性服务")
+    project_type = _first_normalized_or_content(clause_mapping, "项目属性")
+    service_flag = _first_normalized_or_content(clause_mapping, "是否含持续性服务")
     service_tags = _collect_tags(clause_mapping, "是否含持续性服务") | _collect_tags(clause_mapping, "采购内容构成")
     if not project_type or not service_flag:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取项目属性和持续性服务内容。"]
