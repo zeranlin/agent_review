@@ -21,7 +21,7 @@ from .consistency import (
     collect_relative_strengths,
 )
 from .extractors import classify_extracted_clauses, extract_clauses
-from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_risk_hits
+from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_review_points, annotate_risk_hits
 from .merge import (
     build_specialist_tables,
     dedupe_findings,
@@ -293,7 +293,7 @@ class ReviewPipeline:
         )
 
     def _stage_review_point_assembly(self, state: ReviewPipelineState) -> None:
-        state.review_points = merge_review_points(state.review_points)
+        state.review_points = annotate_review_points(merge_review_points(state.review_points))
         state.review_point_catalog = build_review_point_catalog_snapshot(state.review_points)
         state.stage_records.append(
             RunStageRecord(

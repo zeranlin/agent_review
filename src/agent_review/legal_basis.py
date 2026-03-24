@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import ConsistencyCheck, Finding, LegalBasis, RiskHit
+from .models import ConsistencyCheck, Finding, LegalBasis, ReviewPoint, RiskHit
 
 
 LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
@@ -237,12 +237,61 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         )
     ],
+    "项目属性与合同类型口径疑似不一致": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法",
+            article_hint="第二条",
+            summary="政府采购应按货物、工程、服务的真实采购对象和法律关系进行组织，不宜在项目属性和合同类型上出现明显错配。",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="采购需求、合同类型与项目实际需要应保持一致，避免名义采购属性与实际履约结构脱节。",
+            basis_type="部门规范性文件",
+        ),
+    ],
+    "货物采购混入持续性作业服务": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法实施条例",
+            article_hint="货物和服务区分相关条款",
+            summary="采购项目属性应结合实际履约内容判断，持续性作业服务不宜简单按货物采购处理。",
+            basis_type="行政法规",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="采购需求与项目属性匹配要求",
+            summary="采购需求应与项目实际履约内容相适应，货物采购混入长期作业服务时应重新核对项目主属性。",
+            basis_type="部门规范性文件",
+        ),
+    ],
     "技术要求 vs 评分标准": [
         LegalBasis(
             source_name="政府采购货物和服务招标投标管理办法",
             article_hint="评审因素与采购需求关联性要求",
             summary="评分标准应与采购需求直接对应并量化。",
             basis_type="部门规章",
+        )
+    ],
+    "行业无关证书或财务指标被纳入评分": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求与评审关联性要求",
+            summary="评分因素应与采购需求和合同履约能力直接相关，不宜纳入与项目标的不匹配的证书或财务偏好指标。",
+            basis_type="部门规范性文件",
+        ),
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="评审因素设置相关条款",
+            summary="评审因素和分值设置应反映项目实际需求，不得借无关评分项变相限制竞争。",
+            basis_type="部门规章",
+        ),
+    ],
+    "方案评分量化不足": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="技术、商务要求客观量化要求",
+            summary="需要供应商提供方案时，应尽可能明确客观、量化指标和相应等次，避免过宽裁量空间。",
+            basis_type="部门规范性文件",
         )
     ],
     "预算金额 vs 最高限价": [
@@ -253,6 +302,14 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         )
     ],
+    "预算金额与面向中小企业采购金额口径异常": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="采购文件编制完整性要求",
+            summary="预算金额、最高限价及中小企业政策相关金额口径应清晰一致，避免错填、漏填或混用。",
+            basis_type="部门规范性文件",
+        )
+    ],
     "中小企业政策 vs 价格扣除政策": [
         LegalBasis(
             source_name="政府采购促进中小企业发展管理办法",
@@ -260,6 +317,35 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             summary="中小企业价格扣除与专门面向中小企业采购属于不同政策路径，应避免混用。",
             basis_type="部门规范性文件",
         )
+    ],
+    "面向中小企业采购金额与最高限价疑似混用": [
+        LegalBasis(
+            source_name="政府采购促进中小企业发展管理办法",
+            article_hint="中小企业政策执行口径要求",
+            summary="中小企业政策金额口径应真实反映政策适用范围，不宜直接以最高限价替代面向中小企业采购金额。",
+            basis_type="部门规范性文件",
+        )
+    ],
+    "合同条款出现非本行业成果模板表述": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="采购文件与合同文本一致性要求",
+            summary="合同条款应与项目行业性质、履约方式和验收要求保持一致，避免沿用其他行业成果交付模板。",
+            basis_type="部门规范性文件",
+        )
+    ],
+    "验收标准存在优胜原则或单方弹性判断": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="验收与履约管理要求",
+            summary="验收标准应客观、明确、事先确定，不宜保留由采购人单方弹性判断的空间。",
+            basis_type="部门规范性文件",
+        ),
+        LegalBasis(
+            source_name="中华人民共和国民法典",
+            article_hint="合同编公平原则",
+            summary="合同履约和验收条款应遵循公平、明确原则，避免一方以模糊标准决定对方主要权利义务。",
+        ),
     ],
     "正文 vs 评分细则跨文件一致性": [
         LegalBasis(
@@ -297,6 +383,13 @@ def annotate_findings(findings: list[Finding]) -> list[Finding]:
         if not finding.legal_basis:
             finding.legal_basis = _lookup_basis(finding.title)
     return findings
+
+
+def annotate_review_points(review_points: list[ReviewPoint]) -> list[ReviewPoint]:
+    for point in review_points:
+        if not point.legal_basis:
+            point.legal_basis = _lookup_basis(point.title)
+    return review_points
 
 
 def _lookup_basis(key: str) -> list[LegalBasis]:
