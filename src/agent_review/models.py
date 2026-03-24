@@ -213,6 +213,7 @@ class SpecialistTables:
     personnel_boundary: list[SpecialistTableRow] = field(default_factory=list)
     contract_performance: list[SpecialistTableRow] = field(default_factory=list)
     template_conflicts: list[SpecialistTableRow] = field(default_factory=list)
+    summaries: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -221,6 +222,7 @@ class SpecialistTables:
             "personnel_boundary": [item.to_dict() for item in self.personnel_boundary],
             "contract_performance": [item.to_dict() for item in self.contract_performance],
             "template_conflicts": [item.to_dict() for item in self.template_conflicts],
+            "summaries": self.summaries,
         }
 
 

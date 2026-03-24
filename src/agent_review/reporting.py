@@ -105,10 +105,15 @@ def render_markdown(report: ReviewReport) -> str:
     lines.append("")
 
     _append_specialist_table(lines, "项目结构一致性表", report.specialist_tables.project_structure)
+    _append_specialist_summary(lines, "项目结构一致性表", report.specialist_tables.summaries.get("project_structure"))
     _append_specialist_table(lines, "中小企业政策一致性表", report.specialist_tables.sme_policy)
+    _append_specialist_summary(lines, "中小企业政策一致性表", report.specialist_tables.summaries.get("sme_policy"))
     _append_specialist_table(lines, "人员与用工边界风险表", report.specialist_tables.personnel_boundary)
+    _append_specialist_summary(lines, "人员与用工边界风险表", report.specialist_tables.summaries.get("personnel_boundary"))
     _append_specialist_table(lines, "合同履约风险表", report.specialist_tables.contract_performance)
+    _append_specialist_summary(lines, "合同履约风险表", report.specialist_tables.summaries.get("contract_performance"))
     _append_specialist_table(lines, "模板残留与冲突表", report.specialist_tables.template_conflicts)
+    _append_specialist_summary(lines, "模板残留与冲突表", report.specialist_tables.summaries.get("template_conflicts"))
 
     if report.parse_result.warnings:
         lines.append("## 解析提示")
@@ -158,3 +163,10 @@ def _append_specialist_table(lines: list[str], title: str, rows) -> None:
     else:
         lines.append("- 本次未命中该专项表的结构化风险项。")
     lines.append("")
+
+
+def _append_specialist_summary(lines: list[str], title: str, summary: str | None) -> None:
+    if summary:
+        lines.append(f"### {title}摘要")
+        lines.append(f"- {summary}")
+        lines.append("")

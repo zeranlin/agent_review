@@ -139,6 +139,7 @@ class FakeEnhancer:
     def enhance(self, report):
         report.summary = "这是经过LLM增强的结论摘要。"
         report.llm_enhanced = True
+        report.specialist_tables.summaries["sme_policy"] = "这是经过LLM增强的中小企业政策专项摘要。"
         report.recommendations = [
             Recommendation(related_issue="测试问题", suggestion="这是经过LLM增强的建议。")
         ]
@@ -157,6 +158,7 @@ def test_engine_can_apply_llm_enhancer() -> None:
     assert report.llm_enhanced is True
     assert report.summary == "这是经过LLM增强的结论摘要。"
     assert report.recommendations[0].suggestion == "这是经过LLM增强的建议。"
+    assert report.specialist_tables.summaries["sme_policy"] == "这是经过LLM增强的中小企业政策专项摘要。"
 
 
 def test_fast_mode_skips_enhancer() -> None:
@@ -213,3 +215,17 @@ def test_report_contains_specialist_tables() -> None:
     assert report.specialist_tables.sme_policy
     assert report.specialist_tables.personnel_boundary
     assert report.specialist_tables.contract_performance
+
+
+def test_markdown_can_render_specialist_summary() -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    """
+    engine = TenderReviewEngine(review_enhancer=FakeEnhancer(), review_mode=ReviewMode.enhanced)
+    report = engine.review_text(text, document_name="demo.txt")
+    markdown = render_markdown(report)
+
+    assert "中小企业政策一致性表摘要" in markdown
+    assert "这是经过LLM增强的中小企业政策专项摘要。" in markdown

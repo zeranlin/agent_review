@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import replace
 
-from ..models import Recommendation, ReviewReport
+from ..models import Recommendation, ReviewReport, SpecialistTables
 from .client import OpenAICompatibleClient, QwenLocalConfig
 from .prompts import REVIEW_ENHANCER_SYSTEM_PROMPT, build_review_enhancer_prompt
 
@@ -37,10 +37,14 @@ class QwenReviewEnhancer:
             parsed = _parse_json_response(raw)
             summary = str(parsed.get("summary", "")).strip() or report.summary
             recommendations = _merge_recommendations(report, parsed.get("recommendations"))
+            specialist_tables = _merge_specialist_summaries(
+                report.specialist_tables, parsed.get("specialist_summaries")
+            )
             return replace(
                 report,
                 summary=summary,
                 recommendations=recommendations,
+                specialist_tables=specialist_tables,
                 llm_enhanced=True,
                 llm_warnings=[],
             )
@@ -72,6 +76,28 @@ def _merge_recommendations(report: ReviewReport, raw_recommendations: object) ->
         if item.related_issue not in seen:
             updated.append(item)
     return updated or report.recommendations
+
+
+def _merge_specialist_summaries(
+    specialist_tables: SpecialistTables,
+    raw_summaries: object,
+) -> SpecialistTables:
+    if not isinstance(raw_summaries, dict):
+        return specialist_tables
+
+    merged = dict(specialist_tables.summaries)
+    for key in [
+        "project_structure",
+        "sme_policy",
+        "personnel_boundary",
+        "contract_performance",
+        "template_conflicts",
+    ]:
+        value = raw_summaries.get(key)
+        if isinstance(value, str) and value.strip():
+            merged[key] = value.strip()
+    specialist_tables.summaries = merged
+    return specialist_tables
 
 
 def _parse_json_response(raw: str) -> dict:
