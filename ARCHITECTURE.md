@@ -227,6 +227,7 @@
 包含：
 
 - 规则命中到 `ReviewPoint` 的转换
+- 维度筛查结果到 `ReviewPoint` 的转换
 - 一致性疑点到 `ReviewPoint` 的转换
 - 多来源 `ReviewPoint` 的合并、去重与编号
 - `EvidenceBundle` 汇总

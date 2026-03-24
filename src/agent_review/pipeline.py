@@ -191,24 +191,30 @@ class ReviewPipeline:
         )
 
     def _stage_dimension_review(self, state: ReviewPipelineState) -> None:
-        findings: list[Finding] = []
+        review_points = []
         manual_review_queue: list[str] = []
         reviewed_dimensions: list[str] = []
         for dimension in self.dimensions:
             reviewed_dimensions.append(dimension.display_name)
             dimension_findings = _review_dimension(state.normalized_text, dimension)
-            findings.extend(dimension_findings)
+            review_points.extend(
+                build_review_points_from_findings(
+                    dimension_findings,
+                    state.parse_result.text,
+                    state.extracted_clauses,
+                )
+            )
             for finding in dimension_findings:
                 if finding.finding_type == FindingType.manual_review_required:
                     manual_review_queue.append(finding.title)
-        state.findings.extend(findings)
+        state.review_points.extend(review_points)
         state.manual_review_queue.extend(manual_review_queue)
         state.reviewed_dimensions = reviewed_dimensions
         state.stage_records.append(
             RunStageRecord(
                 stage_name="dimension_review",
                 status="completed",
-                item_count=len(findings),
+                item_count=len(review_points),
                 detail=f"完成 {len(reviewed_dimensions)} 个维度的基础筛查。",
             )
         )
@@ -257,14 +263,7 @@ class ReviewPipeline:
         )
 
     def _stage_review_point_assembly(self, state: ReviewPipelineState) -> None:
-        dimension_review_points = build_review_points_from_findings(
-            state.findings,
-            state.parse_result.text,
-            state.extracted_clauses,
-        )
-        state.review_points = merge_review_points(
-            [*state.review_points, *dimension_review_points]
-        )
+        state.review_points = merge_review_points(state.review_points)
         state.stage_records.append(
             RunStageRecord(
                 stage_name="review_point_assembly",
@@ -275,9 +274,10 @@ class ReviewPipeline:
         )
 
     def _stage_formal_adjudication(self, state: ReviewPipelineState) -> None:
+        provisional_findings = convert_review_points_to_findings(state.review_points)
         state.formal_adjudication = build_formal_adjudication(
             state.review_points,
-            state.findings,
+            provisional_findings,
             state.parse_result.text,
             state.extracted_clauses,
         )

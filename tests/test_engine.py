@@ -48,6 +48,10 @@ def test_detects_manual_review_for_attachment_markers() -> None:
         FileType.procurement_requirement,
         FileType.mixed_document,
     }
+    point_map = {(item.dimension, item.title): item for item in report.review_points}
+    point = point_map[("采购范围清晰度", "采购范围清晰度依赖附件或外部材料")]
+    assert any(source.startswith("finding:manual_review_required:") for source in point.source_findings)
+    assert point.status == ReviewPointStatus.manual_confirmation
 
 
 def test_detects_restrictive_terms_warning() -> None:

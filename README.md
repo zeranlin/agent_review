@@ -94,6 +94,7 @@ pyproject.toml              # 包配置与测试配置
 
 当前内部主链也已开始切换为“`ReviewPoint` 优先”：
 
+- 维度筛查层优先产出 `ReviewPoint`
 - 规则层优先产出 `ReviewPoint`
 - 一致性层优先产出 `ReviewPoint`
 - `Finding` 不再作为这两层的第一产物，而是在汇总阶段由 `ReviewPoint` 统一回写，以兼容既有报告、意见书和 JSON 输出
