@@ -440,6 +440,11 @@ def _merge_evidence_bundles(bundles: Iterable[EvidenceBundle]) -> EvidenceBundle
         for bundle in bundles
         for evidence in bundle.conflicting_evidence
     )
+    rebuttal = _dedupe_evidence(
+        evidence
+        for bundle in bundles
+        for evidence in bundle.rebuttal_evidence
+    )
     clause_roles = _dedupe_clause_roles(
         role
         for bundle in bundles
@@ -451,7 +456,9 @@ def _merge_evidence_bundles(bundles: Iterable[EvidenceBundle]) -> EvidenceBundle
         for note in bundle.missing_evidence_notes
         if note
     )
-    if direct:
+    if direct and (conflicting or rebuttal):
+        summary = "已汇集直接证据，但同时存在冲突证据或反证，需谨慎裁决。"
+    elif direct:
         summary = "已汇集直接证据，可作为正式裁决基础。"
     elif supporting:
         summary = "目前以辅助证据为主，需进一步补强直接条款。"
@@ -461,7 +468,7 @@ def _merge_evidence_bundles(bundles: Iterable[EvidenceBundle]) -> EvidenceBundle
         direct_evidence=direct,
         supporting_evidence=supporting,
         conflicting_evidence=conflicting,
-        rebuttal_evidence=[],
+        rebuttal_evidence=rebuttal,
         missing_evidence_notes=missing_notes,
         clause_roles=clause_roles,
         sufficiency_summary=summary,

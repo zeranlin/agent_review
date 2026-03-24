@@ -203,13 +203,47 @@ def test_review_task_fact_collectors_attach_structured_facts_to_tasks() -> None:
     sme_task = task_map["RP-SME-002"]
     contract_task = task_map["RP-CONTRACT-005"]
 
-    assert sme_task.status in {ReviewPointStatus.identified, ReviewPointStatus.suspected}
+    assert sme_task.status in {
+        ReviewPointStatus.identified,
+        ReviewPointStatus.suspected,
+        ReviewPointStatus.manual_confirmation,
+    }
     assert sme_task.evidence_bundle.direct_evidence
     assert any("项目属性=服务" in item.quote for item in sme_task.evidence_bundle.direct_evidence)
-    assert any("中小企业声明函类型" in item.quote for item in sme_task.evidence_bundle.direct_evidence)
+    assert any(
+        "中小企业声明函类型" in item.quote
+        for item in (
+            sme_task.evidence_bundle.direct_evidence
+            + sme_task.evidence_bundle.supporting_evidence
+            + sme_task.evidence_bundle.conflicting_evidence
+        )
+    )
 
     assert contract_task.evidence_bundle.direct_evidence
     assert any("付款节点=存在" in item.quote for item in contract_task.evidence_bundle.direct_evidence)
+
+
+def test_task_evidence_assembler_can_capture_conflicting_and_rebuttal_evidence() -> None:
+    text = """
+    项目属性：服务
+    法定代表人证明书
+    附：代表人性别：_____年龄：_________
+    本项目专门面向中小企业采购。
+    价格扣除不适用本项目。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    task_map = {item.catalog_id: item for item in report.review_points}
+
+    personnel_task = task_map["RP-PER-001"]
+    policy_task = task_map["RP-SME-001"]
+
+    assert personnel_task.evidence_bundle.conflicting_evidence
+    assert any("性别限制" in note or "冲突" in note for note in personnel_task.evidence_bundle.missing_evidence_notes)
+    assert policy_task.evidence_bundle.conflicting_evidence or policy_task.evidence_bundle.rebuttal_evidence
+    assert any(
+        "价格扣除不适用" in note or "反证" in note or "冲突" in note
+        for note in policy_task.evidence_bundle.missing_evidence_notes
+    )
 
 
 def test_applicability_prefers_structured_clause_fields() -> None:
