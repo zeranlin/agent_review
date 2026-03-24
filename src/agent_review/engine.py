@@ -27,8 +27,10 @@ from .rules import (
     convert_risk_hits_to_findings,
     match_contract_performance_risks,
     match_personnel_boundary_risks,
+    match_project_structure_risks,
     match_risk_rules,
     match_sme_policy_risks,
+    match_template_conflict_risks,
 )
 from .structure import build_file_info, build_scope_statement, detect_file_type, locate_sections
 
@@ -58,10 +60,12 @@ class TenderReviewEngine:
         section_index = locate_sections(normalized_text)
         extracted_clauses = extract_clauses(normalized_text)
         risk_hits = match_risk_rules(normalized_text)
+        risk_hits.extend(match_project_structure_risks(normalized_text, extracted_clauses))
         risk_hits.extend(match_sme_policy_risks(normalized_text, extracted_clauses))
         risk_hits.extend(match_personnel_boundary_risks(normalized_text, extracted_clauses))
         risk_hits.extend(match_contract_performance_risks(normalized_text, extracted_clauses))
-        consistency_checks = check_consistency(normalized_text)
+        risk_hits.extend(match_template_conflict_risks(normalized_text, extracted_clauses))
+        consistency_checks = check_consistency(normalized_text, extracted_clauses)
         findings: list[Finding] = []
         manual_review_queue: list[str] = []
         reviewed_dimensions: list[str] = []
@@ -112,10 +116,12 @@ class TenderReviewEngine:
         section_index = locate_sections(normalized_text)
         extracted_clauses = extract_clauses(normalized_text)
         risk_hits = match_risk_rules(normalized_text)
+        risk_hits.extend(match_project_structure_risks(normalized_text, extracted_clauses))
         risk_hits.extend(match_sme_policy_risks(normalized_text, extracted_clauses))
         risk_hits.extend(match_personnel_boundary_risks(normalized_text, extracted_clauses))
         risk_hits.extend(match_contract_performance_risks(normalized_text, extracted_clauses))
-        consistency_checks = check_consistency(normalized_text)
+        risk_hits.extend(match_template_conflict_risks(normalized_text, extracted_clauses))
+        consistency_checks = check_consistency(normalized_text, extracted_clauses)
         findings: list[Finding] = []
         manual_review_queue: list[str] = []
         reviewed_dimensions: list[str] = []

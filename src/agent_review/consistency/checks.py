@@ -2,20 +2,54 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from ..models import ExtractedClause
 from ..models import ConclusionLevel, ConsistencyCheck, Finding, FindingType, SectionIndex, Severity
 
 
-def check_consistency(text: str) -> list[ConsistencyCheck]:
+def check_consistency(text: str, clauses: list[ExtractedClause] | None = None) -> list[ConsistencyCheck]:
+    mapping = _clause_map(clauses or [])
+    project_type = _first_content(mapping, "项目属性")
+    category_name = _first_content(mapping, "品目名称")
+    industry = _first_content(mapping, "所属行业划分")
+    statement_type = _first_content(mapping, "中小企业声明函类型")
+
     checks: list[ConsistencyCheck] = []
     checks.append(
         ConsistencyCheck(
             topic="项目属性 vs 履约内容",
-            status="issue" if ("货物" in text and ("运维" in text or "实施" in text)) else "ok",
+            status="issue" if ("货物" in project_type and ("运维" in text or "实施" in text)) else "ok",
             detail=(
                 "文本同时出现货物属性与运维/实施服务内容，需核查项目属性定性。"
-                if ("货物" in text and ("运维" in text or "实施" in text))
+                if ("货物" in project_type and ("运维" in text or "实施" in text))
                 else "未发现明显属性与履约内容冲突。"
             ),
+        )
+    )
+    checks.append(
+        ConsistencyCheck(
+            topic="项目属性 vs 品目名称",
+            status="issue" if ("服务" in project_type and "家具" in category_name) else "ok",
+            detail="项目属性与品目名称疑似不一致，需核查项目结构是否存在货物/服务混用。"
+            if ("服务" in project_type and "家具" in category_name)
+            else "项目属性与品目名称未见明显冲突。",
+        )
+    )
+    checks.append(
+        ConsistencyCheck(
+            topic="项目属性 vs 所属行业",
+            status="issue" if ("服务" in project_type and "工业" in industry) else "ok",
+            detail="服务项目中出现工业等疑似货物类行业口径，需复核所属行业填写。"
+            if ("服务" in project_type and "工业" in industry)
+            else "项目属性与所属行业未见明显冲突。",
+        )
+    )
+    checks.append(
+        ConsistencyCheck(
+            topic="项目属性 vs 中小企业声明函",
+            status="issue" if ("服务" in project_type and "制造商" in statement_type) else "ok",
+            detail="服务项目与中小企业声明函中的制造商口径不一致，可能存在模板混用。"
+            if ("服务" in project_type and "制造商" in statement_type)
+            else "项目属性与中小企业声明函未见明显冲突。",
         )
     )
     checks.append(
@@ -43,6 +77,42 @@ def check_consistency(text: str) -> list[ConsistencyCheck]:
             detail="出现综合评分，但技术要求定位不足，需核查评分依据。"
             if ("综合评分" in text and "技术要求" not in text)
             else "技术要求与评分标准未见明显脱节。",
+        )
+    )
+    checks.append(
+        ConsistencyCheck(
+            topic="评分标准 vs 合同要求",
+            status="issue" if ("评分" in text and "考核" in text and "合同" in text) else "ok",
+            detail="评分标准与合同考核要求同时出现，需核查是否将主观考核逻辑前置或后置叠加。"
+            if ("评分" in text and "考核" in text and "合同" in text)
+            else "评分标准与合同要求未见明显冲突。",
+        )
+    )
+    checks.append(
+        ConsistencyCheck(
+            topic="验收标准 vs 付款条件",
+            status="issue" if ("验收" in text and ("满意" in text or "考核" in text) and ("付款" in text or "支付" in text)) else "ok",
+            detail="验收与付款条件联动中含有满意度或考核口径，需核查是否存在主观控制付款风险。"
+            if ("验收" in text and ("满意" in text or "考核" in text) and ("付款" in text or "支付" in text))
+            else "验收标准与付款条件未见明显冲突。",
+        )
+    )
+    checks.append(
+        ConsistencyCheck(
+            topic="中小企业政策 vs 分包条款",
+            status="issue" if ("专门面向中小企业" in text and "分包" in text and "价格扣除" in text) else "ok",
+            detail="中小企业政策、分包条款与价格扣除模板并存，需复核政策执行口径是否自洽。"
+            if ("专门面向中小企业" in text and "分包" in text and "价格扣除" in text)
+            else "中小企业政策与分包条款未见明显冲突。",
+        )
+    )
+    checks.append(
+        ConsistencyCheck(
+            topic="服务要求 vs 人员评分要求",
+            status="issue" if ("服务" in project_type and ("学历" in text or "职称" in text) and "评分" in text) else "ok",
+            detail="服务项目中存在学历、职称等人员评分要求，需核查其与实际履职是否直接相关。"
+            if ("服务" in project_type and ("学历" in text or "职称" in text) and "评分" in text)
+            else "服务要求与人员评分要求未见明显冲突。",
         )
     )
     checks.append(
@@ -106,3 +176,15 @@ def derive_conclusion(findings: list[Finding]) -> ConclusionLevel:
     ):
         return ConclusionLevel.optimize
     return ConclusionLevel.ready
+
+
+def _clause_map(clauses: list[ExtractedClause]) -> dict[str, list[ExtractedClause]]:
+    mapping: dict[str, list[ExtractedClause]] = {}
+    for clause in clauses:
+        mapping.setdefault(clause.field_name, []).append(clause)
+    return mapping
+
+
+def _first_content(mapping: dict[str, list[ExtractedClause]], key: str) -> str:
+    items = mapping.get(key) or []
+    return items[0].content if items else ""

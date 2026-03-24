@@ -74,6 +74,29 @@ def test_detects_sme_personnel_and_contract_risks() -> None:
     assert "尾款支付与考核条款联动风险" in titles
 
 
+def test_detects_project_structure_and_template_conflicts() -> None:
+    text = """
+    项目名称：某物业服务项目
+    采购标的：物业管理服务
+    品目名称：办公家具
+    项目属性：服务
+    所属行业：工业
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    合同条款中写明质保期2年。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    titles = {item.title for item in report.findings}
+
+    assert "项目属性与所属行业口径疑似不一致" in titles
+    assert "项目属性与声明函模板口径冲突" in titles
+    assert "服务项目保留货物类声明函模板" in titles
+    assert "专门面向中小企业却保留价格扣除模板" in titles
+    assert "项目属性 vs 品目名称" in titles
+    assert "项目属性 vs 所属行业" in titles
+    assert "项目属性 vs 中小企业声明函" in titles
+
+
 def test_missing_dimension_generates_missing_evidence() -> None:
     text = "这是一份极短的文本，只提到项目概况。"
     report = TenderReviewEngine().review_text(text, document_name="short.txt")
