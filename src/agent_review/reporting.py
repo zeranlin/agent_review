@@ -238,6 +238,14 @@ def render_markdown(report: ReviewReport) -> str:
             )
         lines.append("")
 
+    if report.llm_semantic_review.scenario_review_summary or report.llm_semantic_review.dynamic_review_tasks:
+        lines.append("## LLM场景识别与动态任务")
+        if report.llm_semantic_review.scenario_review_summary:
+            lines.append(f"- 场景判断：{report.llm_semantic_review.scenario_review_summary}")
+        for item in report.llm_semantic_review.dynamic_review_tasks:
+            lines.append(f"- [{item.catalog_id}] {item.title}：{item.dimension}")
+        lines.append("")
+
     _append_specialist_table(lines, "项目结构一致性表", report.specialist_tables.project_structure)
     _append_specialist_summary(lines, "项目结构一致性表", report.specialist_tables.summaries.get("project_structure"))
     _append_specialist_table(lines, "中小企业政策一致性表", report.specialist_tables.sme_policy)

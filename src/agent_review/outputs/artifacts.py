@@ -176,6 +176,8 @@ def _build_run_manifest(
             "tasks_path": str(llm_tasks_path),
             "tasks": [item.to_dict() for item in report.task_records if item.task_name.startswith("llm_")],
             "semantic_review": {
+                "scenario_review_summary": report.llm_semantic_review.scenario_review_summary,
+                "dynamic_review_task_count": len(report.llm_semantic_review.dynamic_review_tasks),
                 "clause_supplement_count": len(report.llm_semantic_review.clause_supplements),
                 "role_review_count": len(report.llm_semantic_review.role_review_notes),
                 "evidence_review_count": len(report.llm_semantic_review.evidence_review_notes),

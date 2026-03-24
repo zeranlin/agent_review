@@ -4,6 +4,13 @@ import json
 import re
 from dataclasses import replace
 
+from ..adjudication import (
+    build_formal_adjudication,
+    build_point_applicability_checks,
+    build_point_quality_gates,
+    build_review_point_catalog_snapshot,
+    merge_review_points,
+)
 from ..merge import dedupe_extracted_clauses, dedupe_findings, dedupe_recommendations
 from ..models import (
     AdoptionStatus,
@@ -31,6 +38,7 @@ from .prompts import (
     CLAUSE_SUPPLEMENT_SYSTEM_PROMPT,
     CONSISTENCY_REVIEW_SYSTEM_PROMPT,
     EVIDENCE_REVIEW_SYSTEM_PROMPT,
+    SCENARIO_REVIEW_SYSTEM_PROMPT,
     REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
     ROLE_REVIEW_SYSTEM_PROMPT,
     SPECIALIST_REVIEW_SYSTEM_PROMPT,
@@ -39,14 +47,17 @@ from .prompts import (
     build_clause_supplement_prompt,
     build_consistency_review_prompt,
     build_evidence_review_prompt,
+    build_scenario_review_prompt,
     build_review_point_second_review_prompt,
     build_role_review_prompt,
     build_specialist_review_prompt,
     build_verdict_review_prompt,
 )
+from .task_planner import build_dynamic_review_points, parse_dynamic_review_tasks
 
 
 LLM_TASK_ORDER = [
+    "llm_scenario_review",
     "llm_clause_supplement",
     "llm_role_review",
     "llm_evidence_review",
@@ -84,12 +95,56 @@ class QwenReviewEnhancer:
         recommendations = report.recommendations
         summary = report.summary
         warnings: list[str] = []
+        working_report = report
+
+        scenario_payload, scenario_error = self._run_task(
+            task_name="llm_scenario_review",
+            task_records=task_records,
+            system_prompt=SCENARIO_REVIEW_SYSTEM_PROMPT,
+            user_prompt=build_scenario_review_prompt(report),
+            skip_when=False,
+            skip_detail="",
+        )
+        if scenario_payload:
+            semantic_review.scenario_review_summary = str(
+                scenario_payload.get("scenario_review_summary", "")
+            ).strip()
+            semantic_review.dynamic_review_tasks = parse_dynamic_review_tasks(
+                scenario_payload.get("dynamic_review_tasks")
+            )
+            if semantic_review.dynamic_review_tasks:
+                dynamic_points = build_dynamic_review_points(
+                    semantic_review.dynamic_review_tasks,
+                    report.extracted_clauses,
+                )
+                merged_points = merge_review_points(report.review_points + dynamic_points)
+                applicability_checks = build_point_applicability_checks(
+                    merged_points,
+                    report.extracted_clauses,
+                )
+                quality_gates = build_point_quality_gates(merged_points)
+                working_report = replace(
+                    report,
+                    review_points=merged_points,
+                    review_point_catalog=build_review_point_catalog_snapshot(merged_points),
+                    applicability_checks=applicability_checks,
+                    quality_gates=quality_gates,
+                    formal_adjudication=build_formal_adjudication(
+                        merged_points,
+                        applicability_checks,
+                        quality_gates,
+                        report.parse_result.text,
+                        report.extracted_clauses,
+                    ),
+                )
+        if scenario_error:
+            warnings.append(scenario_error)
 
         clause_payload, clause_error = self._run_task(
             task_name="llm_clause_supplement",
             task_records=task_records,
             system_prompt=CLAUSE_SUPPLEMENT_SYSTEM_PROMPT,
-            user_prompt=build_clause_supplement_prompt(report),
+            user_prompt=build_clause_supplement_prompt(working_report),
             skip_when=False,
             skip_detail="",
         )
@@ -104,8 +159,8 @@ class QwenReviewEnhancer:
             task_name="llm_role_review",
             task_records=task_records,
             system_prompt=ROLE_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_role_review_prompt(report),
-            skip_when=not report.review_points,
+            user_prompt=build_role_review_prompt(working_report),
+            skip_when=not working_report.review_points,
             skip_detail="当前无 ReviewPoint，跳过角色复核。",
         )
         if role_payload:
@@ -117,8 +172,8 @@ class QwenReviewEnhancer:
             task_name="llm_evidence_review",
             task_records=task_records,
             system_prompt=EVIDENCE_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_evidence_review_prompt(report),
-            skip_when=not report.review_points,
+            user_prompt=build_evidence_review_prompt(working_report),
+            skip_when=not working_report.review_points,
             skip_detail="当前无 ReviewPoint，跳过证据复核。",
         )
         if evidence_payload:
@@ -130,8 +185,8 @@ class QwenReviewEnhancer:
             task_name="llm_applicability_review",
             task_records=task_records,
             system_prompt=APPLICABILITY_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_applicability_review_prompt(report),
-            skip_when=not report.applicability_checks,
+            user_prompt=build_applicability_review_prompt(working_report),
+            skip_when=not working_report.applicability_checks,
             skip_detail="当前无适法性检查结果，跳过适法性复核。",
         )
         if applicability_payload:
@@ -145,8 +200,8 @@ class QwenReviewEnhancer:
             task_name="llm_review_point_second_review",
             task_records=task_records,
             system_prompt=REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_review_point_second_review_prompt(report),
-            skip_when=not report.review_points,
+            user_prompt=build_review_point_second_review_prompt(working_report),
+            skip_when=not working_report.review_points,
             skip_detail="当前无 ReviewPoint，跳过审查点二审。",
         )
         if second_review_payload:
@@ -157,11 +212,11 @@ class QwenReviewEnhancer:
             warnings.append(second_review_error)
 
         formal_adjudication = _apply_review_point_second_reviews(
-            report.formal_adjudication,
+            working_report.formal_adjudication,
             semantic_review.review_point_second_reviews,
         )
         overall_conclusion = _derive_conclusion_from_formal(
-            report,
+            working_report,
             formal_adjudication,
         )
 
@@ -179,7 +234,7 @@ class QwenReviewEnhancer:
             task_name="llm_specialist_review",
             task_records=task_records,
             system_prompt=SPECIALIST_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_specialist_review_prompt(report),
+            user_prompt=build_specialist_review_prompt(working_report),
             skip_when=specialist_skip,
             skip_detail="当前专项表为空，跳过专项语义复核。",
         )
@@ -193,7 +248,7 @@ class QwenReviewEnhancer:
                 specialist_payload.get("specialist_summaries"),
             )
             recommendations = dedupe_recommendations(
-                _merge_recommendations(report, specialist_payload.get("recommendations"))
+                _merge_recommendations(working_report, specialist_payload.get("recommendations"))
             )
         if specialist_error:
             warnings.append(specialist_error)
@@ -202,8 +257,8 @@ class QwenReviewEnhancer:
             task_name="llm_consistency_review",
             task_records=task_records,
             system_prompt=CONSISTENCY_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_consistency_review_prompt(report),
-            skip_when=not report.consistency_checks,
+            user_prompt=build_consistency_review_prompt(working_report),
+            skip_when=not working_report.consistency_checks,
             skip_detail="当前一致性矩阵为空，跳过深层一致性复核。",
         )
         if consistency_payload:
@@ -218,7 +273,7 @@ class QwenReviewEnhancer:
             task_name="llm_verdict_review",
             task_records=task_records,
             system_prompt=VERDICT_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_verdict_review_prompt(report),
+            user_prompt=build_verdict_review_prompt(working_report),
             skip_when=False,
             skip_detail="",
         )
@@ -229,19 +284,20 @@ class QwenReviewEnhancer:
             warnings.append(verdict_error)
 
         merged_clauses = dedupe_extracted_clauses(
-            report.extracted_clauses + semantic_review.clause_supplements
+            working_report.extracted_clauses + semantic_review.clause_supplements
         )
         merged_findings = dedupe_findings(
-            report.findings
+            working_report.findings
             + semantic_review.specialist_findings
             + semantic_review.consistency_findings
         )
-        stage_records = list(report.stage_records) + [
+        stage_records = list(working_report.stage_records) + [
             RunStageRecord(
                 stage_name="llm_semantic_review",
                 status="completed" if not warnings else "partial",
                 item_count=(
-                    len(semantic_review.clause_supplements)
+                    len(semantic_review.dynamic_review_tasks)
+                    + len(semantic_review.clause_supplements)
                     + len(semantic_review.role_review_notes)
                     + len(semantic_review.evidence_review_notes)
                     + len(semantic_review.applicability_review_notes)
@@ -254,7 +310,7 @@ class QwenReviewEnhancer:
         ]
         llm_enhanced = any(item.status == TaskStatus.completed for item in task_records if item.task_name in LLM_TASK_ORDER)
         return replace(
-            report,
+            working_report,
             summary=summary,
             recommendations=recommendations,
             specialist_tables=specialist_tables,
@@ -262,11 +318,15 @@ class QwenReviewEnhancer:
             findings=merged_findings,
             overall_conclusion=overall_conclusion,
             formal_adjudication=formal_adjudication,
+            review_points=working_report.review_points,
+            review_point_catalog=working_report.review_point_catalog,
+            applicability_checks=working_report.applicability_checks,
+            quality_gates=working_report.quality_gates,
             high_risk_review_items=_build_high_risk_review_items(merged_findings),
             pending_confirmation_items=_build_pending_confirmation_items(
                 merged_findings,
                 merged_clauses,
-                report.manual_review_queue,
+                working_report.manual_review_queue,
             ),
             llm_semantic_review=semantic_review,
             llm_enhanced=llm_enhanced,
@@ -335,6 +395,8 @@ def _find_task_record(task_records: list[TaskRecord], task_name: str) -> TaskRec
 
 
 def _count_task_items(task_name: str, parsed: dict) -> int:
+    if task_name == "llm_scenario_review":
+        return len(parsed.get("dynamic_review_tasks", []))
     if task_name == "llm_clause_supplement":
         return len(parsed.get("clause_supplements", []))
     if task_name == "llm_specialist_review":

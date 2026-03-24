@@ -523,6 +523,25 @@ class FakeClient:
                 },
                 ensure_ascii=False,
             )
+        if "识别当前项目的采购场景，并补充建议的动态审查任务" in system_prompt:
+            return json.dumps(
+                {
+                    "scenario_review_summary": "该项目呈现货物与持续性服务混合特征，建议补充结构错配类审查任务。",
+                    "dynamic_review_tasks": [
+                        {
+                            "catalog_id": "RP-DYN-001",
+                            "title": "项目属性与采购内容结构错配",
+                            "dimension": "项目结构风险",
+                            "severity": "high",
+                            "scenario_tags": ["dynamic", "hybrid"],
+                            "focus_fields": ["项目属性", "采购标的", "合同履行期限"],
+                            "signal_groups": [["人工管护", "抚育", "管护"], ["承揽合同"]],
+                            "basis_hint": "当货物采购混入持续性服务和承揽口径时，应核查项目属性和合同类型是否错配。",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
         if "条款角色判断做复核" in system_prompt:
             return json.dumps(
                 {
@@ -688,6 +707,9 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
 
     assert enhanced_report.llm_enhanced is True
     assert enhanced_report.llm_semantic_review.clause_supplements
+    assert enhanced_report.llm_semantic_review.scenario_review_summary
+    assert enhanced_report.llm_semantic_review.dynamic_review_tasks
+    assert any(item.title == "项目属性与采购内容结构错配" for item in enhanced_report.review_points)
     assert enhanced_report.llm_semantic_review.clause_supplements[0].adoption_status == AdoptionStatus.manual
     assert any(item.title == "评分因素与履约考核存在隐性耦合" for item in enhanced_report.findings)
     assert any(item.title == "付款条件与满意度表述存在隐性冲突" for item in enhanced_report.findings)
@@ -702,6 +724,7 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert any(item.stage_name == "llm_semantic_review" for item in enhanced_report.stage_records)
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
     assert llm_tasks == {
+        "llm_scenario_review": "completed",
         "llm_clause_supplement": "completed",
         "llm_role_review": "completed",
         "llm_evidence_review": "completed",
@@ -713,6 +736,7 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     }
     markdown = render_markdown(enhanced_report)
     assert "## LLM补充条款" in markdown
+    assert "## LLM场景识别与动态任务" in markdown
     assert "## LLM裁决复核" in markdown
     assert "## LLM角色复核" in markdown
     assert "## LLM证据复核" in markdown
