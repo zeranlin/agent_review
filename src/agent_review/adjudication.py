@@ -325,8 +325,11 @@ def build_review_point_catalog_snapshot(review_points: list[ReviewPoint]):
     return snapshot_catalog_for_points(review_points)
 
 
-def build_point_applicability_checks(review_points: list[ReviewPoint]) -> list[ApplicabilityCheck]:
-    return build_applicability_checks(review_points)
+def build_point_applicability_checks(
+    review_points: list[ReviewPoint],
+    extracted_clauses: list[ExtractedClause],
+) -> list[ApplicabilityCheck]:
+    return build_applicability_checks(review_points, extracted_clauses)
 
 
 def build_point_quality_gates(review_points: list[ReviewPoint]) -> list[ReviewQualityGate]:

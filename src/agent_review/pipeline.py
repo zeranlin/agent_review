@@ -288,7 +288,10 @@ class ReviewPipeline:
         )
 
     def _stage_applicability_check(self, state: ReviewPipelineState) -> None:
-        state.applicability_checks = build_point_applicability_checks(state.review_points)
+        state.applicability_checks = build_point_applicability_checks(
+            state.review_points,
+            state.extracted_clauses,
+        )
         applicable_count = sum(1 for item in state.applicability_checks if item.applicable)
         state.stage_records.append(
             RunStageRecord(

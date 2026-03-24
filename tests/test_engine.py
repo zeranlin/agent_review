@@ -152,6 +152,43 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     assert report.formal_adjudication
 
 
+def test_review_point_catalog_covers_structured_policy_and_contract_points() -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    付款方式：尾款支付以考核结果为准。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    catalog_map = {item.catalog_id: item.title for item in report.review_point_catalog}
+    assert "RP-SME-001" in catalog_map
+    assert "RP-SME-002" in catalog_map
+    assert any(
+        item.catalog_id == "RP-CONTRACT-005"
+        for item in report.review_points
+        if item.title == "尾款支付与考核条款联动风险"
+    )
+
+
+def test_applicability_prefers_structured_clause_fields() -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    sme_check = applicability_map["RP-SME-001"]
+    service_template_check = applicability_map["RP-SME-002"]
+
+    assert sme_check.applicable is True
+    assert "结构化字段" in sme_check.requirement_results[0].detail
+    assert service_template_check.applicable is True
+    assert any("中小企业声明函类型" in item.detail for item in service_template_check.requirement_results)
+
+
 def test_load_document_supports_docx(tmp_path: Path) -> None:
     file_path = tmp_path / "sample.docx"
     document = Document()

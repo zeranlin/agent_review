@@ -123,6 +123,7 @@ class LegalBasis:
 @dataclass(slots=True)
 class ReviewPointCondition:
     name: str
+    clause_fields: list[str] = field(default_factory=list)
     signal_groups: list[list[str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
