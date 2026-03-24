@@ -151,6 +151,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 - 多轮 OCR 尝试
 - 图片表格型内容的结构化抽取
 - PDF 内嵌图片 OCR 补充
+- 基于视觉模型的图片类型与关键信息增强识别
 
 注意：
 

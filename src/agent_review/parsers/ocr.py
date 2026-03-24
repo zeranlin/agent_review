@@ -10,6 +10,7 @@ from PIL import Image, ImageFilter, ImageOps
 from pypdf import PdfReader
 
 from ..models import ParseResult, ParsedPage, ParsedTable
+from .vision_ocr import run_vision_ocr
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
@@ -86,7 +87,13 @@ def ocr_image_records(image_records: list[OcrImageRecord]) -> tuple[list[str], l
     warnings: list[str] = []
     table_index = 1
     for record in image_records:
-        ocr_result = run_ocr(record.stored_path, table_index_offset=table_index - 1)
+        ocr_result = run_ocr(
+            record.stored_path,
+            table_index_offset=table_index - 1,
+            source_label=record.source_path,
+            page_index=record.page_index,
+            image_index=record.image_index,
+        )
         warnings.extend(ocr_result.warnings)
         if ocr_result.text.strip():
             prefix = f"[OCR page {record.page_index}]"
@@ -97,7 +104,13 @@ def ocr_image_records(image_records: list[OcrImageRecord]) -> tuple[list[str], l
     return results, tables, list(dict.fromkeys(warnings))
 
 
-def run_ocr(path: str | Path, table_index_offset: int = 0) -> OcrResult:
+def run_ocr(
+    path: str | Path,
+    table_index_offset: int = 0,
+    source_label: str | None = None,
+    page_index: int | None = None,
+    image_index: int = 1,
+) -> OcrResult:
     target = Path(path).expanduser().resolve()
     warnings: list[str] = []
     try:
@@ -136,8 +149,17 @@ def run_ocr(path: str | Path, table_index_offset: int = 0) -> OcrResult:
     if not best_text and tables:
         row_text = [" | ".join(cell for cell in row) for table in tables for row in table.rows]
         best_text = "\n".join(row_text).strip()
+    vision_result = run_vision_ocr(
+        image_path=target,
+        source_label=source_label or str(target),
+        page_index=page_index,
+        image_index=image_index,
+    )
+    warnings.extend(vision_result.warnings)
+    merged_text = _merge_ocr_text(best_text, vision_result)
+    tables = _merge_ocr_tables(tables, vision_result, table_index_offset)
     return OcrResult(
-        text=best_text,
+        text=merged_text,
         tables=tables,
         warnings=list(dict.fromkeys(warnings)),
     )
@@ -200,3 +222,32 @@ def _extract_tables_from_image(
             source="ocr_table",
         )
     ]
+
+
+def _merge_ocr_text(local_text: str, vision_result) -> str:
+    parts = [part.strip() for part in [local_text, vision_result.extracted_text] if part and part.strip()]
+    if vision_result.summary:
+        parts.append(f"[视觉OCR摘要] {vision_result.summary}")
+    if vision_result.doc_type:
+        parts.append(f"[视觉OCR类型] {vision_result.doc_type}")
+    return "\n".join(dict.fromkeys(parts))
+
+
+def _merge_ocr_tables(
+    local_tables: list[ParsedTable],
+    vision_result,
+    table_index_offset: int,
+) -> list[ParsedTable]:
+    if local_tables:
+        return local_tables
+    headers = vision_result.fields.get("table_headers") if isinstance(vision_result.fields, dict) else None
+    if isinstance(headers, list) and len(headers) >= 2:
+        return [
+            ParsedTable(
+                table_index=table_index_offset + 1,
+                row_count=1,
+                rows=[[str(item).strip() for item in headers if str(item).strip()]],
+                source="vision_ocr_table",
+            )
+        ]
+    return local_tables

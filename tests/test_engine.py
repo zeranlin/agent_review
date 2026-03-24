@@ -10,6 +10,7 @@ from agent_review.models import ConclusionLevel, FileType, FindingType, Recommen
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
+from agent_review.parsers.vision_ocr import VisionOcrResult
 from agent_review.reporting import render_markdown
 
 
@@ -140,10 +141,21 @@ def test_load_document_supports_docx(tmp_path: Path) -> None:
     assert parse_result.tables
 
 
-def test_load_document_supports_image_ocr_with_warning_when_tesseract_missing(tmp_path: Path) -> None:
+def test_load_document_supports_image_ocr_with_warning_when_tesseract_missing(monkeypatch, tmp_path: Path) -> None:
     image_path = tmp_path / "sample.png"
     image = Image.new("RGB", (120, 40), color="white")
     image.save(image_path)
+    monkeypatch.setattr(
+        "agent_review.parsers.ocr.run_vision_ocr",
+        lambda **kwargs: VisionOcrResult(
+            doc_type="image",
+            summary="",
+            extracted_text="",
+            fields={},
+            confidence=None,
+            warnings=["视觉 OCR 未生效: mocked"],
+        ),
+    )
 
     document_name, parse_result = load_document(image_path)
     assert document_name == "sample.png"
@@ -172,6 +184,17 @@ def test_run_ocr_can_extract_table_like_rows(monkeypatch, tmp_path: Path) -> Non
 
     monkeypatch.setattr("agent_review.parsers.ocr.pytesseract.image_to_string", fake_image_to_string)
     monkeypatch.setattr("agent_review.parsers.ocr.pytesseract.image_to_data", fake_image_to_data)
+    monkeypatch.setattr(
+        "agent_review.parsers.ocr.run_vision_ocr",
+        lambda **kwargs: VisionOcrResult(
+            doc_type="报价表",
+            summary="图片为报价表截图",
+            extracted_text="",
+            fields={"table_headers": ["字段", "数值"]},
+            confidence=0.9,
+            warnings=[],
+        ),
+    )
 
     result = run_ocr(image_path)
 
@@ -179,6 +202,7 @@ def test_run_ocr_can_extract_table_like_rows(monkeypatch, tmp_path: Path) -> Non
     assert result.tables
     assert result.tables[0].source == "ocr_table"
     assert result.tables[0].row_count == 2
+    assert "视觉OCR摘要" in result.text
 
 
 def test_load_documents_can_merge_multiple_sources(tmp_path: Path) -> None:
