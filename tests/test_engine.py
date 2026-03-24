@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 
 from docx import Document
 from PIL import Image
@@ -622,6 +623,41 @@ class FakeClient:
         )
 
 
+class FakeSecondReviewOverrideClient:
+    def generate_text(self, system_prompt: str, user_prompt: str) -> str:
+        if "以 ReviewPoint 为单位进行二审" in system_prompt:
+            point_match = re.search(r'"point_id"\s*:\s*"([^"]+)"', user_prompt)
+            title_match = re.search(r'"title"\s*:\s*"([^"]+)"', user_prompt)
+            match = point_match.group(1) if point_match else "RP-001"
+            title = title_match.group(1) if title_match else "审查点"
+            return json.dumps(
+                {
+                    "review_point_second_reviews": [
+                        {
+                            "point_id": match,
+                            "title": title,
+                            "role_judgment": "当前证据来源需要更保守处理。",
+                            "evidence_judgment": "现有证据虽可疑，但不足以直接进入正式高风险。",
+                            "applicability_judgment": "要件链仍需人工补强确认。",
+                            "suggested_disposition": "manual_confirmation",
+                            "rationale": "LLM二审认为当前 formal 定性偏重，建议降级为待人工确认。",
+                            "adoption_status": "可直接采用",
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        if "总体结论形成前" in system_prompt:
+            return json.dumps(
+                {
+                    "summary": "这是经过LLM语义复核增强后的总体结论摘要。",
+                    "verdict_review": "LLM二审建议将当前 formal 结论作保守处理。",
+                },
+                ensure_ascii=False,
+            )
+        return json.dumps({}, ensure_ascii=False)
+
+
 def test_engine_can_apply_llm_enhancer() -> None:
     text = """
     项目概况
@@ -683,6 +719,28 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert "## LLM适法性复核" in markdown
     assert "## LLM审查点二审" in markdown
     assert "## 待确认问题单" in markdown
+
+
+def test_llm_second_review_can_downgrade_formal_adjudication() -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+    assert any(item.included_in_formal for item in base_report.formal_adjudication)
+
+    enhancer = QwenReviewEnhancer(client=FakeSecondReviewOverrideClient())
+    enhanced_report = enhancer.enhance(base_report)
+
+    assert enhanced_report.llm_semantic_review.review_point_second_reviews
+    target = next(
+        item for item in enhanced_report.formal_adjudication if item.catalog_id == "RP-SME-001"
+    )
+    assert target.disposition.value == "manual_confirmation"
+    assert target.included_in_formal is False
+    assert "LLM二审" in target.rationale
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:

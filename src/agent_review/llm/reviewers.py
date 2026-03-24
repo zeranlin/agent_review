@@ -7,10 +7,13 @@ from dataclasses import replace
 from ..merge import dedupe_extracted_clauses, dedupe_findings, dedupe_recommendations
 from ..models import (
     AdoptionStatus,
+    ConclusionLevel,
     Evidence,
     ExtractedClause,
     Finding,
     FindingType,
+    FormalAdjudication,
+    FormalDisposition,
     LLMSemanticReview,
     Recommendation,
     ReviewReport,
@@ -153,6 +156,15 @@ class QwenReviewEnhancer:
         if second_review_error:
             warnings.append(second_review_error)
 
+        formal_adjudication = _apply_review_point_second_reviews(
+            report.formal_adjudication,
+            semantic_review.review_point_second_reviews,
+        )
+        overall_conclusion = _derive_conclusion_from_formal(
+            report,
+            formal_adjudication,
+        )
+
         specialist_skip = not any(
             getattr(report.specialist_tables, table_name)
             for table_name in [
@@ -248,6 +260,8 @@ class QwenReviewEnhancer:
             specialist_tables=specialist_tables,
             extracted_clauses=merged_clauses,
             findings=merged_findings,
+            overall_conclusion=overall_conclusion,
+            formal_adjudication=formal_adjudication,
             high_risk_review_items=_build_high_risk_review_items(merged_findings),
             pending_confirmation_items=_build_pending_confirmation_items(
                 merged_findings,
@@ -508,6 +522,90 @@ def _parse_notes(raw_items: object) -> list[str]:
     if not isinstance(raw_items, list):
         return []
     return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def _apply_review_point_second_reviews(
+    adjudications: list[FormalAdjudication],
+    second_reviews: list[ReviewPointSecondReview],
+) -> list[FormalAdjudication]:
+    if not second_reviews:
+        return adjudications
+    review_index = {item.point_id: item for item in second_reviews}
+    updated: list[FormalAdjudication] = []
+    for adjudication in adjudications:
+        review = review_index.get(adjudication.point_id)
+        if review is None:
+            updated.append(adjudication)
+            continue
+        suggested = _parse_formal_disposition(review.suggested_disposition)
+        if suggested is None:
+            updated.append(adjudication)
+            continue
+        if not _can_apply_second_review_override(adjudication.disposition, suggested, review.adoption_status):
+            updated.append(adjudication)
+            continue
+        updated.append(
+            FormalAdjudication(
+                point_id=adjudication.point_id,
+                catalog_id=adjudication.catalog_id,
+                title=adjudication.title,
+                disposition=suggested,
+                rationale=f"{adjudication.rationale}；LLM二审：{review.rationale}",
+                included_in_formal=suggested == FormalDisposition.include,
+                section_hint=adjudication.section_hint,
+                primary_quote=adjudication.primary_quote,
+                evidence_sufficient=adjudication.evidence_sufficient,
+                legal_basis_applicable=adjudication.legal_basis_applicable,
+                applicability_summary=adjudication.applicability_summary,
+                quality_gate_status=adjudication.quality_gate_status,
+            )
+        )
+    return updated
+
+
+def _parse_formal_disposition(raw_value: str) -> FormalDisposition | None:
+    value = (raw_value or "").strip()
+    for item in FormalDisposition:
+        if item.value == value:
+            return item
+    return None
+
+
+def _can_apply_second_review_override(
+    current: FormalDisposition,
+    suggested: FormalDisposition,
+    adoption_status: AdoptionStatus,
+) -> bool:
+    if adoption_status == AdoptionStatus.direct:
+        return True
+    rank = {
+        FormalDisposition.include: 2,
+        FormalDisposition.manual_confirmation: 1,
+        FormalDisposition.filtered_out: 0,
+    }
+    return rank[suggested] <= rank[current]
+
+
+def _derive_conclusion_from_formal(
+    report: ReviewReport,
+    formal_adjudication: list[FormalAdjudication],
+) -> ConclusionLevel:
+    point_index = {item.point_id: item for item in report.review_points}
+    included = [
+        item for item in formal_adjudication if item.included_in_formal
+    ]
+    manual = [
+        item for item in formal_adjudication if item.disposition == FormalDisposition.manual_confirmation
+    ]
+    if any(point_index.get(item.point_id) and point_index[item.point_id].severity == Severity.critical for item in included):
+        return ConclusionLevel.reject
+    if len(included) >= 2:
+        return ConclusionLevel.reject
+    if included:
+        return ConclusionLevel.revise
+    if manual:
+        return ConclusionLevel.optimize
+    return report.overall_conclusion
 
 
 def _parse_review_point_second_reviews(raw_items: object) -> list[ReviewPointSecondReview]:
