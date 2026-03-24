@@ -237,6 +237,134 @@ def render_markdown(report: ReviewReport) -> str:
     return "\n".join(lines)
 
 
+def render_opinion_letter(report: ReviewReport) -> str:
+    issue_findings = [item for item in report.findings if item.finding_type != FindingType.pass_]
+    issue_findings.sort(
+        key=lambda item: {"critical": 0, "high": 1, "medium": 2, "low": 3}[item.severity.value]
+    )
+    high_risk_findings = [item for item in issue_findings if item.severity.value in {"critical", "high"}]
+    medium_risk_findings = [item for item in issue_findings if item.severity.value == "medium"]
+    document_list = report.source_documents or []
+
+    lines = [
+        "# 招标文件审查意见书",
+        "",
+        "## 一、审查对象",
+        "",
+        f"本次审查对象为《{report.file_info.document_name}》。",
+    ]
+    if document_list:
+        lines.append("联合审查材料包括：")
+        for item in document_list:
+            lines.append(f"- {item.document_name}（{item.source_format}）")
+    lines.extend(
+        [
+            "",
+            "## 二、审查范围",
+            "",
+            f"根据当前提交材料，审查范围为：{report.file_info.review_scope}",
+            "",
+            "## 三、审查结论",
+            "",
+            f"经按既定规则链路、专项检查、一致性检查及必要的 LLM 语义复核进行审查，初步结论为：{report.overall_conclusion.value}。",
+            f"摘要如下：{report.summary}",
+            "",
+            "## 四、主要审查意见",
+            "",
+        ]
+    )
+
+    if not issue_findings:
+        lines.append("本次审查未发现明确问题项。")
+    else:
+        if high_risk_findings:
+            lines.append("### （一）高风险问题")
+            for index, finding in enumerate(high_risk_findings, start=1):
+                lines.append(f"{index}. {finding.title}")
+                lines.append(f"问题说明：{finding.rationale}")
+                if finding.legal_basis:
+                    basis_text = "；".join(
+                        f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
+                        for item in finding.legal_basis
+                    )
+                    lines.append(f"依据提示：{basis_text}")
+                lines.append(f"处理建议：{finding.next_action}")
+                lines.append("")
+
+        if medium_risk_findings:
+            lines.append("### （二）中风险问题")
+            for index, finding in enumerate(medium_risk_findings, start=1):
+                lines.append(f"{index}. {finding.title}")
+                lines.append(f"问题说明：{finding.rationale}")
+                if finding.legal_basis:
+                    basis_text = "；".join(
+                        f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
+                        for item in finding.legal_basis
+                    )
+                    lines.append(f"依据提示：{basis_text}")
+                lines.append(f"处理建议：{finding.next_action}")
+                lines.append("")
+
+    lines.extend(
+        [
+            "## 五、修改建议",
+            "",
+        ]
+    )
+    if report.recommendations:
+        for index, item in enumerate(report.recommendations, start=1):
+            lines.append(f"{index}. {item.related_issue}：{item.suggestion}")
+    else:
+        lines.append("建议结合正式发布版本再做一次发布前复核。")
+
+    lines.extend(
+        [
+            "",
+            "## 六、人工复核提示",
+            "",
+        ]
+    )
+    if report.high_risk_review_items:
+        lines.append("高风险复核事项：")
+        for item in report.high_risk_review_items:
+            lines.append(f"- {item.title}：{item.reason}")
+    if report.pending_confirmation_items:
+        lines.append("待确认事项：")
+        for item in report.pending_confirmation_items:
+            lines.append(f"- {item.title}：{item.reason}")
+    if not report.high_risk_review_items and not report.pending_confirmation_items and not report.manual_review_queue:
+        lines.append("当前未形成单独的人工复核事项。")
+    if report.manual_review_queue:
+        lines.append("基础人工复核队列：")
+        for item in report.manual_review_queue:
+            lines.append(f"- {item}")
+
+    lines.extend(
+        [
+            "",
+            "## 七、审查边界说明",
+            "",
+            report.file_info.review_boundary,
+        ]
+    )
+    if report.parse_result.warnings:
+        lines.append("另有以下解析提示需注意：")
+        for item in report.parse_result.warnings:
+            lines.append(f"- {item}")
+    if report.llm_warnings:
+        lines.append("LLM 增强提示：")
+        for item in report.llm_warnings:
+            lines.append(f"- {item}")
+
+    lines.extend(
+        [
+            "",
+            "本意见书为基于当前提交材料形成的结构化审查意见，供采购人修改文件和复核使用。",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _append_specialist_table(lines: list[str], title: str, rows) -> None:
     lines.append(f"## {title}")
     if rows:

@@ -342,6 +342,7 @@
 - `base_report.md`
 - `enhanced_report.json`
 - `enhanced_report.md`
+- `opinion_letter.md`
 - `run_manifest.json`
 - `llm_tasks.json`
 - `high_risk_review_checklist.json`

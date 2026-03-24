@@ -7,7 +7,7 @@ from .engine import TenderReviewEngine
 from .llm import QwenReviewEnhancer
 from .models import ReviewMode
 from .outputs import write_review_artifacts
-from .reporting import render_json, render_markdown
+from .reporting import render_json, render_markdown, render_opinion_letter
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--format",
-        choices=("markdown", "json"),
+        choices=("markdown", "json", "opinion"),
         default="markdown",
         help="终端输出格式。",
     )
@@ -76,6 +76,8 @@ def main() -> int:
 
     if args.format == "json":
         sys.stdout.write(render_json(report))
+    elif args.format == "opinion":
+        sys.stdout.write(render_opinion_letter(report))
     else:
         sys.stdout.write(render_markdown(report))
     sys.stdout.write("\n")
