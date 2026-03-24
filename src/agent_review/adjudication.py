@@ -18,7 +18,7 @@ from .models import (
     ReviewPointStatus,
     Severity,
 )
-from .quality import infer_evidence_roles, is_formal_eligible
+from .quality import evidence_supports_title, infer_evidence_roles, infer_role_from_text, line_text_from_anchor, search_line_by_keyword
 
 
 def build_review_points(
@@ -203,43 +203,70 @@ def convert_review_points_to_findings(
 
 def build_formal_adjudication(
     review_points: list[ReviewPoint],
-    findings: list[Finding],
     report_text: str,
     extracted_clauses: list[ExtractedClause],
 ) -> list[FormalAdjudication]:
-    finding_index = {(item.dimension, item.title): item for item in findings}
     results: list[FormalAdjudication] = []
     for point in review_points:
-        finding = finding_index.get((point.dimension, point.title))
-        if finding is None:
-            results.append(
-                FormalAdjudication(
-                    point_id=point.point_id,
-                    title=point.title,
-                    disposition=FormalDisposition.filtered_out,
-                    rationale="当前审查点尚未绑定原始 finding，暂不进入正式输出。",
-                    included_in_formal=False,
-                )
-            )
-            continue
+        section_hint, quote = _resolve_review_point_evidence(point, report_text)
+        roles = _resolve_review_point_roles(point, extracted_clauses, quote)
+        has_direct = bool(point.evidence_bundle.direct_evidence)
+        strong_anchor = bool(section_hint) and section_hint not in {
+            "未明确定位",
+            "keyword_match",
+            "restrictive_term",
+            "missing_marker",
+        }
+        weak_role_only = bool(roles) and all(
+            role
+            in {
+                ClauseRole.form_template,
+                ClauseRole.policy_explanation,
+                ClauseRole.document_definition,
+                ClauseRole.appendix_reference,
+                ClauseRole.unknown,
+            }
+            for role in roles
+        )
+        legal_basis_applicable = bool(point.legal_basis)
+        evidence_sufficient = bool(
+            has_direct
+            and strong_anchor
+            and quote
+            and quote != "当前自动抽取未定位到可直接引用的原文。"
+            and evidence_supports_title(point.title, quote)
+            and not weak_role_only
+        )
 
-        eligible = is_formal_eligible(finding, report_text, extracted_clauses)
-        if eligible:
+        if point.status == ReviewPointStatus.identified or point.severity not in {Severity.high, Severity.critical}:
+            disposition = FormalDisposition.filtered_out
+            rationale = "当前审查点不属于正式意见输出范围，暂不进入高风险正式裁决。"
+        elif evidence_sufficient and legal_basis_applicable:
             disposition = FormalDisposition.include
-            rationale = "证据锚点、条款角色和问题标题已通过正式输出过滤，可进入正式意见。"
+            rationale = "审查点已具备直接证据、有效条款角色和可适用法规依据，可进入正式意见。"
         elif point.status == ReviewPointStatus.manual_confirmation:
             disposition = FormalDisposition.manual_confirmation
-            rationale = "当前审查点证据尚不充分或存在弱证据来源，应进入人工确认而非正式定性。"
+            rationale = "当前审查点已识别到问题方向，但证据或适法性尚不足，应进入人工确认。"
+        elif not evidence_sufficient:
+            disposition = FormalDisposition.manual_confirmation
+            rationale = "当前审查点缺少足够强的直接证据、有效锚点或实质性条款角色，不宜直接定性。"
+        elif not legal_basis_applicable:
+            disposition = FormalDisposition.manual_confirmation
+            rationale = "当前审查点虽有证据，但尚未完成法规适用挂接，应先补充适法性判断。"
         else:
             disposition = FormalDisposition.filtered_out
-            rationale = "当前审查点未通过正式输出过滤，暂不进入正式意见。"
+            rationale = "当前审查点未通过正式裁决过滤，暂不进入正式意见。"
         results.append(
             FormalAdjudication(
                 point_id=point.point_id,
                 title=point.title,
                 disposition=disposition,
                 rationale=rationale,
-                included_in_formal=eligible,
+                included_in_formal=disposition == FormalDisposition.include,
+                section_hint=section_hint,
+                primary_quote=quote,
+                evidence_sufficient=evidence_sufficient,
+                legal_basis_applicable=legal_basis_applicable,
             )
         )
     return results
@@ -454,3 +481,61 @@ def _confidence_from_review_point(point: ReviewPoint) -> float:
     if point.evidence_bundle.supporting_evidence:
         return min(0.88, base + 0.03)
     return base
+
+
+def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tuple[str, str]:
+    evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
+    if not evidence:
+        return "未明确定位", "当前自动抽取未定位到可直接引用的原文。"
+
+    primary = evidence[0]
+    section_hint = primary.section_hint or "未明确定位"
+    raw_quote = primary.quote.strip()
+    supplemental: list[str] = []
+    quote = line_text_from_anchor(report_text, section_hint)
+    if quote:
+        supplemental.append(quote)
+
+    if raw_quote and " / " in raw_quote:
+        parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
+        for part in parts:
+            matched = search_line_by_keyword(report_text, part)
+            if matched:
+                supplemental.append(matched)
+        if supplemental:
+            return section_hint, "；".join(dict.fromkeys(supplemental))
+
+    if quote:
+        return section_hint, quote
+
+    if raw_quote and " / " in raw_quote:
+        parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
+        supplemental = [matched for part in parts if (matched := search_line_by_keyword(report_text, part))]
+        if supplemental:
+            return section_hint, "；".join(dict.fromkeys(supplemental))
+    if raw_quote:
+        return section_hint, raw_quote
+    return section_hint, "当前自动抽取未定位到可直接引用的原文。"
+
+
+def _resolve_review_point_roles(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+    quote: str,
+) -> list[ClauseRole]:
+    roles = [role for role in point.evidence_bundle.clause_roles if role != ClauseRole.unknown]
+    if roles:
+        return roles
+
+    clause_roles = [
+        clause.clause_role
+        for clause in extracted_clauses
+        if quote and clause.content == quote and clause.clause_role != ClauseRole.unknown
+    ]
+    if clause_roles:
+        return _dedupe_clause_roles(clause_roles)
+
+    inferred = infer_role_from_text(quote)
+    if inferred != ClauseRole.unknown:
+        return [inferred]
+    return []

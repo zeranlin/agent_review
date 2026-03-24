@@ -274,10 +274,8 @@ class ReviewPipeline:
         )
 
     def _stage_formal_adjudication(self, state: ReviewPipelineState) -> None:
-        provisional_findings = convert_review_points_to_findings(state.review_points)
         state.formal_adjudication = build_formal_adjudication(
             state.review_points,
-            provisional_findings,
             state.parse_result.text,
             state.extracted_clauses,
         )

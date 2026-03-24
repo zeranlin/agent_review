@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from .models import FindingType, ReviewReport
-from .quality import is_formal_eligible, resolve_formal_evidence
 
 
 def render_json(report: ReviewReport) -> str:
@@ -423,24 +422,22 @@ def render_opinion_letter(report: ReviewReport) -> str:
 
 
 def _build_formal_review_items(report: ReviewReport) -> list[dict[str, str]]:
-    issue_findings = [item for item in report.findings if item.finding_type != FindingType.pass_]
-    issue_findings.sort(
-        key=lambda item: {"critical": 0, "high": 1, "medium": 2, "low": 3}[item.severity.value]
-    )
-
+    point_index = {item.point_id: item for item in report.review_points}
     items: list[dict[str, str]] = []
     seen_keys: set[str] = set()
-    for finding in issue_findings:
-        if finding.severity.value not in {"critical", "high"}:
+    for adjudication in report.formal_adjudication:
+        if not adjudication.included_in_formal:
             continue
-        if not is_formal_eligible(finding, report.parse_result.text, report.extracted_clauses):
+        point = point_index.get(adjudication.point_id)
+        if point is None or point.severity.value not in {"critical", "high"}:
             continue
-        title = finding.title.strip()
-        section_hint, quote = resolve_formal_evidence(report.parse_result.text, finding)
+        title = point.title.strip()
+        section_hint = adjudication.section_hint or "未明确定位"
+        quote = adjudication.primary_quote or "当前自动抽取未定位到可直接引用的原文。"
         basis_text = (
             "；".join(
                 f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
-                for item in finding.legal_basis
+                for item in point.legal_basis
             )
             or "当前结果未自动挂接明确法规依据，建议结合原始条款进一步复核。"
         )
@@ -448,15 +445,15 @@ def _build_formal_review_items(report: ReviewReport) -> list[dict[str, str]]:
         if dedupe_key in seen_keys:
             continue
         seen_keys.add(dedupe_key)
-        issue_type = finding.dimension or "高风险问题"
-        compliance = _build_compliance_judgment(finding)
+        issue_type = point.dimension or "高风险问题"
+        compliance = _build_compliance_judgment(point.status.value)
         items.append(
             {
                 "问题标题": title,
                 "条款位置": section_hint,
                 "原文摘录": quote,
                 "问题类型": issue_type,
-                "风险等级": "高风险" if finding.severity.value == "high" else "严重风险",
+                "风险等级": "高风险" if point.severity.value == "high" else "严重风险",
                 "合规判断": compliance,
                 "法律/政策依据": basis_text,
             }
@@ -464,12 +461,12 @@ def _build_formal_review_items(report: ReviewReport) -> list[dict[str, str]]:
     return items
 
 
-def _build_compliance_judgment(finding) -> str:
-    if finding.finding_type == FindingType.confirmed_issue:
+def _build_compliance_judgment(point_status: str) -> str:
+    if point_status == "confirmed":
         return "经系统规则审查，相关条款存在明显不合规风险，原则上不应直接保留。"
-    if finding.finding_type == FindingType.warning:
+    if point_status == "suspected":
         return "相关条款存在较高合规风险，建议按不利于合规的口径先行整改并复核。"
-    if finding.finding_type == FindingType.manual_review_required:
+    if point_status == "manual_confirmation":
         return "当前条款存在高风险信号，但仍需结合完整附件或上下文进一步核定。"
     return "相关条款存在高风险合规疑点，建议优先整改。"
 

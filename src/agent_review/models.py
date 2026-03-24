@@ -423,6 +423,10 @@ class FormalAdjudication:
     disposition: FormalDisposition
     rationale: str
     included_in_formal: bool
+    section_hint: str = ""
+    primary_quote: str = ""
+    evidence_sufficient: bool = False
+    legal_basis_applicable: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -431,6 +435,10 @@ class FormalAdjudication:
             "disposition": self.disposition.value,
             "rationale": self.rationale,
             "included_in_formal": self.included_in_formal,
+            "section_hint": self.section_hint,
+            "primary_quote": self.primary_quote,
+            "evidence_sufficient": self.evidence_sufficient,
+            "legal_basis_applicable": self.legal_basis_applicable,
         }
 
 

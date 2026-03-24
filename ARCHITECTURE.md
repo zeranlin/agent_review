@@ -237,6 +237,7 @@
 - 让规则层和一致性层优先产出 `ReviewPoint`
 - 避免系统先生成大量松散 `Finding`，再反向拼装审查点
 - 为后续适法性判断和 formal adjudication 提供稳定主语
+- 让 formal adjudication 直接基于审查点、证据包和法规适用条件裁决，而不是基于兼容层结果二次推导
 
 ### 7. 规则与风险层
 

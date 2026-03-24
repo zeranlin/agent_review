@@ -600,6 +600,10 @@ def test_formal_review_opinion_filters_template_and_weak_hits() -> None:
     assert "年龄限制" not in formal
     assert "采购人单方解释或决定条款" not in formal
     assert "专门面向中小企业却仍保留价格扣除" in formal
+    adjudication_map = {item.title: item for item in report.formal_adjudication}
+    assert adjudication_map["专门面向中小企业却仍保留价格扣除"].included_in_formal is True
+    assert adjudication_map["专门面向中小企业却仍保留价格扣除"].evidence_sufficient is True
+    assert adjudication_map["专门面向中小企业却仍保留价格扣除"].legal_basis_applicable is True
 
 
 def test_report_contains_specialist_tables() -> None:
