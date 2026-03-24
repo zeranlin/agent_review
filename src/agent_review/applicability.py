@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import re
 
 from .models import (
     ApplicabilityCheck,
@@ -318,6 +319,90 @@ def _payment_assessment_link_evaluator(clause_mapping: dict[str, list[ExtractedC
     return ApplicabilityStatus.unsatisfied, [f"已抽取付款节点与考核条款，但尚未识别尾款/付款联动标签：付款标签={sorted(payment_tags)}，考核标签={sorted(assessment_tags)}。"]
 
 
+def _contract_type_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    project_type = _first_value(clause_mapping, "项目属性")
+    contract_type = _first_value(clause_mapping, "合同类型")
+    service_tags = _collect_tags(clause_mapping, "采购内容构成") | _collect_tags(clause_mapping, "是否含持续性服务")
+    if not project_type or not contract_type:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取项目属性和合同类型。"]
+    if project_type == "货物" and contract_type in {"承揽合同", "服务合同"}:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type}，合同类型={contract_type}，合同口径偏服务/承揽。"]
+    if project_type == "服务" and contract_type == "买卖合同":
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type}，合同类型={contract_type}，合同口径偏货物买卖。"]
+    if project_type == "货物" and "持续性作业服务" in service_tags:
+        return ApplicabilityStatus.unsatisfied, [f"已识别服务作业标签 {sorted(service_tags)}，但合同类型={contract_type} 尚未形成强冲突。"]
+    return ApplicabilityStatus.unsatisfied, [f"结构化字段关系未成立：项目属性={project_type}，合同类型={contract_type}。"]
+
+
+def _continuous_service_in_goods_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    project_type = _first_value(clause_mapping, "项目属性")
+    service_flag = _first_value(clause_mapping, "是否含持续性服务")
+    service_tags = _collect_tags(clause_mapping, "是否含持续性服务") | _collect_tags(clause_mapping, "采购内容构成")
+    if not project_type or not service_flag:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取项目属性和持续性服务内容。"]
+    if project_type == "货物" and service_flag == "是":
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type}，且采购内容含持续性作业服务 {sorted(service_tags)}。"]
+    return ApplicabilityStatus.unsatisfied, [f"结构化字段关系未成立：项目属性={project_type}，持续性服务标记={service_flag}。"]
+
+
+def _industry_mismatch_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    suspicious = _first_value(clause_mapping, "行业相关性存疑评分项")
+    project_subject = _first_value(clause_mapping, "采购标的") or _first_value(clause_mapping, "项目属性")
+    if suspicious:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：评分项 {suspicious} 与当前项目 {project_subject or '项目'} 存在行业相关性疑点。"]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到行业相关性存疑评分项。"]
+
+
+def _plan_scoring_quant_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    pattern = _first_value(clause_mapping, "方案评分扣分模式")
+    if pattern:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别方案评分扣分模式={pattern}，存在量化不足疑点。"]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到方案评分扣分模式。"]
+
+
+def _contract_template_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    template_terms = _first_value(clause_mapping, "合同成果模板术语")
+    project_subject = _first_value(clause_mapping, "采购标的") or _first_value(clause_mapping, "项目属性")
+    if template_terms:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：在 {project_subject or '当前项目'} 中识别到成果模板术语={template_terms}。"]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到合同成果模板术语。"]
+
+
+def _acceptance_flexible_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    acceptance = _first_value(clause_mapping, "验收弹性条款")
+    if acceptance:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别验收弹性条款={acceptance}。"]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到验收弹性条款。"]
+
+
+def _parse_amount(value: str) -> float | None:
+    if not value:
+        return None
+    cleaned = re.sub(r"[^\d.]", "", value)
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _amount_consistency_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    budget_raw = _first_value(clause_mapping, "预算金额")
+    max_raw = _first_value(clause_mapping, "最高限价")
+    sme_raw = _first_value(clause_mapping, "面向中小企业采购金额")
+    budget = _parse_amount(budget_raw)
+    max_price = _parse_amount(max_raw)
+    sme_amount = _parse_amount(sme_raw)
+    if budget is None or max_price is None or sme_amount is None:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取预算金额、最高限价和面向中小企业采购金额。"]
+    if sme_amount == max_price and budget != sme_amount:
+        return ApplicabilityStatus.satisfied, [f"结构化金额关系成立：预算金额={budget_raw}，面向中小企业采购金额={sme_raw}，且其与最高限价={max_raw} 重合，存在口径混用疑点。"]
+    if budget != sme_amount:
+        return ApplicabilityStatus.unsatisfied, [f"已识别金额差异：预算金额={budget_raw}，面向中小企业采购金额={sme_raw}，但尚不足以判断与最高限价混用。"]
+    return ApplicabilityStatus.unsatisfied, [f"金额关系未形成异常链：预算金额={budget_raw}，最高限价={max_raw}，面向中小企业采购金额={sme_raw}。"]
+
+
 def _service_template_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     project_type = _first_value(clause_mapping, "项目属性")
     declaration = _first_value(clause_mapping, "中小企业声明函类型")
@@ -361,8 +446,21 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SME-004", "已明确比例信息"): _exists_relation("分包比例", "已明确比例信息"),
     ("RP-CONTRACT-005", "存在付款节点"): _contains_relation("付款节点", "存在", "存在付款节点"),
     ("RP-CONTRACT-005", "存在考核条款"): _payment_assessment_link_evaluator,
+    ("RP-CONTRACT-008", "存在成果模板术语"): _contract_template_mismatch_evaluator,
+    ("RP-CONTRACT-009", "存在验收弹性条款"): _acceptance_flexible_evaluator,
     ("RP-STRUCT-005", "存在项目属性"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-005", "存在声明函类型"): _project_statement_conflict_evaluator,
+    ("RP-STRUCT-007", "存在项目属性"): _contract_type_mismatch_evaluator,
+    ("RP-STRUCT-007", "存在合同类型"): _contract_type_mismatch_evaluator,
+    ("RP-STRUCT-008", "项目属性为货物"): _continuous_service_in_goods_evaluator,
+    ("RP-STRUCT-008", "存在持续性作业服务"): _continuous_service_in_goods_evaluator,
+    ("RP-SCORE-005", "评分项存在行业相关性疑点"): _industry_mismatch_scoring_evaluator,
+    ("RP-SCORE-006", "存在方案评分扣分模式"): _plan_scoring_quant_evaluator,
+    ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
+    ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
+    ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,
+    ("RP-SME-005", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
+    ("RP-SME-005", "存在最高限价"): _amount_consistency_evaluator,
     ("RP-TPL-002", "项目属性为服务"): _service_template_mismatch_evaluator,
     ("RP-TPL-002", "声明函出现制造商口径"): _service_template_mismatch_evaluator,
     ("RP-TPL-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),

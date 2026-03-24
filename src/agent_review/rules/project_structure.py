@@ -8,10 +8,13 @@ def match_project_structure_risks(text: str, clauses) -> list[RiskHit]:
     mapping = clause_map(clauses)
     hits: list[RiskHit] = []
 
-    project_type = _first_content(mapping, "项目属性")
+    project_type = _first_normalized(mapping, "项目属性")
     industry = _first_content(mapping, "所属行业划分")
-    statement_type = _first_content(mapping, "中小企业声明函类型")
+    statement_type = _first_normalized(mapping, "中小企业声明函类型")
     procurement_subject = _first_content(mapping, "采购标的")
+    contract_type = _first_normalized(mapping, "合同类型")
+    continuous_service = _first_normalized(mapping, "是否含持续性服务")
+    service_content = _first_content(mapping, "采购内容构成")
     goods_terms = any(token in text for token in ["规格型号", "制造商", "质保期", "货物验收"])
     service_terms = any(token in text for token in ["运维", "实施", "服务内容", "驻场"])
 
@@ -75,12 +78,46 @@ def match_project_structure_risks(text: str, clauses) -> list[RiskHit]:
             )
         )
 
+    if project_type == "货物" and continuous_service == "是":
+        hits.append(
+            RiskHit(
+                risk_group="项目结构风险",
+                rule_name="货物采购混入持续性作业服务",
+                severity=Severity.high,
+                matched_text=service_content or "人工管护 / 清林整地 / 抚育 / 管护",
+                rationale="货物采购项目中出现持续性作业服务内容，需核查是否属于混合采购或项目属性错配。",
+                source_anchor=_anchor(mapping, "采购内容构成", "是否含持续性服务", "采购标的"),
+            )
+        )
+
+    if project_type and contract_type:
+        if (project_type == "货物" and contract_type in {"承揽合同", "服务合同"}) or (
+            project_type == "服务" and contract_type == "买卖合同"
+        ):
+            hits.append(
+                RiskHit(
+                    risk_group="项目结构风险",
+                    rule_name="项目属性与合同类型口径疑似不一致",
+                    severity=Severity.high,
+                    matched_text=f"{project_type} / {contract_type}",
+                    rationale="项目属性与合同类型口径不一致，需核查采购对象、合同结构及验收方式是否匹配。",
+                    source_anchor=_anchor(mapping, "合同类型", "项目属性"),
+                )
+            )
+
     return hits
 
 
 def _first_content(mapping: dict[str, list], key: str) -> str:
     items = mapping.get(key) or []
     return items[0].content if items else ""
+
+
+def _first_normalized(mapping: dict[str, list], key: str) -> str:
+    items = mapping.get(key) or []
+    if not items:
+        return ""
+    return items[0].normalized_value or items[0].content
 
 
 def _anchor(mapping: dict[str, list], *keys: str) -> str:

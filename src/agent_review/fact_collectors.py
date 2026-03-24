@@ -123,7 +123,16 @@ def _assemble_contract_linkage_evidence(
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
     relevant = _collect_by_fields(
         extracted_clauses,
-        ["付款节点", "考核条款", "验收标准", "扣款条款", "解约条款"],
+        [
+            "付款节点",
+            "考核条款",
+            "验收标准",
+            "扣款条款",
+            "解约条款",
+            "合同类型",
+            "合同成果模板术语",
+            "验收弹性条款",
+        ],
     )
     return _assemble_bundle_for_definition(definition, relevant)
 
@@ -143,7 +152,18 @@ def _assemble_structure_conflict_evidence(
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
     relevant = _collect_by_fields(
         extracted_clauses,
-        ["项目属性", "采购标的", "品目名称", "所属行业划分", "中小企业声明函类型", "质保期"],
+        [
+            "项目属性",
+            "采购标的",
+            "采购内容构成",
+            "是否含持续性服务",
+            "品目名称",
+            "所属行业划分",
+            "中小企业声明函类型",
+            "合同类型",
+            "合同履行期限",
+            "质保期",
+        ],
     )
     return _assemble_bundle_for_definition(definition, relevant)
 
@@ -164,6 +184,10 @@ def _assemble_scoring_evidence(
             "样品分",
             "财务指标加分",
             "人员评分要求",
+            "行业相关性存疑评分项",
+            "方案评分扣分模式",
+            "采购标的",
+            "项目属性",
         ],
     )
     return _assemble_bundle_for_definition(definition, relevant)
@@ -217,6 +241,9 @@ def _assemble_consistency_policy_evidence(
             "是否允许分包",
             "分包比例",
             "是否为预留份额采购",
+            "预算金额",
+            "最高限价",
+            "面向中小企业采购金额",
         ],
     )
     return _assemble_bundle_for_definition(definition, relevant)
@@ -335,7 +362,17 @@ def _assemble_dynamic_structure_evidence(
 ) -> list[ExtractedClause]:
     relevant = _collect_by_fields(
         extracted_clauses,
-        ["项目属性", "采购标的", "品目名称", "所属行业划分", "合同履行期限", "质保期"],
+        [
+            "项目属性",
+            "采购标的",
+            "采购内容构成",
+            "是否含持续性服务",
+            "品目名称",
+            "所属行业划分",
+            "合同类型",
+            "合同履行期限",
+            "质保期",
+        ],
     )
     relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
     return _dedupe_clauses(relevant)
@@ -347,7 +384,19 @@ def _assemble_dynamic_scoring_evidence(
 ) -> list[ExtractedClause]:
     relevant = _collect_by_fields(
         extracted_clauses,
-        ["评分方法", "价格分", "技术分", "商务分", "样品分", "财务指标加分", "人员评分要求"],
+        [
+            "评分方法",
+            "价格分",
+            "技术分",
+            "商务分",
+            "样品分",
+            "财务指标加分",
+            "人员评分要求",
+            "行业相关性存疑评分项",
+            "方案评分扣分模式",
+            "采购标的",
+            "项目属性",
+        ],
     )
     relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
     return _dedupe_clauses(relevant)
@@ -359,7 +408,17 @@ def _assemble_dynamic_contract_evidence(
 ) -> list[ExtractedClause]:
     relevant = _collect_by_fields(
         extracted_clauses,
-        ["付款节点", "验收标准", "考核条款", "扣款条款", "解约条款", "合同履行期限"],
+        [
+            "付款节点",
+            "验收标准",
+            "考核条款",
+            "扣款条款",
+            "解约条款",
+            "合同类型",
+            "合同履行期限",
+            "合同成果模板术语",
+            "验收弹性条款",
+        ],
     )
     relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
     return _dedupe_clauses(relevant)
@@ -386,7 +445,16 @@ def _assemble_dynamic_policy_evidence(
 ) -> list[ExtractedClause]:
     relevant = _collect_by_fields(
         extracted_clauses,
-        ["是否专门面向中小企业", "是否仍保留价格扣除条款", "中小企业声明函类型", "分包比例", "是否为预留份额采购"],
+        [
+            "是否专门面向中小企业",
+            "是否仍保留价格扣除条款",
+            "中小企业声明函类型",
+            "分包比例",
+            "是否为预留份额采购",
+            "预算金额",
+            "最高限价",
+            "面向中小企业采购金额",
+        ],
     )
     relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
     return _dedupe_clauses(relevant)
@@ -679,11 +747,15 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-SCORE-002": _assemble_scoring_evidence,
     "RP-SCORE-003": _assemble_scoring_evidence,
     "RP-SCORE-004": _assemble_scoring_evidence,
+    "RP-SCORE-005": _assemble_scoring_evidence,
+    "RP-SCORE-006": _assemble_scoring_evidence,
     "RP-CONTRACT-002": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-003": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-005": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-006": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-007": _assemble_contract_linkage_evidence,
+    "RP-CONTRACT-008": _assemble_contract_linkage_evidence,
+    "RP-CONTRACT-009": _assemble_contract_linkage_evidence,
     "RP-PER-001": _assemble_personnel_boundary_evidence,
     "RP-PER-002": _assemble_personnel_boundary_evidence,
     "RP-PER-003": _assemble_personnel_boundary_evidence,
@@ -698,6 +770,8 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-STRUCT-004": _assemble_structure_conflict_evidence,
     "RP-STRUCT-005": _assemble_structure_conflict_evidence,
     "RP-STRUCT-006": _assemble_structure_conflict_evidence,
+    "RP-STRUCT-007": _assemble_structure_conflict_evidence,
+    "RP-STRUCT-008": _assemble_structure_conflict_evidence,
     "RP-TPL-002": _assemble_template_conflict_evidence,
     "RP-TPL-003": _assemble_template_conflict_evidence,
     "RP-TPL-004": _assemble_template_conflict_evidence,
@@ -708,6 +782,8 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-CONS-005": _assemble_consistency_policy_evidence,
     "RP-CONS-007": _assemble_consistency_policy_evidence,
     "RP-CONS-008": _assemble_consistency_policy_evidence,
+    "RP-CONS-009": _assemble_consistency_policy_evidence,
+    "RP-SME-005": _assemble_consistency_policy_evidence,
 }
 
 

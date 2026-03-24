@@ -162,6 +162,36 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="财务指标评分应与项目履约能力直接相关，避免形成规模偏向。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-SCORE-005",
+        title="行业无关证书或财务指标被纳入评分",
+        dimension="B.评分不规范风险",
+        default_severity=Severity.high,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在行业相关性存疑评分项",
+                clause_fields=["行业相关性存疑评分项"],
+                signal_groups=[["软件企业认定证书", "ITSS", "利润率", "财务报告"]],
+            ),
+        ],
+        basis_hint="评分因素应与项目履约能力直接相关，不宜引入行业无关证书或财务偏向指标。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-SCORE-006",
+        title="方案评分量化不足",
+        dimension="B.评分不规范风险",
+        default_severity=Severity.high,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在方案评分扣分模式",
+                clause_fields=["方案评分扣分模式"],
+                signal_groups=[["无缺陷得满分", "每缺项扣", "每处缺陷扣"]],
+            ),
+        ],
+        basis_hint="方案评分应尽可能客观量化，避免用宽泛缺陷定义承载过大裁量空间。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-PER-001",
         title="性别限制",
         dimension="人员条件与用工边界风险",
@@ -311,6 +341,36 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="解约条款宜保留必要的整改或申辩程序，避免条件过宽。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-008",
+        title="合同条款出现非本行业成果模板表述",
+        dimension="合同与履约风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract", "template"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在成果模板术语",
+                clause_fields=["合同成果模板术语"],
+                signal_groups=[["项目成果", "移作他用", "泄露本项目成果"]],
+            ),
+        ],
+        basis_hint="合同条款中的成果交付、成果保密等表述应与项目行业性质相匹配。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-009",
+        title="验收标准存在优胜原则或单方弹性判断",
+        dimension="合同与履约风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在验收弹性条款",
+                clause_fields=["验收弹性条款"],
+                signal_groups=[["优胜的原则", "确定验收标准"]],
+            ),
+        ],
+        basis_hint="验收标准应事先明确、客观，不宜保留采购人单方弹性判断空间。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-STRUCT-001",
         title="货物项目混入大量服务履约内容",
         dimension="项目结构风险",
@@ -381,6 +441,30 @@ CATALOG: list[ReviewPointDefinition] = [
             ReviewPointCondition("存在品目名称", clause_fields=["品目名称"]),
         ],
         basis_hint="项目属性和品目名称口径应相互印证，避免项目定性错配。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-STRUCT-007",
+        title="项目属性与合同类型口径疑似不一致",
+        dimension="项目结构风险",
+        default_severity=Severity.high,
+        scenario_tags=["structure", "contract"],
+        required_conditions=[
+            ReviewPointCondition("存在项目属性", clause_fields=["项目属性"]),
+            ReviewPointCondition("存在合同类型", clause_fields=["合同类型"]),
+        ],
+        basis_hint="项目属性、采购内容与合同类型应形成一致的法律关系结构。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-STRUCT-008",
+        title="货物采购混入持续性作业服务",
+        dimension="项目结构风险",
+        default_severity=Severity.high,
+        scenario_tags=["structure", "goods"],
+        required_conditions=[
+            ReviewPointCondition("项目属性为货物", clause_fields=["项目属性"], signal_groups=[["货物"]]),
+            ReviewPointCondition("存在持续性作业服务", clause_fields=["是否含持续性服务"], signal_groups=[["人工管护", "抚育", "运水"]]),
+        ],
+        basis_hint="货物采购中如混入持续性作业服务，应重新核对项目主属性和采购组织方式。",
     ),
     ReviewPointDefinition(
         catalog_id="RP-TPL-001",
@@ -543,6 +627,31 @@ CATALOG: list[ReviewPointDefinition] = [
             ReviewPointCondition("存在联合体或分包口径", clause_fields=["是否允许联合体", "是否允许分包"], signal_groups=[["联合体", "分包"]]),
         ],
         basis_hint="联合体、分包与中小企业政策的执行路径应相互衔接。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-CONS-009",
+        title="预算金额与面向中小企业采购金额口径异常",
+        dimension="跨条款一致性检查",
+        default_severity=Severity.high,
+        scenario_tags=["consistency", "policy"],
+        required_conditions=[
+            ReviewPointCondition("存在预算金额", clause_fields=["预算金额"]),
+            ReviewPointCondition("存在面向中小企业采购金额", clause_fields=["面向中小企业采购金额"]),
+            ReviewPointCondition("存在最高限价", clause_fields=["最高限价"]),
+        ],
+        basis_hint="预算金额、最高限价和面向中小企业采购金额应保持清晰且口径一致。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-SME-005",
+        title="面向中小企业采购金额与最高限价疑似混用",
+        dimension="中小企业政策风险",
+        default_severity=Severity.medium,
+        scenario_tags=["policy"],
+        required_conditions=[
+            ReviewPointCondition("存在面向中小企业采购金额", clause_fields=["面向中小企业采购金额"]),
+            ReviewPointCondition("存在最高限价", clause_fields=["最高限价"]),
+        ],
+        basis_hint="面向中小企业采购金额应与最高限价、预算金额保持口径清晰，不宜直接混填。",
     ),
 ]
 

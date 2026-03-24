@@ -73,6 +73,30 @@ def match_contract_performance_risks(text: str, clauses) -> list[RiskHit]:
             )
         )
 
+    for clause in mapping.get("合同成果模板术语", []):
+        hits.append(
+            RiskHit(
+                risk_group="合同与履约风险",
+                rule_name="合同条款出现非本行业成果模板表述",
+                severity=Severity.high,
+                matched_text=clause.content,
+                rationale="合同中出现成果交付、成果泄露等偏咨询、设计或信息化项目的模板术语，需核查与当前采购场景是否匹配。",
+                source_anchor=clause.source_anchor,
+            )
+        )
+
+    for clause in mapping.get("验收弹性条款", []):
+        hits.append(
+            RiskHit(
+                risk_group="合同与履约风险",
+                rule_name="验收标准存在优胜原则或单方弹性判断",
+                severity=Severity.high,
+                matched_text=clause.content,
+                rationale="验收条款出现优胜原则或单方弹性判断口径，可能导致验收标准不客观、不可预期。",
+                source_anchor=clause.source_anchor,
+            )
+        )
+
     return hits
 
 

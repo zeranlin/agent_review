@@ -399,6 +399,59 @@ def test_applicability_requirement_chain_reports_missing_and_blocking_conditions
     assert "要件链被阻断" in policy_check.summary or "要件链未闭合" in policy_check.summary
 
 
+def test_forestry_like_project_can_trigger_structure_scoring_contract_and_amount_review_points() -> None:
+    text = """
+    项目名称：丹巴县2024年造林绿化项目
+    项目属性：货物
+    采购标的：苗木、肥料、防治药剂、标识牌及人工管护服务
+    合同类型：承揽合同
+    合同履行期限：1095日
+    采购内容：清林整地、栽植、连续三年施肥、幼林抚育、成林管护、机械运水
+    预算金额：2,899,600.00元
+    最高限价：2,680,443.18元
+    面向中小企业采购金额：2,680,443.18元
+    评分标准：
+    软件企业认定证书5分
+    ITSS运行维护服务证书2分
+    利润率10分
+    财务报告2分
+    实施方案30分，齐全且无缺陷得满分，每缺项扣分，每处缺陷扣2.5分
+    合同条款：不得将本项目成果移作他用，不得向第三方泄露本项目成果。
+    验收条款：如采购文件与投标文件约定标准抵触，由采购人按质量要求和技术指标、行业标准比较优胜的原则确定验收标准。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="forest.txt")
+    titles = {item.title for item in report.findings}
+    clause_map = {}
+    for item in report.extracted_clauses:
+        clause_map.setdefault(item.field_name, []).append(item)
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+
+    assert clause_map["合同类型"][0].normalized_value == "承揽合同"
+    assert clause_map["是否含持续性服务"][0].normalized_value == "是"
+    assert "人工管护" in clause_map["采购内容构成"][0].relation_tags
+    assert "软件企业认定证书" in clause_map["行业相关性存疑评分项"][0].normalized_value
+    assert clause_map["方案评分扣分模式"][0].normalized_value == "存在"
+    assert clause_map["合同成果模板术语"][0].normalized_value == "存在"
+    assert clause_map["验收弹性条款"][0].normalized_value == "存在"
+    assert clause_map["面向中小企业采购金额"][0].normalized_value == "2680443.18"
+
+    assert "货物采购混入持续性作业服务" in titles
+    assert "项目属性与合同类型口径疑似不一致" in titles
+    assert "行业无关证书或财务指标被纳入评分" in titles
+    assert "方案评分量化不足" in titles
+    assert "合同条款出现非本行业成果模板表述" in titles
+    assert "验收标准存在优胜原则或单方弹性判断" in titles
+
+    assert applicability_map["RP-STRUCT-007"].applicable is True
+    assert applicability_map["RP-STRUCT-008"].applicable is True
+    assert applicability_map["RP-SCORE-005"].applicable is True
+    assert applicability_map["RP-SCORE-006"].applicable is True
+    assert applicability_map["RP-CONTRACT-008"].applicable is True
+    assert applicability_map["RP-CONTRACT-009"].applicable is True
+    assert applicability_map["RP-CONS-009"].applicable is True
+    assert applicability_map["RP-SME-005"].applicable is True
+
+
 def test_load_document_supports_docx(tmp_path: Path) -> None:
     file_path = tmp_path / "sample.docx"
     document = Document()
