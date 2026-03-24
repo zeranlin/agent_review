@@ -194,6 +194,37 @@ class Recommendation:
 
 
 @dataclass(slots=True)
+class SpecialistTableRow:
+    item_name: str
+    severity: Severity
+    detail: str
+    source_anchor: str
+
+    def to_dict(self) -> dict[str, str]:
+        payload = asdict(self)
+        payload["severity"] = self.severity.value
+        return payload
+
+
+@dataclass(slots=True)
+class SpecialistTables:
+    project_structure: list[SpecialistTableRow] = field(default_factory=list)
+    sme_policy: list[SpecialistTableRow] = field(default_factory=list)
+    personnel_boundary: list[SpecialistTableRow] = field(default_factory=list)
+    contract_performance: list[SpecialistTableRow] = field(default_factory=list)
+    template_conflicts: list[SpecialistTableRow] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "project_structure": [item.to_dict() for item in self.project_structure],
+            "sme_policy": [item.to_dict() for item in self.sme_policy],
+            "personnel_boundary": [item.to_dict() for item in self.personnel_boundary],
+            "contract_performance": [item.to_dict() for item in self.contract_performance],
+            "template_conflicts": [item.to_dict() for item in self.template_conflicts],
+        }
+
+
+@dataclass(slots=True)
 class ReviewReport:
     review_mode: ReviewMode
     parse_result: ParseResult
@@ -208,6 +239,7 @@ class ReviewReport:
     section_index: list[SectionIndex]
     extracted_clauses: list[ExtractedClause]
     risk_hits: list[RiskHit]
+    specialist_tables: SpecialistTables
     consistency_checks: list[ConsistencyCheck]
     recommendations: list[Recommendation]
     manual_review_queue: list[str]
@@ -228,6 +260,7 @@ class ReviewReport:
             "section_index": [item.to_dict() for item in self.section_index],
             "extracted_clauses": [item.to_dict() for item in self.extracted_clauses],
             "risk_hits": [item.to_dict() for item in self.risk_hits],
+            "specialist_tables": self.specialist_tables.to_dict(),
             "consistency_checks": [item.to_dict() for item in self.consistency_checks],
             "recommendations": [item.to_dict() for item in self.recommendations],
             "manual_review_queue": self.manual_review_queue,

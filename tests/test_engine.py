@@ -197,3 +197,19 @@ def test_markdown_report_uses_v2_sections() -> None:
     assert "## 高风险问题" in markdown
     assert "## 中风险问题" in markdown
     assert "## 审查边界说明" in markdown
+    assert "## 中小企业政策一致性表" in markdown
+
+
+def test_report_contains_specialist_tables() -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    年龄要求35岁以下。
+    采购人拥有最终解释权。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    assert report.specialist_tables.sme_policy
+    assert report.specialist_tables.personnel_boundary
+    assert report.specialist_tables.contract_performance

@@ -104,6 +104,12 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append(f"- [{item.category}] {item.field_name}: {item.content}（{item.source_anchor}）")
     lines.append("")
 
+    _append_specialist_table(lines, "项目结构一致性表", report.specialist_tables.project_structure)
+    _append_specialist_table(lines, "中小企业政策一致性表", report.specialist_tables.sme_policy)
+    _append_specialist_table(lines, "人员与用工边界风险表", report.specialist_tables.personnel_boundary)
+    _append_specialist_table(lines, "合同履约风险表", report.specialist_tables.contract_performance)
+    _append_specialist_table(lines, "模板残留与冲突表", report.specialist_tables.template_conflicts)
+
     if report.parse_result.warnings:
         lines.append("## 解析提示")
         for item in report.parse_result.warnings:
@@ -140,3 +146,15 @@ def render_markdown(report: ReviewReport) -> str:
     lines.append(f"- {', '.join(report.reviewed_dimensions)}")
 
     return "\n".join(lines)
+
+
+def _append_specialist_table(lines: list[str], title: str, rows) -> None:
+    lines.append(f"## {title}")
+    if rows:
+        for row in rows:
+            lines.append(
+                f"- {row.item_name}: {row.severity.value}，{row.detail}（{row.source_anchor}）"
+            )
+    else:
+        lines.append("- 本次未命中该专项表的结构化风险项。")
+    lines.append("")

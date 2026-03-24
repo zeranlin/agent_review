@@ -19,6 +19,8 @@ from .models import (
     FindingType,
     ReviewDimension,
     ReviewReport,
+    SpecialistTableRow,
+    SpecialistTables,
     Severity,
 )
 from .parsers import load_document, normalize_text
@@ -84,6 +86,7 @@ class TenderReviewEngine:
         manual_review_queue = list(dict.fromkeys(manual_review_queue))
         relative_strengths = collect_relative_strengths(section_index, findings)
         recommendations = build_recommendations(findings)
+        specialist_tables = _build_specialist_tables(risk_hits)
         overall_conclusion = derive_conclusion(findings)
         summary = self._build_summary(findings, manual_review_queue, overall_conclusion)
         report = ReviewReport(
@@ -100,6 +103,7 @@ class TenderReviewEngine:
             section_index=section_index,
             extracted_clauses=extracted_clauses,
             risk_hits=risk_hits,
+            specialist_tables=specialist_tables,
             consistency_checks=consistency_checks,
             recommendations=recommendations,
             manual_review_queue=manual_review_queue,
@@ -140,6 +144,7 @@ class TenderReviewEngine:
         manual_review_queue = list(dict.fromkeys(manual_review_queue))
         relative_strengths = collect_relative_strengths(section_index, findings)
         recommendations = build_recommendations(findings)
+        specialist_tables = _build_specialist_tables(risk_hits)
         overall_conclusion = derive_conclusion(findings)
         summary = self._build_summary(findings, manual_review_queue, overall_conclusion)
         report = ReviewReport(
@@ -156,6 +161,7 @@ class TenderReviewEngine:
             section_index=section_index,
             extracted_clauses=extracted_clauses,
             risk_hits=risk_hits,
+            specialist_tables=specialist_tables,
             consistency_checks=consistency_checks,
             recommendations=recommendations,
             manual_review_queue=manual_review_queue,
@@ -361,3 +367,27 @@ def _build_parse_result_for_text(text: str, document_name: str):
         tables=[],
         warnings=[],
     )
+
+
+def _build_specialist_tables(risk_hits) -> SpecialistTables:
+    tables = SpecialistTables()
+    group_map = {
+        "项目结构风险": "project_structure",
+        "中小企业政策风险": "sme_policy",
+        "人员条件与用工边界风险": "personnel_boundary",
+        "合同与履约风险": "contract_performance",
+        "模板残留与冲突风险": "template_conflicts",
+    }
+    for hit in risk_hits:
+        target = group_map.get(hit.risk_group)
+        if not target:
+            continue
+        getattr(tables, target).append(
+            SpecialistTableRow(
+                item_name=hit.rule_name,
+                severity=hit.severity,
+                detail=hit.rationale,
+                source_anchor=hit.source_anchor,
+            )
+        )
+    return tables
