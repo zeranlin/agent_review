@@ -8,7 +8,7 @@ from agent_review.engine import TenderReviewEngine
 from agent_review.llm import QwenReviewEnhancer
 from agent_review.models import ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
 from agent_review.outputs import write_review_artifacts
-from agent_review.parsers import load_document
+from agent_review.parsers import load_document, load_documents
 from agent_review.reporting import render_markdown
 
 
@@ -150,6 +150,21 @@ def test_load_document_supports_image_ocr_with_warning_when_tesseract_missing(tm
     assert isinstance(parse_result.warnings, list)
 
 
+def test_load_documents_can_merge_multiple_sources(tmp_path: Path) -> None:
+    first = tmp_path / "a.txt"
+    second = tmp_path / "b.txt"
+    first.write_text("项目属性：服务\n采购需求：物业服务。", encoding="utf-8")
+    second.write_text("合同条款\n付款方式：按月支付。", encoding="utf-8")
+
+    document_name, parse_result, source_documents = load_documents([first, second])
+
+    assert "等2个文件" in document_name
+    assert parse_result.source_format == "multi"
+    assert len(source_documents) == 2
+    assert "## 文档：a.txt" in parse_result.text
+    assert "## 文档：b.txt" in parse_result.text
+
+
 class FakeEnhancer:
     def enhance(self, report):
         report.summary = "这是经过LLM增强的结论摘要。"
@@ -271,6 +286,24 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     markdown = render_markdown(enhanced_report)
     assert "## LLM补充条款" in markdown
     assert "## LLM裁决复核" in markdown
+
+
+def test_engine_can_review_multiple_files(tmp_path: Path) -> None:
+    main_file = tmp_path / "main.txt"
+    contract_file = tmp_path / "contract.txt"
+    main_file.write_text("项目属性：服务\n采购需求：物业服务。", encoding="utf-8")
+    contract_file.write_text("合同条款\n付款方式：按月支付。", encoding="utf-8")
+    engine = TenderReviewEngine(review_mode=ReviewMode.fast)
+    report = engine.review_files(
+        [
+            main_file,
+            contract_file,
+        ]
+    )
+    assert report.source_documents
+    assert len(report.source_documents) == 2
+    markdown = render_markdown(report)
+    assert "## 联合审查文件" in markdown
 
 
 def test_fast_mode_skips_enhancer() -> None:

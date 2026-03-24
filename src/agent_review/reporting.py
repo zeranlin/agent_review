@@ -41,6 +41,24 @@ def render_markdown(report: ReviewReport) -> str:
         f"- 文件类型: {report.file_info.file_type.value}",
         f"- 审查范围: {report.file_info.review_scope}",
         "",
+    ]
+
+    if report.source_documents:
+        lines.extend(
+            [
+                "## 联合审查文件",
+                "",
+            ]
+        )
+        for item in report.source_documents:
+            page_text = item.page_count if item.page_count is not None else "未提供"
+            lines.append(
+                f"- {item.document_name}: {item.source_format}，解析器 {item.parser_name}，页数 {page_text}"
+            )
+        lines.append("")
+
+    lines.extend(
+        [
         "## 总体结论",
         "",
         f"- 结论等级: {report.overall_conclusion.value}",
@@ -48,7 +66,8 @@ def render_markdown(report: ReviewReport) -> str:
         f"- LLM增强: {'是' if report.llm_enhanced else '否'}",
         "",
         "## 高风险问题",
-    ]
+        ]
+    )
 
     for index, finding in enumerate(high_risk_findings, start=1):
         lines.append(f"### {index}. {finding.title}")

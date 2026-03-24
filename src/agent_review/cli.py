@@ -12,7 +12,12 @@ from .reporting import render_json, render_markdown
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Review a tender document for compliance risks.")
-    parser.add_argument("--input", required=True, help="待审查文件路径。")
+    parser.add_argument(
+        "--input",
+        required=True,
+        action="append",
+        help="待审查文件路径。可重复传入，用于多文件联合审查。",
+    )
     parser.add_argument(
         "--format",
         choices=("markdown", "json"),
@@ -49,14 +54,21 @@ def main() -> int:
 
     review_mode = ReviewMode(args.mode)
     enhanced_enabled = args.use_llm or review_mode == ReviewMode.enhanced
+    review_target = args.input if len(args.input) > 1 else args.input[0]
 
     base_engine = TenderReviewEngine(review_mode=ReviewMode.fast)
-    base_report = base_engine.review_file(args.input)
+    if isinstance(review_target, list):
+        base_report = base_engine.review_files(review_target)
+    else:
+        base_report = base_engine.review_file(review_target)
 
     if enhanced_enabled:
         enhancer = QwenReviewEnhancer(timeout=args.llm_timeout)
         engine = TenderReviewEngine(review_enhancer=enhancer, review_mode=ReviewMode.enhanced)
-        report = engine.review_file(args.input)
+        if isinstance(review_target, list):
+            report = engine.review_files(review_target)
+        else:
+            report = engine.review_file(review_target)
     else:
         report = base_report
 

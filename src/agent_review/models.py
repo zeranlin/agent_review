@@ -133,6 +133,18 @@ class ParseResult:
 
 
 @dataclass(slots=True)
+class SourceDocument:
+    document_name: str
+    source_path: str
+    source_format: str
+    parser_name: str
+    page_count: int | None
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class FileInfo:
     document_name: str
     format_hint: str
@@ -308,6 +320,7 @@ class ReviewReport:
     recommendations: list[Recommendation]
     manual_review_queue: list[str]
     reviewed_dimensions: list[str]
+    source_documents: list[SourceDocument] = field(default_factory=list)
     stage_records: list[RunStageRecord] = field(default_factory=list)
     task_records: list[TaskRecord] = field(default_factory=list)
     rule_selection: RuleSelection = field(default_factory=RuleSelection)
@@ -333,6 +346,7 @@ class ReviewReport:
             "recommendations": [item.to_dict() for item in self.recommendations],
             "manual_review_queue": self.manual_review_queue,
             "reviewed_dimensions": self.reviewed_dimensions,
+            "source_documents": [item.to_dict() for item in self.source_documents],
             "stage_records": [item.to_dict() for item in self.stage_records],
             "task_records": [item.to_dict() for item in self.task_records],
             "rule_selection": self.rule_selection.to_dict(),

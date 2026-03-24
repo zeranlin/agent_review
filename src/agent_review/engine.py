@@ -5,7 +5,7 @@ from pathlib import Path
 from .checklist import DEFAULT_DIMENSIONS
 from .llm import NullReviewEnhancer
 from .models import ReviewDimension, ReviewMode, ReviewReport
-from .parsers import load_document, normalize_text
+from .parsers import load_document, load_documents, normalize_text
 from .pipeline import ReviewPipeline, build_parse_result_for_text
 
 
@@ -33,11 +33,21 @@ class TenderReviewEngine:
         parse_result.text = normalize_text(parse_result.text)
         return self._run_pipeline(parse_result=parse_result, document_name=document_name)
 
-    def _run_pipeline(self, parse_result, document_name: str) -> ReviewReport:
+    def review_files(self, paths: list[str | Path]) -> ReviewReport:
+        document_name, parse_result, source_documents = load_documents(paths)
+        parse_result.text = normalize_text(parse_result.text)
+        return self._run_pipeline(
+            parse_result=parse_result,
+            document_name=document_name,
+            source_documents=source_documents,
+        )
+
+    def _run_pipeline(self, parse_result, document_name: str, source_documents=None) -> ReviewReport:
         report = self.pipeline.run(
             parse_result=parse_result,
             document_name=document_name,
             review_mode=self.review_mode,
+            source_documents=source_documents,
         )
         if self.review_mode == ReviewMode.enhanced:
             return self.review_enhancer.enhance(report)

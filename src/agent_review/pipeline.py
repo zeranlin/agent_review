@@ -34,6 +34,7 @@ from .models import (
     RunStageRecord,
     SectionIndex,
     Severity,
+    SourceDocument,
     TaskRecord,
     TaskStatus,
 )
@@ -46,6 +47,7 @@ class ReviewPipelineState:
     document_name: str
     parse_result: ParseResult
     normalized_text: str
+    source_documents: list[SourceDocument] = field(default_factory=list)
     file_info: FileInfo | None = None
     scope_statement: str = ""
     section_index: list[SectionIndex] = field(default_factory=list)
@@ -84,11 +86,13 @@ class ReviewPipeline:
         parse_result: ParseResult,
         document_name: str,
         review_mode: ReviewMode,
+        source_documents: list[SourceDocument] | None = None,
     ) -> ReviewReport:
         state = ReviewPipelineState(
             document_name=document_name,
             parse_result=parse_result,
             normalized_text=parse_result.text,
+            source_documents=source_documents or [],
         )
         for stage in self.stages:
             stage(state)
@@ -112,6 +116,7 @@ class ReviewPipeline:
             recommendations=state.recommendations,
             manual_review_queue=state.manual_review_queue,
             reviewed_dimensions=state.reviewed_dimensions,
+            source_documents=state.source_documents,
             stage_records=state.stage_records,
             task_records=[
                 TaskRecord(

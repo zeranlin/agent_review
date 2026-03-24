@@ -109,6 +109,7 @@ def _table_payload(report: ReviewReport, table_name: str) -> dict[str, object]:
     return {
         "table_name": table_name,
         "document_name": report.file_info.document_name,
+        "source_documents": [item.to_dict() for item in report.source_documents],
         "review_mode": report.review_mode.value,
         "llm_enhanced": report.llm_enhanced,
         "summary": report.specialist_tables.summaries.get(table_name, ""),
