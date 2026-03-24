@@ -306,6 +306,53 @@ def test_engine_can_review_multiple_files(tmp_path: Path) -> None:
     assert "## 联合审查文件" in markdown
 
 
+def test_multi_file_review_detects_cross_document_consistency_issues(tmp_path: Path) -> None:
+    tender = tmp_path / "tender.txt"
+    scoring = tmp_path / "scoring.txt"
+    contract = tmp_path / "contract.txt"
+    tender.write_text(
+        "\n".join(
+            [
+                "投标邀请",
+                "采购需求",
+                "项目属性：服务",
+                "本项目专门面向中小企业采购。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    scoring.write_text(
+        "\n".join(
+            [
+                "评分标准",
+                "综合评分",
+                "价格扣除按10%执行。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    contract.write_text(
+        "\n".join(
+            [
+                "合同条款",
+                "付款方式：尾款支付以采购人满意度考核为准。",
+                "验收条款：按合同约定执行。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_files(
+        [tender, scoring, contract]
+    )
+
+    titles = {item.title for item in report.findings}
+    assert "正文 vs 评分细则跨文件一致性" in titles
+    assert "正文 vs 合同草案跨文件一致性" in titles
+    markdown = render_markdown(report)
+    assert "## 跨文件一致性专项" in markdown
+
+
 def test_fast_mode_skips_enhancer() -> None:
     text = "项目概况\n采购需求详见附件。"
     engine = TenderReviewEngine(review_enhancer=FakeEnhancer(), review_mode=ReviewMode.fast)

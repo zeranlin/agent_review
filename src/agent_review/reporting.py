@@ -172,6 +172,15 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append(f"- {report.llm_semantic_review.verdict_review}")
         lines.append("")
 
+    cross_file_checks = [
+        item for item in report.consistency_checks if "跨文件" in item.topic
+    ]
+    if cross_file_checks:
+        lines.append("## 跨文件一致性专项")
+        for item in cross_file_checks:
+            lines.append(f"- {item.topic}: {item.status}，{item.detail}")
+        lines.append("")
+
     lines.append("## 一致性检查")
     for item in report.consistency_checks:
         lines.append(f"- {item.topic}: {item.status}，{item.detail}")

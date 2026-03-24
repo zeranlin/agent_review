@@ -2,11 +2,24 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from ..models import ExtractedClause
-from ..models import ConclusionLevel, ConsistencyCheck, Finding, FindingType, SectionIndex, Severity
+from ..models import (
+    ConclusionLevel,
+    ConsistencyCheck,
+    ExtractedClause,
+    Finding,
+    FindingType,
+    SectionIndex,
+    Severity,
+    SourceDocument,
+)
+from ..structure import detect_file_type
 
 
-def check_consistency(text: str, clauses: list[ExtractedClause] | None = None) -> list[ConsistencyCheck]:
+def check_consistency(
+    text: str,
+    clauses: list[ExtractedClause] | None = None,
+    source_documents: list[SourceDocument] | None = None,
+) -> list[ConsistencyCheck]:
     mapping = _clause_map(clauses or [])
     project_type = _first_content(mapping, "项目属性")
     category_name = _first_content(mapping, "品目名称")
@@ -124,6 +137,7 @@ def check_consistency(text: str, clauses: list[ExtractedClause] | None = None) -
             else "未发现明显联合体/分包条款冲突。",
         )
     )
+    checks.extend(_check_cross_document_consistency(text, source_documents or []))
     return checks
 
 
@@ -176,6 +190,77 @@ def derive_conclusion(findings: list[Finding]) -> ConclusionLevel:
     ):
         return ConclusionLevel.optimize
     return ConclusionLevel.ready
+
+
+def _check_cross_document_consistency(
+    text: str,
+    source_documents: list[SourceDocument],
+) -> list[ConsistencyCheck]:
+    if len(source_documents) <= 1:
+        return []
+
+    snippets = _split_document_snippets(text)
+    roles = {
+        item.document_name: detect_file_type(snippets.get(item.document_name, ""))
+        for item in source_documents
+    }
+    tender_docs = [
+        name
+        for name, role in roles.items()
+        if role.value in {"完整招标文件", "混合型文件", "未知类型", "采购需求文件"}
+    ]
+    scoring_docs = [name for name, role in roles.items() if role.value == "评分细则文件"]
+    contract_docs = [name for name, role in roles.items() if role.value == "合同草案"]
+
+    checks: list[ConsistencyCheck] = []
+    for tender_doc in tender_docs:
+        tender_text = snippets.get(tender_doc, "")
+        for scoring_doc in scoring_docs:
+            scoring_text = snippets.get(scoring_doc, "")
+            issue = ("专门面向中小企业" in tender_text and "价格扣除" in scoring_text) or (
+                "评分" in scoring_text and "技术要求" not in tender_text
+            )
+            checks.append(
+                ConsistencyCheck(
+                    topic="正文 vs 评分细则跨文件一致性",
+                    status="issue" if issue else "ok",
+                    detail=(
+                        f"《{tender_doc}》与《{scoring_doc}》之间存在政策口径或评分依据不一致，需核查正文与评分细则是否同步更新。"
+                        if issue
+                        else f"《{tender_doc}》与《{scoring_doc}》未发现明显跨文件评分冲突。"
+                    ),
+                )
+            )
+        for contract_doc in contract_docs:
+            contract_text = snippets.get(contract_doc, "")
+            issue = ("付款" in contract_text and ("满意" in contract_text or "考核" in contract_text)) or (
+                "验收" in contract_text and "验收标准" not in tender_text
+            )
+            checks.append(
+                ConsistencyCheck(
+                    topic="正文 vs 合同草案跨文件一致性",
+                    status="issue" if issue else "ok",
+                    detail=(
+                        f"《{tender_doc}》与《{contract_doc}》之间存在付款、验收或考核口径不一致，需核查正文承诺与合同草案是否衔接。"
+                        if issue
+                        else f"《{tender_doc}》与《{contract_doc}》未发现明显跨文件合同冲突。"
+                    ),
+                )
+            )
+    return checks
+
+
+def _split_document_snippets(text: str) -> dict[str, str]:
+    snippets: dict[str, list[str]] = {}
+    current_name = ""
+    for line in text.splitlines():
+        if line.startswith("## 文档："):
+            current_name = line.replace("## 文档：", "", 1).strip()
+            snippets.setdefault(current_name, [])
+            continue
+        if current_name:
+            snippets[current_name].append(line)
+    return {name: "\n".join(lines).strip() for name, lines in snippets.items()}
 
 
 def _clause_map(clauses: list[ExtractedClause]) -> dict[str, list[ExtractedClause]]:

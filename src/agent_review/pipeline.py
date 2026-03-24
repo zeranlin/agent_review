@@ -202,7 +202,11 @@ class ReviewPipeline:
         )
 
     def _stage_consistency_review(self, state: ReviewPipelineState) -> None:
-        state.consistency_checks = check_consistency(state.normalized_text, state.extracted_clauses)
+        state.consistency_checks = check_consistency(
+            state.normalized_text,
+            state.extracted_clauses,
+            state.source_documents,
+        )
         consistency_findings = convert_consistency_checks_to_findings(state.consistency_checks)
         state.findings.extend(consistency_findings)
         issue_count = sum(1 for item in state.consistency_checks if item.status == "issue")
