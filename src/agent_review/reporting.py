@@ -13,14 +13,30 @@ def render_markdown(report: ReviewReport) -> str:
     lines = [
         f"# 招标文件审查报告",
         "",
-        f"- 文档: {report.document_name}",
-        f"- 摘要: {report.summary}",
-        f"- 已审查维度: {', '.join(report.reviewed_dimensions)}",
+        "## 审查范围说明",
         "",
-        "## 审查结果",
+        f"- 文档: {report.file_info.document_name}",
+        f"- 文件类型: {report.file_info.file_type.value}",
+        f"- 审查范围: {report.file_info.review_scope}",
+        f"- 审查边界: {report.file_info.review_boundary}",
+        "",
+        "## 总体结论",
+        "",
+        f"- 结论等级: {report.overall_conclusion.value}",
+        f"- 摘要: {report.summary}",
+        "",
+        "## 主要问题",
     ]
 
-    for index, finding in enumerate(report.findings, start=1):
+    issue_findings = [
+        item
+        for item in report.findings
+        if item.finding_type != FindingType.pass_
+    ]
+    issue_findings.sort(
+        key=lambda item: {"critical": 0, "high": 1, "medium": 2, "low": 3}[item.severity.value]
+    )
+    for index, finding in enumerate(issue_findings, start=1):
         lines.append(f"### {index}. {finding.title}")
         lines.append(f"- 维度: {finding.dimension}")
         lines.append(f"- 类型: {finding.finding_type.value}")
@@ -37,21 +53,40 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append(f"- 建议动作: {finding.next_action}")
         lines.append("")
 
+    lines.append("## 相对规范项")
+    for item in report.relative_strengths:
+        lines.append(f"- {item}")
+    lines.append("")
+
+    lines.append("## 修改建议")
+    for item in report.recommendations:
+        lines.append(f"- {item.related_issue}: {item.suggestion}")
+    lines.append("")
+
+    lines.append("## 章节定位")
+    for item in report.section_index:
+        status = "已定位" if item.located else "未定位"
+        anchor = item.anchor or "未发现"
+        lines.append(f"- {item.section_name}: {status}（{anchor}）")
+    lines.append("")
+
+    lines.append("## 条款抽取")
+    for item in report.extracted_clauses:
+        lines.append(f"- [{item.category}] {item.field_name}: {item.content}（{item.source_anchor}）")
+    lines.append("")
+
+    lines.append("## 一致性检查")
+    for item in report.consistency_checks:
+        lines.append(f"- {item.topic}: {item.status}，{item.detail}")
+    lines.append("")
+
     if report.manual_review_queue:
         lines.append("## 人工复核清单")
         for item in report.manual_review_queue:
             lines.append(f"- {item}")
         lines.append("")
 
-    high_risk = [
-        finding
-        for finding in report.findings
-        if finding.finding_type != FindingType.pass_ and finding.severity.value in {"high", "critical"}
-    ]
-    lines.append("## 结论")
-    if high_risk:
-        lines.append("当前文本已触发高风险或需复核项，建议在正式发布前完成专项复审。")
-    else:
-        lines.append("当前版本完成了基础筛查，但仍建议结合法规条款和完整附件进行正式复核。")
+    lines.append("## 已审查维度")
+    lines.append(f"- {', '.join(report.reviewed_dimensions)}")
 
     return "\n".join(lines)

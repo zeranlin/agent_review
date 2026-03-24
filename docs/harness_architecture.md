@@ -1,19 +1,68 @@
-# Harness Architecture For Tender Compliance Review
+# 架构设计
 
-## Design target
+## 设计目标
 
-The goal is not a single prompt that "judges" a tender document.
+目标不是做一个“一次性判断是否合规”的 prompt。
 
-The goal is a review harness that makes agent work reliable:
+目标是把 SOP 变成一个可执行的审查 harness，让智能体在固定轨道上工作：
 
-- the repository stores the workflow, review dimensions, schemas, and escalation policy
-- the runtime breaks review into bounded stages
-- each stage emits structured artifacts that the next stage can validate
-- humans intervene only when legal judgment or policy choice is genuinely required
+- 仓库存放流程、维度、规则、输出模式和升级策略
+- 运行时按阶段推进，不跳步
+- 每一步都产出结构化工件，供下一步验证
+- 只有当法律判断或材料缺失无法自动核实时，才升级给人工
 
-This mirrors the harness-engineering idea that engineers should design environments, specify intent, and build feedback loops rather than rely on one-shot prompting.
+这对应 harness engineering 的核心思想：工程师设计环境、约束、反馈回路，让智能体稳定完成工作，而不是押注一次性提示词。
 
-## Core principles translated to procurement review
+## 分层架构
+
+### 1. 业务层
+
+业务层负责回答“为什么审、审什么、结论怎么用”：
+
+- 识别采购文件类型
+- 确定审查边界
+- 定义高风险优先级
+- 规定输出结论层级
+- 规定问题必须有条款出处和修改建议
+
+### 2. 编排层
+
+编排层负责回答“按什么顺序执行 SOP”：
+
+1. 文件解析
+2. 类型识别
+3. 章节定位
+4. 条款抽取
+5. 风险匹配
+6. 一致性检查
+7. 风险分级
+8. 结论生成
+9. 修改建议输出
+
+### 3. 能力层
+
+能力层负责提供可复用能力：
+
+- 文本提取
+- OCR
+- 章节索引
+- 规则匹配
+- 跨条款对比
+- 风险分级
+- 报告渲染
+
+### 4. 数据层
+
+数据层负责保存审查工件：
+
+- 文件基础信息
+- 章节索引表
+- 条款抽取表
+- 风险命中表
+- 一致性检查表
+- 结论与建议表
+
+## 核心原则
 
 ### 1. Humans steer, agents execute
 
@@ -79,66 +128,70 @@ The review runtime should loop until:
 - contradictions were resolved or escalated
 - the final report includes confidence and next actions
 
-## Proposed control loop
+## 控制回路
 
 ```text
-user request
-  -> ingest document
-  -> normalize into sections / clauses / attachments
-  -> select checklist dimensions
-  -> run dimension reviewers
-  -> collect findings + evidence
-  -> run self-review and contradiction checks
-  -> decide: accept / escalate / incomplete
-  -> render report
+用户提交采购文件
+  -> 文件解析
+  -> 类型识别与范围声明
+  -> 章节定位
+  -> 条款抽取
+  -> 风险规则匹配
+  -> 跨条款一致性检查
+  -> 风险分级
+  -> 结论生成
+  -> 问题-建议映射
+  -> 输出报告
 ```
 
-## Target reviewer roles
+## 智能体角色分工
 
-As the system grows, the single local orchestrator can evolve into specialized agents:
+系统扩展后，可从单编排器演进为多角色智能体：
 
 1. `document_ingestor`
-   Reads PDF / DOCX / OCR output and produces normalized text units.
-2. `review_planner`
-   Decides which checks apply based on procurement type and document completeness.
-3. `compliance_reviewer`
-   Screens for discriminatory terms, qualification risk, scoring defects, process defects, and contract-risk clauses.
-4. `evidence_auditor`
-   Verifies that every issue is backed by a source citation.
-5. `adjudicator`
-   Downgrades, merges, or escalates findings when uncertainty remains.
-6. `report_writer`
-   Produces regulator-friendly markdown, json, or structured review output.
+   解析 PDF、DOCX、扫描件并输出结构化文本。
+2. `scope_classifier`
+   识别文件类型并生成审查边界。
+3. `clause_extractor`
+   定位章节并抽取关键条款。
+4. `risk_reviewer`
+   对限制竞争、评分、合同、政策等风险进行匹配。
+5. `consistency_auditor`
+   做跨条款一致性检查。
+6. `adjudicator`
+   汇总风险并形成结论等级。
+7. `report_writer`
+   输出标准审查报告和问题-建议对应表。
 
-## Review dimensions
+## 当前实现与目标架构的对应关系
 
-The initial default checklist covers:
+- [engine.py](/Users/linzeran/code/2026-zn/agent_review/src/agent_review/engine.py) 负责 SOP 主编排
+- [models.py](/Users/linzeran/code/2026-zn/agent_review/src/agent_review/models.py) 负责审查工件契约
+- [checklist.py](/Users/linzeran/code/2026-zn/agent_review/src/agent_review/checklist.py) 负责维度配置
+- [reporting.py](/Users/linzeran/code/2026-zn/agent_review/src/agent_review/reporting.py) 负责报告渲染
+- [docs/business_design.md](/Users/linzeran/code/2026-zn/agent_review/docs/business_design.md) 负责业务口径
+- [docs/dimension_design.md](/Users/linzeran/code/2026-zn/agent_review/docs/dimension_design.md) 负责维度口径
 
-- procurement scope clarity
-- bidder qualification fairness
-- evaluation criteria clarity and objectivity
-- discriminatory or restrictive terms
-- timeline and process completeness
-- contract terms and risk allocation
-- missing required information or attachments
+## 升级策略
 
-## Escalation policy
+以下情况必须升级人工：
 
-The harness should escalate when:
+- 证据不完整或前后矛盾
+- 结论依赖地方性规范理解，仓库里尚未编码
+- 关键附件缺失
+- 高风险问题存在但材料不足以直接定性
 
-- the evidence is incomplete or contradictory
-- the issue turns on local legal interpretation not encoded in the repository
-- the document appears missing annexes required for the conclusion
-- the severity is high and the model confidence is not high
+## 工件契约
 
-## Artifact contracts
+每次运行至少输出：
 
-Every run should produce:
-
-- normalized document text
-- structured findings
-- evidence snippets
-- manual-review queue
-- final report
-
-These artifacts should be durable so future agents can continue the loop without rereading everything from scratch.
+- 文件基础信息
+- 审查范围说明
+- 章节位置索引
+- 条款抽取表
+- 风险命中表
+- 一致性检查表
+- 主要问题
+- 相对规范项
+- 修改建议
+- 人工复核清单

@@ -1,5 +1,5 @@
 from agent_review.engine import TenderReviewEngine
-from agent_review.models import FindingType
+from agent_review.models import ConclusionLevel, FileType, FindingType
 
 
 def test_detects_manual_review_for_attachment_markers() -> None:
@@ -17,6 +17,12 @@ def test_detects_manual_review_for_attachment_markers() -> None:
         item.finding_type == FindingType.manual_review_required for item in report.findings
     )
     assert report.manual_review_queue
+    assert report.scope_statement
+    assert report.file_info.file_type in {
+        FileType.complete_tender,
+        FileType.procurement_requirement,
+        FileType.mixed_document,
+    }
 
 
 def test_detects_restrictive_terms_warning() -> None:
@@ -33,6 +39,9 @@ def test_detects_restrictive_terms_warning() -> None:
     report = TenderReviewEngine().review_text(text, document_name="demo.txt")
 
     assert any(item.title == "发现潜在限制性竞争表述" for item in report.findings)
+    assert any(item.rule_name == "指定品牌/原厂限制" for item in report.risk_hits)
+    assert not any(item.rule_name == "主观评分表述" for item in report.risk_hits)
+    assert report.overall_conclusion in {ConclusionLevel.revise, ConclusionLevel.reject}
 
 
 def test_missing_dimension_generates_missing_evidence() -> None:
@@ -40,3 +49,5 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     report = TenderReviewEngine().review_text(text, document_name="short.txt")
 
     assert any(item.finding_type == FindingType.missing_evidence for item in report.findings)
+    assert report.section_index
+    assert isinstance(report.relative_strengths, list)

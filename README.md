@@ -4,11 +4,12 @@
 
 The repository is designed around one principle: humans define policy, risk tolerance, and acceptance criteria; agents execute the repeatable review loop.
 
-This first version focuses on:
+This version now focuses on:
 
 - turning procurement review into a legible, layered agent workflow
 - keeping repository knowledge as the system of record
 - making every finding traceable to evidence in the tender document
+- aligning the business flow, architecture, and review dimensions to the repository SOP
 - creating a minimal local CLI that can be expanded into a full multi-agent review harness
 
 ## Why this repository is structured this way
@@ -29,6 +30,8 @@ Sources:
 
 ```text
 docs/
+  business_design.md        # SOP-aligned business design
+  dimension_design.md       # review dimensions and risk taxonomy
   harness_architecture.md   # target agent architecture and control loop
   review_workflow.md        # procurement review stages and human escalation rules
 src/agent_review/
@@ -45,14 +48,17 @@ pyproject.toml              # package metadata and test config
 
 ## Review model
 
-The tender review loop is split into six stages:
+The tender review loop is aligned to the SOP's nine stages:
 
 1. ingest the bidding document and normalize it into reviewable text units
-2. plan which review dimensions apply and what evidence must be collected
-3. run dimension-specific checks and record findings with citations
-4. perform contradiction and completeness checks on the draft findings
-5. escalate ambiguous or high-risk issues for human judgment
-6. render a final report with findings, missing evidence, and next actions
+2. identify the file type and declare the review scope
+3. locate key sections
+4. extract key clauses
+5. run rule-based risk matching
+6. perform cross-clause consistency checks
+7. grade risks
+8. form an overall conclusion
+9. render a final report with issue-to-suggestion mappings
 
 This repo currently ships a minimal deterministic implementation of that loop so the architecture is executable before model integration.
 
@@ -74,6 +80,7 @@ It provides:
 
 - a structured compliance review workflow
 - a finding schema with severity, confidence, rationale, and evidence
+- file type, scope, section index, clause extraction, risk hit, and consistency artifacts
 - a reusable checklist for common procurement review dimensions
 - a minimal CLI and test suite
 
