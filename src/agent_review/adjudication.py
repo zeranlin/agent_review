@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from .applicability import build_applicability_checks
+from .fact_collectors import collect_task_facts
 from .models import (
     ApplicabilityCheck,
     ClauseRole,
@@ -43,6 +44,7 @@ def build_review_points_from_task_library(
     task_definitions = select_standard_review_tasks(report_text, extracted_clauses)
     review_points: list[ReviewPoint] = []
     for index, definition in enumerate(task_definitions, start=1):
+        evidence_bundle, status, rationale = collect_task_facts(definition, extracted_clauses)
         review_points.append(
             ReviewPoint(
                 point_id=f"TASK-{index:03d}",
@@ -50,19 +52,9 @@ def build_review_points_from_task_library(
                 title=definition.title,
                 dimension=definition.dimension,
                 severity=definition.default_severity,
-                status=ReviewPointStatus.identified,
-                rationale=f"标准审查任务：{definition.basis_hint or definition.title}",
-                evidence_bundle=EvidenceBundle(
-                    direct_evidence=[],
-                    supporting_evidence=[],
-                    conflicting_evidence=[],
-                    rebuttal_evidence=[],
-                    missing_evidence_notes=["当前为标准审查任务，尚待规则、结构化条款或人工证据补充。"],
-                    clause_roles=[],
-                    sufficiency_summary="当前仅完成标准审查任务建模，尚未形成可直接裁决的证据。",
-                    evidence_level=EvidenceLevel.missing,
-                    evidence_score=0.0,
-                ),
+                status=status,
+                rationale=rationale,
+                evidence_bundle=evidence_bundle,
                 legal_basis=[],
                 source_findings=[f"task_library:{definition.catalog_id}"],
             )
@@ -591,9 +583,7 @@ def _confidence_from_review_point(point: ReviewPoint) -> float:
 
 def _is_task_library_placeholder(point: ReviewPoint) -> bool:
     return (
-        point.status == ReviewPointStatus.identified
-        and not point.evidence_bundle.direct_evidence
-        and not point.evidence_bundle.supporting_evidence
+        bool(point.source_findings)
         and point.source_findings
         and all(source.startswith("task_library:") for source in point.source_findings)
     )
@@ -632,9 +622,14 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
     section_hint = primary.section_hint or "未明确定位"
     raw_quote = primary.quote.strip()
     supplemental: list[str] = []
-    quote = line_text_from_anchor(report_text, section_hint)
-    if quote:
-        supplemental.append(quote)
+    for item in evidence[:3]:
+        line_quote = line_text_from_anchor(report_text, item.section_hint)
+        if line_quote:
+            supplemental.append(line_quote)
+        elif item.quote.strip():
+            supplemental.append(item.quote.strip())
+
+    quote = "；".join(dict.fromkeys([item for item in supplemental if item]))
 
     if raw_quote and " / " in raw_quote:
         parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
