@@ -238,6 +238,22 @@ class RunStageRecord:
 
 
 @dataclass(slots=True)
+class LLMSemanticReview:
+    clause_supplements: list[ExtractedClause] = field(default_factory=list)
+    specialist_findings: list[Finding] = field(default_factory=list)
+    consistency_findings: list[Finding] = field(default_factory=list)
+    verdict_review: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "clause_supplements": [item.to_dict() for item in self.clause_supplements],
+            "specialist_findings": [item.to_dict() for item in self.specialist_findings],
+            "consistency_findings": [item.to_dict() for item in self.consistency_findings],
+            "verdict_review": self.verdict_review,
+        }
+
+
+@dataclass(slots=True)
 class ReviewReport:
     review_mode: ReviewMode
     parse_result: ParseResult
@@ -258,6 +274,7 @@ class ReviewReport:
     manual_review_queue: list[str]
     reviewed_dimensions: list[str]
     stage_records: list[RunStageRecord] = field(default_factory=list)
+    llm_semantic_review: LLMSemanticReview = field(default_factory=LLMSemanticReview)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -280,4 +297,5 @@ class ReviewReport:
             "manual_review_queue": self.manual_review_queue,
             "reviewed_dimensions": self.reviewed_dimensions,
             "stage_records": [item.to_dict() for item in self.stage_records],
+            "llm_semantic_review": self.llm_semantic_review.to_dict(),
         }

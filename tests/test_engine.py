@@ -5,6 +5,7 @@ from docx import Document
 from PIL import Image
 
 from agent_review.engine import TenderReviewEngine
+from agent_review.llm import QwenReviewEnhancer
 from agent_review.models import ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document
@@ -155,6 +156,57 @@ class FakeEnhancer:
         return report
 
 
+class FakeClient:
+    def generate_text(self, system_prompt: str, user_prompt: str) -> str:
+        return json.dumps(
+            {
+                "summary": "这是经过LLM语义复核增强后的总体结论摘要。",
+                "semantic_review": {
+                    "clause_supplements": [
+                        {
+                            "category": "政策条款",
+                            "field_name": "分包比例",
+                            "content": "文件疑似提及分包落实中小企业政策，但比例未在现有抽取结果中单列。",
+                            "source_anchor": "line:8",
+                            "rationale": "文本出现分包和中小企业并列描述。",
+                        }
+                    ],
+                    "specialist_findings": [
+                        {
+                            "dimension": "专项语义复核",
+                            "title": "评分因素与履约考核存在隐性耦合",
+                            "severity": "high",
+                            "rationale": "评分承诺与后续考核扣款口径疑似共用同一表述，可能导致重复约束。",
+                            "source_anchor": "line:12",
+                            "next_action": "拆分投标评分承诺与履约考核口径。",
+                        }
+                    ],
+                    "consistency_findings": [
+                        {
+                            "dimension": "深层一致性复核",
+                            "title": "付款条件与满意度表述存在隐性冲突",
+                            "severity": "medium",
+                            "rationale": "付款条款虽未直接写考核，但满意度表述可能实际控制尾款支付。",
+                            "source_anchor": "line:15",
+                            "next_action": "将付款条件改为客观验收节点。",
+                        }
+                    ],
+                    "verdict_review": "基于现有事实，除已命中规则外，仍存在评分、考核、付款联动的隐性实质性风险，建议人工重点复核。",
+                },
+                "specialist_summaries": {
+                    "sme_policy": "中小企业政策专项仍存在模板与执行口径混杂问题。"
+                },
+                "recommendations": [
+                    {
+                        "related_issue": "评分因素与履约考核存在隐性耦合",
+                        "suggestion": "拆分评审承诺与履约考核条款，避免形成双重约束。",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+
 def test_engine_can_apply_llm_enhancer() -> None:
     text = """
     项目概况
@@ -168,6 +220,30 @@ def test_engine_can_apply_llm_enhancer() -> None:
     assert report.summary == "这是经过LLM增强的结论摘要。"
     assert report.recommendations[0].suggestion == "这是经过LLM增强的建议。"
     assert report.specialist_tables.summaries["sme_policy"] == "这是经过LLM增强的中小企业政策专项摘要。"
+
+
+def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    供应商需承诺服务满意度，尾款支付与履约评价挂钩。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+    enhancer = QwenReviewEnhancer(client=FakeClient())
+    enhanced_report = enhancer.enhance(base_report)
+
+    assert enhanced_report.llm_enhanced is True
+    assert enhanced_report.llm_semantic_review.clause_supplements
+    assert any(item.title == "评分因素与履约考核存在隐性耦合" for item in enhanced_report.findings)
+    assert any(item.title == "付款条件与满意度表述存在隐性冲突" for item in enhanced_report.findings)
+    assert enhanced_report.llm_semantic_review.verdict_review
+    assert any(item.stage_name == "llm_semantic_review" for item in enhanced_report.stage_records)
+    markdown = render_markdown(enhanced_report)
+    assert "## LLM补充条款" in markdown
+    assert "## LLM裁决复核" in markdown
 
 
 def test_fast_mode_skips_enhancer() -> None:

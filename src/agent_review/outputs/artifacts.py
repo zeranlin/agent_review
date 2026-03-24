@@ -128,6 +128,12 @@ def _build_run_manifest(
             "requested": report.review_mode.value == "enhanced",
             "enhanced": report.llm_enhanced,
             "warnings": report.llm_warnings,
+            "semantic_review": {
+                "clause_supplement_count": len(report.llm_semantic_review.clause_supplements),
+                "specialist_finding_count": len(report.llm_semantic_review.specialist_findings),
+                "consistency_finding_count": len(report.llm_semantic_review.consistency_findings),
+                "verdict_review": report.llm_semantic_review.verdict_review,
+            },
         },
         "parse_summary": {
             "parser_name": report.parse_result.parser_name,

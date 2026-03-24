@@ -104,6 +104,12 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append(f"- [{item.category}] {item.field_name}: {item.content}（{item.source_anchor}）")
     lines.append("")
 
+    if report.llm_semantic_review.clause_supplements:
+        lines.append("## LLM补充条款")
+        for item in report.llm_semantic_review.clause_supplements:
+            lines.append(f"- [{item.category}] {item.field_name}: {item.content}（{item.source_anchor}）")
+        lines.append("")
+
     _append_specialist_table(lines, "项目结构一致性表", report.specialist_tables.project_structure)
     _append_specialist_summary(lines, "项目结构一致性表", report.specialist_tables.summaries.get("project_structure"))
     _append_specialist_table(lines, "中小企业政策一致性表", report.specialist_tables.sme_policy)
@@ -125,6 +131,23 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append("## LLM提示")
         for item in report.llm_warnings:
             lines.append(f"- {item}")
+        lines.append("")
+
+    if report.llm_semantic_review.specialist_findings:
+        lines.append("## LLM专项语义复核")
+        for item in report.llm_semantic_review.specialist_findings:
+            lines.append(f"- {item.title}: {item.severity.value}，{item.rationale}")
+        lines.append("")
+
+    if report.llm_semantic_review.consistency_findings:
+        lines.append("## LLM深层一致性复核")
+        for item in report.llm_semantic_review.consistency_findings:
+            lines.append(f"- {item.title}: {item.severity.value}，{item.rationale}")
+        lines.append("")
+
+    if report.llm_semantic_review.verdict_review:
+        lines.append("## LLM裁决复核")
+        lines.append(f"- {report.llm_semantic_review.verdict_review}")
         lines.append("")
 
     lines.append("## 一致性检查")

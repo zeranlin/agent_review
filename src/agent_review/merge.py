@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from .models import Finding, Recommendation, RiskHit, SpecialistTableRow, SpecialistTables
+from .models import (
+    ExtractedClause,
+    Finding,
+    Recommendation,
+    RiskHit,
+    SpecialistTableRow,
+    SpecialistTables,
+)
 
 
 def dedupe_risk_hits(risk_hits: list[RiskHit]) -> list[RiskHit]:
@@ -42,6 +49,18 @@ def dedupe_recommendations(recommendations: list[Recommendation]) -> list[Recomm
             continue
         seen.add(recommendation.related_issue)
         results.append(recommendation)
+    return results
+
+
+def dedupe_extracted_clauses(clauses: list[ExtractedClause]) -> list[ExtractedClause]:
+    results: list[ExtractedClause] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for clause in clauses:
+        key = (clause.category, clause.field_name, clause.content, clause.source_anchor)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(clause)
     return results
 
 
