@@ -31,6 +31,7 @@ from agent_review.reporting import (
     render_markdown,
     render_opinion_letter,
 )
+from agent_review.llm.prompts import build_review_point_second_review_prompt
 
 
 def test_detects_manual_review_for_attachment_markers() -> None:
@@ -683,6 +684,33 @@ class FakeSecondReviewOverrideClient:
         return json.dumps({}, ensure_ascii=False)
 
 
+class FakeDynamicTypedSecondReviewClient:
+    def generate_text(self, system_prompt: str, user_prompt: str) -> str:
+        if "以 ReviewPoint 为单位进行二审" in system_prompt:
+            if '"task_type": "structure"' in user_prompt and "项目属性与采购内容结构错配" in user_prompt:
+                return json.dumps(
+                    {
+                        "review_point_second_reviews": [
+                            {
+                                "point_id": "DYN-001",
+                                "title": "项目属性与采购内容结构错配",
+                                "role_judgment": "结构类动态任务当前主要来自采购约束条款，角色判断基本可靠。",
+                                "evidence_judgment": "项目属性、采购标的和履约周期已进入证据链，但需结合反证审慎判断。",
+                                "applicability_judgment": "结构类错配要件已有初步支撑，但仍需关注仅供货类反证。",
+                                "suggested_disposition": "manual_confirmation",
+                                "rationale": "结构类二审重点已触发，建议保守处理为待人工确认。",
+                                "adoption_status": "可直接采用",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+            return json.dumps({"review_point_second_reviews": []}, ensure_ascii=False)
+        if "总体结论形成前" in system_prompt:
+            return json.dumps({"summary": "s", "verdict_review": "v"}, ensure_ascii=False)
+        return json.dumps({}, ensure_ascii=False)
+
+
 def test_engine_can_apply_llm_enhancer() -> None:
     text = """
     项目概况
@@ -844,6 +872,29 @@ def test_dynamic_tasks_can_use_type_specific_scoring_assembly() -> None:
     assert any("财务指标" in quote or "营业收入" in quote for quote in quotes)
     assert any("样品分" in quote for quote in quotes)
     assert "scoring 类型执行差异化组证" in scoring_point.rationale
+
+
+def test_dynamic_task_type_can_flow_into_llm_second_review_prompt_and_override() -> None:
+    text = """
+    项目属性：货物
+    采购标的：苗木供货，仅供货，不含人工服务。
+    合同履行期限：1095日。
+    造林内容包含人工管护、抚育和运水。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+    scenario_report = QwenReviewEnhancer(client=FakeClient()).enhance(base_report)
+
+    prompt = build_review_point_second_review_prompt(scenario_report)
+    assert '"task_type": "structure"' in prompt
+    assert "重点复核项目属性、采购内容、合同类型、履约周期之间是否真实错配" in prompt
+
+    second_review_report = QwenReviewEnhancer(client=FakeDynamicTypedSecondReviewClient()).enhance(scenario_report)
+    assert any(
+        item.title == "项目属性与采购内容结构错配" and "结构类二审重点已触发" in item.rationale
+        for item in second_review_report.llm_semantic_review.review_point_second_reviews
+    )
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:
