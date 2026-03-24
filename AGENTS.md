@@ -1,38 +1,38 @@
 # AGENTS.md
 
-## Purpose
+## 目的
 
-This repository builds an agent-first government procurement tender review system.
+本仓库用于构建一个以智能体为中心的政府采购招标文件合规审查系统。
 
-Agents should optimize for:
+智能体在本仓库内工作时，应优先保证：
 
-- evidence-backed findings
-- explicit uncertainty
-- narrow, typed interfaces between stages
-- repository docs as the source of truth
+- 结论有证据支撑
+- 不确定性表达明确
+- 阶段之间接口清晰、结构稳定
+- 仓库文档是事实来源
 
-## Golden principles
+## 黄金原则
 
-1. Every finding must cite concrete evidence from the source document.
-2. Findings should distinguish between `confirmed_issue`, `warning`, `missing_evidence`, and `manual_review_required`.
-3. Rules belong in typed code or repository docs, not in ad hoc prompt prose.
-4. The review loop should prefer escalation over bluffing whenever legal interpretation is ambiguous.
-5. New checks must be added through the shared checklist and report schema.
-6. Avoid giant instruction files; keep knowledge close to the domain module that uses it.
+1. 每条问题都必须引用源文件中的具体证据。
+2. 审查结果必须区分 `confirmed_issue`、`warning`、`missing_evidence` 和 `manual_review_required`。
+3. 规则应写入结构化代码或仓库文档，而不是散落在临时提示词里。
+4. 只要涉及不明确的法律解释，应优先升级人工，而不是武断定性。
+5. 新增检查项时，必须同步更新共享 checklist 和报告结构。
+6. 避免写一个过大的说明文件，领域知识应尽量靠近实际使用它的模块。
 
-## Architecture rules
+## 架构规则
 
-- `models.py` owns shared contracts.
-- `checklist.py` defines reusable review dimensions.
-- `engine.py` orchestrates the loop, but does not hardcode presentation.
-- `reporting.py` renders output, but does not decide findings.
-- docs describe the intended system behavior and escalation policy.
+- `models.py` 负责共享数据契约。
+- `checklist.py` 负责定义可复用的审查维度。
+- `engine.py` 负责编排审查流程，但不直接决定展示样式。
+- `reporting.py` 负责渲染输出，但不负责生成审查结论。
+- `docs/` 负责描述系统行为、边界和升级策略。
 
-## Review expectations
+## 开发要求
 
-When extending this repository:
+扩展本仓库时：
 
-- prefer deterministic pre-checks before adding model calls
-- make uncertainty explicit in the output
-- add or update tests with every behavior change
-- encode repeated review feedback back into the repository
+- 优先添加确定性预检查，再考虑模型调用
+- 输出中必须明确表达不确定性
+- 每次行为变化都应补充或更新测试
+- 反复出现的审查反馈，应沉淀回仓库规则中

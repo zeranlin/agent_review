@@ -64,69 +64,69 @@
 
 ## 核心原则
 
-### 1. Humans steer, agents execute
+### 1. 人负责设定目标，智能体负责执行
 
-In this domain, humans define:
+在这个场景里，人负责定义：
 
-- the legal and policy basis for review
-- which procurement risks matter most
-- severity thresholds
-- when an issue must be escalated for legal or supervisory review
+- 审查所依据的法律和政策口径
+- 哪些采购风险应优先关注
+- 风险分级阈值
+- 哪些问题必须升级给法务或监管人员复核
 
-Agents execute:
+智能体负责执行：
 
-- document decomposition
-- evidence extraction
-- clause-level screening
-- contradiction detection
-- report drafting
-- iterative self-review
+- 文件拆解
+- 证据抽取
+- 条款级筛查
+- 冲突识别
+- 报告草拟
+- 循环自检
 
-### 2. Repository knowledge is the system of record
+### 2. 仓库知识是系统记录中心
 
-The repository should eventually hold:
+仓库最终应沉淀：
 
-- review dimensions
-- output schemas
-- escalation thresholds
-- rule references
-- test fixtures and acceptance examples
+- 审查维度
+- 输出结构
+- 升级阈值
+- 规则依据
+- 测试样例与验收样例
 
-This is better than keeping all domain knowledge inside a single prompt because the harness can inspect, validate, and evolve it.
+这比把领域知识塞进单个 prompt 更稳，因为 harness 可以直接检查、验证和持续演进这些规则。
 
-### 3. Legibility first
+### 3. 先保证可读、可查、可复核
 
-The agent should be able to inspect:
+系统应当让智能体能够检查：
 
-- the original tender text
-- extracted sections and pagination anchors
-- rule basis used for each conclusion
-- unresolved ambiguities
-- missing attachments or missing clauses
+- 原始招标文本
+- 抽取后的章节和定位锚点
+- 每条结论对应的规则依据
+- 尚未解决的歧义点
+- 缺失的附件或关键条款
 
-If the system cannot expose these artifacts, it cannot reliably review or defend its conclusions.
+如果系统无法暴露这些工件，就无法稳定完成审查，也很难支撑后续复核。
 
-### 4. Enforce boundaries centrally
+### 4. 边界要集中定义
 
-The review harness should separate:
+审查 harness 应分离以下职责：
 
-- ingestion
-- review planning
-- rule execution
-- evidence validation
-- adjudication
-- reporting
+- 输入解析
+- 审查规划
+- 规则执行
+- 证据校验
+- 结论裁定
+- 报告输出
 
-This prevents a single component from silently inventing legal conclusions without evidence.
+这样可以避免单个组件在缺少证据时直接“脑补”法律结论。
 
-### 5. Use loops, not single-pass generation
+### 5. 采用循环，不做单次生成
 
-The review runtime should loop until:
+审查流程应循环执行，直到：
 
-- required dimensions were checked
-- each finding has evidence
-- contradictions were resolved or escalated
-- the final report includes confidence and next actions
+- 必要维度都完成检查
+- 每个问题都有对应证据
+- 冲突问题已解决或已升级人工
+- 最终报告包含置信度和后续动作
 
 ## 控制回路
 
@@ -165,12 +165,12 @@ The review runtime should loop until:
 
 ## 当前实现与目标架构的对应关系
 
-- [engine.py](/Users/linzeran/code/2026-zn/agent_review/src/agent_review/engine.py) 负责 SOP 主编排
-- [models.py](/Users/linzeran/code/2026-zn/agent_review/src/agent_review/models.py) 负责审查工件契约
-- [checklist.py](/Users/linzeran/code/2026-zn/agent_review/src/agent_review/checklist.py) 负责维度配置
-- [reporting.py](/Users/linzeran/code/2026-zn/agent_review/src/agent_review/reporting.py) 负责报告渲染
-- [docs/business_design.md](/Users/linzeran/code/2026-zn/agent_review/docs/business_design.md) 负责业务口径
-- [docs/dimension_design.md](/Users/linzeran/code/2026-zn/agent_review/docs/dimension_design.md) 负责维度口径
+- [engine.py](https://github.com/zeranlin/agent_review/blob/main/src/agent_review/engine.py) 负责 SOP 主编排
+- [models.py](https://github.com/zeranlin/agent_review/blob/main/src/agent_review/models.py) 负责审查工件契约
+- [checklist.py](https://github.com/zeranlin/agent_review/blob/main/src/agent_review/checklist.py) 负责维度配置
+- [reporting.py](https://github.com/zeranlin/agent_review/blob/main/src/agent_review/reporting.py) 负责报告渲染
+- [business_design.md](https://github.com/zeranlin/agent_review/blob/main/docs/business_design.md) 负责业务口径
+- [dimension_design.md](https://github.com/zeranlin/agent_review/blob/main/docs/dimension_design.md) 负责维度口径
 
 ## 升级策略
 

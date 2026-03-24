@@ -1,68 +1,68 @@
 # agent_review
 
-`agent_review` is a harness-engineering style scaffold for reviewing Chinese government procurement tender documents.
+`agent_review` 是一个面向政府采购招标文件合规审查的 harness engineering 风格项目骨架。
 
-The repository is designed around one principle: humans define policy, risk tolerance, and acceptance criteria; agents execute the repeatable review loop.
+仓库围绕一个核心原则设计：由人定义政策口径、风险容忍度和验收标准，由智能体执行可重复、可审计的审查循环。
 
-This version now focuses on:
+当前版本重点解决以下问题：
 
-- turning procurement review into a legible, layered agent workflow
-- keeping repository knowledge as the system of record
-- making every finding traceable to evidence in the tender document
-- aligning the business flow, architecture, and review dimensions to the repository SOP
-- creating a minimal local CLI that can be expanded into a full multi-agent review harness
+- 将采购文件审查拆成清晰、分层、可扩展的智能体工作流
+- 让仓库知识成为系统事实来源，而不是依赖单次提示词
+- 让每个问题都能回溯到招标文件中的证据
+- 让业务流程、系统架构和审查维度与 SOP 对齐
+- 提供一个最小可运行 CLI，便于后续扩展为多智能体审查系统
 
-## Why this repository is structured this way
+## 为什么这样设计
 
-The architecture follows key ideas from OpenAI's writing on harness engineering and agent loops:
+仓库架构参考了 OpenAI 关于 harness engineering 和 agent loop 的方法：
 
-- engineers should design environments, specify intent, and build feedback loops for reliable agent work
-- repository knowledge should be the system of record, instead of a single giant instruction file
-- architecture boundaries and output contracts should be enforced centrally
-- review should run in loops, with self-checks and explicit escalation when judgment is required
+- 工程师需要设计环境、指定目标、建设反馈回路，而不是只写一次 prompt
+- 仓库知识应当成为系统记录中心，而不是依赖一个臃肿的说明文件
+- 架构边界和输出契约应集中定义，方便检查和约束
+- 审查应当采用循环式执行，包含自查、复核和必要的人工升级
 
-Sources:
+参考资料：
 
 - [Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/)
 - [Unrolling the Codex agent loop](https://openai.com/zh-Hans-CN/index/unrolling-the-codex-agent-loop/)
 
-## Repository layout
+## 仓库结构
 
 ```text
 docs/
-  business_design.md        # SOP-aligned business design
-  dimension_design.md       # review dimensions and risk taxonomy
-  harness_architecture.md   # target agent architecture and control loop
-  review_workflow.md        # procurement review stages and human escalation rules
+  business_design.md        # 面向 SOP 的业务设计
+  dimension_design.md       # 审查维度与风险分类
+  harness_architecture.md   # 审查系统架构与控制回路
+  review_workflow.md        # 审查流程与升级规则
 src/agent_review/
-  checklist.py              # review dimensions and default control points
-  engine.py                 # orchestration loop for running the review
-  models.py                 # typed review state, findings, evidence, and reports
-  reporting.py              # markdown and json rendering helpers
-  cli.py                    # local command line entry point
+  checklist.py              # 审查维度配置
+  engine.py                 # 审查编排主循环
+  models.py                 # 结构化审查模型
+  reporting.py              # Markdown/JSON 报告渲染
+  cli.py                    # 本地命令行入口
 tests/
-  test_engine.py            # lightweight verification of the scaffold
-AGENTS.md                   # repository instructions for future agents
-pyproject.toml              # package metadata and test config
+  test_engine.py            # 轻量校验测试
+AGENTS.md                   # 仓库内智能体协作规则
+pyproject.toml              # 包配置与测试配置
 ```
 
-## Review model
+## 审查模型
 
-The tender review loop is aligned to the SOP's nine stages:
+招标文件审查主循环与 SOP 的九步流程对齐：
 
-1. ingest the bidding document and normalize it into reviewable text units
-2. identify the file type and declare the review scope
-3. locate key sections
-4. extract key clauses
-5. run rule-based risk matching
-6. perform cross-clause consistency checks
-7. grade risks
-8. form an overall conclusion
-9. render a final report with issue-to-suggestion mappings
+1. 解析采购文件并标准化文本
+2. 识别文件类型并声明审查范围
+3. 定位关键章节
+4. 抽取关键条款
+5. 执行规则化风险匹配
+6. 执行跨条款一致性检查
+7. 进行风险分级
+8. 形成总体结论
+9. 输出问题与修改建议对应关系
 
-This repo currently ships a minimal deterministic implementation of that loop so the architecture is executable before model integration.
+当前仓库已经提供该流程的最小可运行实现，便于在接入模型、OCR、法规知识库之前，先把架构和工件契约跑通。
 
-## Quick start
+## 快速开始
 
 ```bash
 python3 -m venv .venv
@@ -72,23 +72,23 @@ python -m agent_review.cli --input sample.txt --format markdown
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 ```
 
-## Current scope
+## 当前范围
 
-This version does not claim to provide legal conclusions by itself.
+当前版本不直接代替正式法律意见。
 
-It provides:
+它已经提供：
 
-- a structured compliance review workflow
-- a finding schema with severity, confidence, rationale, and evidence
-- file type, scope, section index, clause extraction, risk hit, and consistency artifacts
-- a reusable checklist for common procurement review dimensions
-- a minimal CLI and test suite
+- 结构化的合规审查流程
+- 带严重程度、置信度、理由和证据的审查结果模型
+- 文件类型、审查范围、章节索引、条款抽取、风险命中和一致性检查工件
+- 可复用的审查维度清单
+- 最小 CLI 和测试集
 
-It does not yet provide:
+当前版本尚未提供：
 
-- OCR / PDF parsing
-- direct LLM integration
-- statutory rule retrieval from a legal knowledge base
-- automatic cross-checking against local procurement regulations
+- OCR / PDF 解析
+- 直接的 LLM 集成
+- 来自法规知识库的法条检索
+- 针对地方采购规范的自动比对
 
-Those are the next layers to add on top of the harness.
+这些能力将作为后续层继续叠加到现有 harness 上。

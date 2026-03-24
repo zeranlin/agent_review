@@ -1,43 +1,43 @@
-# Review Workflow
+# 审查流程
 
-## Review objective
+## 审查目标
 
-Assess whether a government procurement tender document is procedurally complete, substantively fair, and suitable for lawful competition.
+评估政府采购文件在程序上是否完整、在内容上是否公平、在竞争上是否符合法定要求。
 
-## Minimal operating workflow
+## 最小执行流程
 
-1. Confirm the document can be parsed into text.
-2. Split the text into numbered sections or stable chunks.
-3. Run the default review checklist.
-4. Record only findings that include at least one evidence anchor.
-5. Record missing evidence when the document appears incomplete.
-6. Escalate issues requiring legal interpretation or unavailable attachments.
-7. Render the report in markdown and json.
+1. 确认文件能够被解析成文本。
+2. 将文本切分为稳定的章节或片段。
+3. 执行默认审查清单。
+4. 仅记录带有证据锚点的问题。
+5. 当文档明显不完整时，记录缺失证据。
+6. 对需要法律解释或缺少附件支撑的问题升级人工。
+7. 输出 Markdown 和 JSON 报告。
 
-## Finding categories
+## 审查结果分类
 
-- `confirmed_issue`: likely non-compliance supported by document evidence
-- `warning`: possible issue that merits attention but is not yet confirmed
-- `missing_evidence`: the document lacks material needed for a full conclusion
-- `manual_review_required`: legal or contextual judgment is needed
-- `pass`: the dimension was checked and no issue was found
+- `confirmed_issue`：已有证据支撑、较可能构成不合规的问题
+- `warning`：存在风险信号，但尚不足以直接定性的问题
+- `missing_evidence`：由于材料不足，暂时无法形成完整结论
+- `manual_review_required`：需要结合人工判断、法条解释或补充材料复核
+- `pass`：该维度已检查，未发现明显问题
 
-## Suggested future rule sources
+## 后续建议接入的规则来源
 
-This scaffold intentionally does not hardcode Chinese legal citations yet.
+当前骨架暂未硬编码具体法条编号。
 
-The next iteration should introduce machine-readable rule packs for:
+后续建议接入机器可读的规则包，包括：
 
-- Government Procurement Law
-- tendering and bidding implementing rules
-- Ministry of Finance normative guidance
-- local procurement supervision requirements
+- 政府采购法
+- 招标投标实施规则
+- 财政部规范性文件
+- 地方采购监管要求
 
-Each rule pack should define:
+每个规则包建议至少包含：
 
-- rule id
-- short title
-- trigger patterns
-- severity guidance
-- required evidence
-- escalation threshold
+- 规则编号
+- 规则简称
+- 触发模式
+- 风险等级建议
+- 所需证据
+- 升级阈值
