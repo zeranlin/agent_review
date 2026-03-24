@@ -14,6 +14,7 @@ from ..models import (
     LLMSemanticReview,
     Recommendation,
     ReviewReport,
+    ReviewPointSecondReview,
     ReviewWorkItem,
     RunStageRecord,
     Severity,
@@ -27,6 +28,7 @@ from .prompts import (
     CLAUSE_SUPPLEMENT_SYSTEM_PROMPT,
     CONSISTENCY_REVIEW_SYSTEM_PROMPT,
     EVIDENCE_REVIEW_SYSTEM_PROMPT,
+    REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
     ROLE_REVIEW_SYSTEM_PROMPT,
     SPECIALIST_REVIEW_SYSTEM_PROMPT,
     VERDICT_REVIEW_SYSTEM_PROMPT,
@@ -34,6 +36,7 @@ from .prompts import (
     build_clause_supplement_prompt,
     build_consistency_review_prompt,
     build_evidence_review_prompt,
+    build_review_point_second_review_prompt,
     build_role_review_prompt,
     build_specialist_review_prompt,
     build_verdict_review_prompt,
@@ -45,6 +48,7 @@ LLM_TASK_ORDER = [
     "llm_role_review",
     "llm_evidence_review",
     "llm_applicability_review",
+    "llm_review_point_second_review",
     "llm_specialist_review",
     "llm_consistency_review",
     "llm_verdict_review",
@@ -134,6 +138,21 @@ class QwenReviewEnhancer:
         if applicability_error:
             warnings.append(applicability_error)
 
+        second_review_payload, second_review_error = self._run_task(
+            task_name="llm_review_point_second_review",
+            task_records=task_records,
+            system_prompt=REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
+            user_prompt=build_review_point_second_review_prompt(report),
+            skip_when=not report.review_points,
+            skip_detail="当前无 ReviewPoint，跳过审查点二审。",
+        )
+        if second_review_payload:
+            semantic_review.review_point_second_reviews = _parse_review_point_second_reviews(
+                second_review_payload.get("review_point_second_reviews")
+            )
+        if second_review_error:
+            warnings.append(second_review_error)
+
         specialist_skip = not any(
             getattr(report.specialist_tables, table_name)
             for table_name in [
@@ -214,6 +233,7 @@ class QwenReviewEnhancer:
                     + len(semantic_review.role_review_notes)
                     + len(semantic_review.evidence_review_notes)
                     + len(semantic_review.applicability_review_notes)
+                    + len(semantic_review.review_point_second_reviews)
                     + len(semantic_review.specialist_findings)
                     + len(semantic_review.consistency_findings)
                 ),
@@ -313,6 +333,8 @@ def _count_task_items(task_name: str, parsed: dict) -> int:
         return len(parsed.get("evidence_review_notes", []))
     if task_name == "llm_applicability_review":
         return len(parsed.get("applicability_review_notes", []))
+    if task_name == "llm_review_point_second_review":
+        return len(parsed.get("review_point_second_reviews", []))
     if task_name == "llm_verdict_review":
         return 1 if parsed.get("verdict_review") or parsed.get("summary") else 0
     return 0
@@ -486,6 +508,33 @@ def _parse_notes(raw_items: object) -> list[str]:
     if not isinstance(raw_items, list):
         return []
     return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def _parse_review_point_second_reviews(raw_items: object) -> list[ReviewPointSecondReview]:
+    if not isinstance(raw_items, list):
+        return []
+    results: list[ReviewPointSecondReview] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        point_id = str(item.get("point_id", "")).strip()
+        title = str(item.get("title", "")).strip()
+        rationale = str(item.get("rationale", "")).strip()
+        if not point_id or not title or not rationale:
+            continue
+        results.append(
+            ReviewPointSecondReview(
+                point_id=point_id,
+                title=title,
+                role_judgment=str(item.get("role_judgment", "")).strip(),
+                evidence_judgment=str(item.get("evidence_judgment", "")).strip(),
+                applicability_judgment=str(item.get("applicability_judgment", "")).strip(),
+                suggested_disposition=str(item.get("suggested_disposition", "")).strip(),
+                rationale=rationale,
+                adoption_status=_parse_adoption_status(item.get("adoption_status")),
+            )
+        )
+    return results
 
 
 def _build_high_risk_review_items(findings: list[Finding]) -> list[ReviewWorkItem]:

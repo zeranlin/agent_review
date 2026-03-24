@@ -300,6 +300,15 @@ def render_markdown(report: ReviewReport) -> str:
             lines.append(f"- {item}")
         lines.append("")
 
+    if report.llm_semantic_review.review_point_second_reviews:
+        lines.append("## LLM审查点二审")
+        for item in report.llm_semantic_review.review_point_second_reviews:
+            lines.append(
+                f"- {item.point_id} {item.title}: 建议 {item.suggested_disposition or 'manual_confirmation'}，"
+                f"{item.rationale}（{item.adoption_status.value}）"
+            )
+        lines.append("")
+
     cross_file_checks = [
         item for item in report.consistency_checks if "跨文件" in item.topic
     ]

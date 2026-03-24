@@ -139,6 +139,29 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="评分方法和评分标准应同时明确。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-SCORE-003",
+        title="样品或演示分值可能过高",
+        dimension="B.评分不规范风险",
+        default_severity=Severity.high,
+        scenario_tags=["scoring", "goods"],
+        required_conditions=[
+            ReviewPointCondition("存在样品或演示要求", clause_fields=["样品要求", "现场演示要求", "样品分"], signal_groups=[["样品", "演示"]]),
+            ReviewPointCondition("存在样品或演示评分", clause_fields=["样品分"], signal_groups=[["样品分", "演示分"]]),
+        ],
+        basis_hint="样品或演示评分应控制必要范围，避免影响充分竞争。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-SCORE-004",
+        title="财务指标作为评分因素",
+        dimension="B.评分不规范风险",
+        default_severity=Severity.medium,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition("存在财务指标评分", clause_fields=["财务指标加分"], signal_groups=[["营业收入", "利润率", "注册资本", "资产规模"]]),
+        ],
+        basis_hint="财务指标评分应与项目履约能力直接相关，避免形成规模偏向。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-PER-001",
         title="性别限制",
         dimension="人员条件与用工边界风险",
@@ -262,6 +285,32 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="大额尾款不宜由单方主观考核决定。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-006",
+        title="验收标准可能依赖采购人主观确认",
+        dimension="合同与履约风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract"],
+        required_conditions=[
+            ReviewPointCondition("存在验收标准", clause_fields=["验收标准"], signal_groups=[["验收"]]),
+            ReviewPointCondition("存在主观验收口径", clause_fields=["验收标准"], signal_groups=[["采购人确认", "满意度", "主观验收"]]),
+        ],
+        basis_hint="验收标准应尽量客观，不宜过度依赖采购人单方主观确认。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-007",
+        title="解约条款未见整改或申辩程序",
+        dimension="合同与履约风险",
+        default_severity=Severity.medium,
+        scenario_tags=["contract"],
+        required_conditions=[
+            ReviewPointCondition("存在解约条款", clause_fields=["解约条款"], signal_groups=[["解约", "解除合同"]]),
+        ],
+        exclusion_conditions=[
+            ReviewPointCondition("已设置整改或申辩程序", signal_groups=[["整改", "限期改正", "申辩", "陈述意见"]]),
+        ],
+        basis_hint="解约条款宜保留必要的整改或申辩程序，避免条件过宽。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-STRUCT-001",
         title="货物项目混入大量服务履约内容",
         dimension="项目结构风险",
@@ -322,6 +371,18 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="项目属性和声明函模板口径应保持一致。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-STRUCT-006",
+        title="项目属性与品目名称口径疑似不一致",
+        dimension="项目结构风险",
+        default_severity=Severity.high,
+        scenario_tags=["structure"],
+        required_conditions=[
+            ReviewPointCondition("存在项目属性", clause_fields=["项目属性"]),
+            ReviewPointCondition("存在品目名称", clause_fields=["品目名称"]),
+        ],
+        basis_hint="项目属性和品目名称口径应相互印证，避免项目定性错配。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-TPL-001",
         title="一般模板残留",
         dimension="模板残留与冲突风险",
@@ -377,6 +438,18 @@ CATALOG: list[ReviewPointDefinition] = [
             ReviewPointCondition("出现不相关术语", signal_groups=[["设计", "测试"]]),
         ],
         basis_hint="家具项目中的无关模板术语应清理。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-TPL-006",
+        title="禁止联合体或分包却保留相关模板",
+        dimension="模板残留与冲突风险",
+        default_severity=Severity.high,
+        scenario_tags=["template", "consistency"],
+        required_conditions=[
+            ReviewPointCondition("存在禁止联合体或分包口径", clause_fields=["是否允许联合体", "是否允许分包"], signal_groups=[["不允许", "不接受"]]),
+            ReviewPointCondition("仍保留联合体或分包模板", signal_groups=[["联合体共同投标协议书", "联合体形式投标", "接受分包"]]),
+        ],
+        basis_hint="前文禁止联合体或分包时，不应保留对应模板或说明条款。",
     ),
     ReviewPointDefinition(
         catalog_id="RP-CONS-001",
@@ -458,6 +531,18 @@ CATALOG: list[ReviewPointDefinition] = [
             ReviewPointCondition("存在分包条款", clause_fields=["是否允许分包"], signal_groups=[["分包"]]),
         ],
         basis_hint="联合体与分包条款的允许/禁止口径应保持一致。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-CONS-008",
+        title="联合体/分包与中小企业政策执行路径冲突",
+        dimension="跨条款一致性检查",
+        default_severity=Severity.high,
+        scenario_tags=["consistency", "policy"],
+        required_conditions=[
+            ReviewPointCondition("存在中小企业政策", clause_fields=["是否专门面向中小企业", "分包比例"], signal_groups=[["中小企业", "预留份额"]]),
+            ReviewPointCondition("存在联合体或分包口径", clause_fields=["是否允许联合体", "是否允许分包"], signal_groups=[["联合体", "分包"]]),
+        ],
+        basis_hint="联合体、分包与中小企业政策的执行路径应相互衔接。",
     ),
 ]
 

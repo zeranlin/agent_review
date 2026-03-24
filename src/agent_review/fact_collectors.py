@@ -83,6 +83,80 @@ def _assemble_structure_conflict_evidence(
     return _assemble_bundle_for_definition(definition, relevant)
 
 
+def _assemble_scoring_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        [
+            "评分方法",
+            "价格分",
+            "技术分",
+            "商务分",
+            "样品要求",
+            "现场演示要求",
+            "样品分",
+            "财务指标加分",
+            "人员评分要求",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_restrictive_competition_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        [
+            "是否指定品牌",
+            "是否有限制产地厂家商标",
+            "是否要求专利",
+            "采购标的",
+            "品目名称",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_template_conflict_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        [
+            "项目属性",
+            "采购标的",
+            "中小企业声明函类型",
+            "是否仍保留价格扣除条款",
+            "是否允许联合体",
+            "是否允许分包",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_consistency_policy_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        [
+            "是否专门面向中小企业",
+            "是否仍保留价格扣除条款",
+            "是否允许联合体",
+            "是否允许分包",
+            "分包比例",
+            "是否为预留份额采购",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
 def _assemble_bundle_for_definition(
     definition: ReviewPointDefinition,
     relevant: list[ExtractedClause],
@@ -332,9 +406,18 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-SME-002": _assemble_service_template_evidence,
     "RP-SME-003": _assemble_service_template_evidence,
     "RP-SME-004": _assemble_policy_conflict_evidence,
+    "RP-REST-001": _assemble_restrictive_competition_evidence,
+    "RP-REST-002": _assemble_restrictive_competition_evidence,
+    "RP-REST-003": _assemble_restrictive_competition_evidence,
+    "RP-SCORE-001": _assemble_scoring_evidence,
+    "RP-SCORE-002": _assemble_scoring_evidence,
+    "RP-SCORE-003": _assemble_scoring_evidence,
+    "RP-SCORE-004": _assemble_scoring_evidence,
     "RP-CONTRACT-002": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-003": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-005": _assemble_contract_linkage_evidence,
+    "RP-CONTRACT-006": _assemble_contract_linkage_evidence,
+    "RP-CONTRACT-007": _assemble_contract_linkage_evidence,
     "RP-PER-001": _assemble_personnel_boundary_evidence,
     "RP-PER-002": _assemble_personnel_boundary_evidence,
     "RP-PER-003": _assemble_personnel_boundary_evidence,
@@ -342,8 +425,21 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-PER-005": _assemble_personnel_boundary_evidence,
     "RP-PER-006": _assemble_personnel_boundary_evidence,
     "RP-PER-007": _assemble_personnel_boundary_evidence,
+    "RP-PER-008": _assemble_personnel_boundary_evidence,
+    "RP-STRUCT-001": _assemble_structure_conflict_evidence,
+    "RP-STRUCT-002": _assemble_structure_conflict_evidence,
     "RP-STRUCT-003": _assemble_structure_conflict_evidence,
+    "RP-STRUCT-004": _assemble_structure_conflict_evidence,
     "RP-STRUCT-005": _assemble_structure_conflict_evidence,
+    "RP-STRUCT-006": _assemble_structure_conflict_evidence,
+    "RP-TPL-002": _assemble_template_conflict_evidence,
+    "RP-TPL-003": _assemble_template_conflict_evidence,
+    "RP-TPL-004": _assemble_template_conflict_evidence,
+    "RP-TPL-005": _assemble_template_conflict_evidence,
+    "RP-TPL-006": _assemble_template_conflict_evidence,
     "RP-CONS-003": _assemble_policy_conflict_evidence,
     "RP-CONS-004": _assemble_contract_linkage_evidence,
+    "RP-CONS-005": _assemble_consistency_policy_evidence,
+    "RP-CONS-007": _assemble_consistency_policy_evidence,
+    "RP-CONS-008": _assemble_consistency_policy_evidence,
 }

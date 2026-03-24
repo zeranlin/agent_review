@@ -466,6 +466,7 @@ class LLMSemanticReview:
     role_review_notes: list[str] = field(default_factory=list)
     evidence_review_notes: list[str] = field(default_factory=list)
     applicability_review_notes: list[str] = field(default_factory=list)
+    review_point_second_reviews: list["ReviewPointSecondReview"] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -476,6 +477,7 @@ class LLMSemanticReview:
             "role_review_notes": self.role_review_notes,
             "evidence_review_notes": self.evidence_review_notes,
             "applicability_review_notes": self.applicability_review_notes,
+            "review_point_second_reviews": [item.to_dict() for item in self.review_point_second_reviews],
         }
 
 
@@ -543,6 +545,30 @@ class ReviewPoint:
             "evidence_bundle": self.evidence_bundle.to_dict(),
             "legal_basis": [item.to_dict() for item in self.legal_basis],
             "source_findings": self.source_findings,
+        }
+
+
+@dataclass(slots=True)
+class ReviewPointSecondReview:
+    point_id: str
+    title: str
+    role_judgment: str = ""
+    evidence_judgment: str = ""
+    applicability_judgment: str = ""
+    suggested_disposition: str = ""
+    rationale: str = ""
+    adoption_status: AdoptionStatus = AdoptionStatus.manual
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "point_id": self.point_id,
+            "title": self.title,
+            "role_judgment": self.role_judgment,
+            "evidence_judgment": self.evidence_judgment,
+            "applicability_judgment": self.applicability_judgment,
+            "suggested_disposition": self.suggested_disposition,
+            "rationale": self.rationale,
+            "adoption_status": self.adoption_status.value,
         }
 
 

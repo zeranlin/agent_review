@@ -180,6 +180,7 @@ def _build_run_manifest(
                 "role_review_count": len(report.llm_semantic_review.role_review_notes),
                 "evidence_review_count": len(report.llm_semantic_review.evidence_review_notes),
                 "applicability_review_count": len(report.llm_semantic_review.applicability_review_notes),
+                "review_point_second_review_count": len(report.llm_semantic_review.review_point_second_reviews),
                 "specialist_finding_count": len(report.llm_semantic_review.specialist_findings),
                 "consistency_finding_count": len(report.llm_semantic_review.consistency_findings),
                 "verdict_review": report.llm_semantic_review.verdict_review,

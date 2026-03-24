@@ -223,6 +223,27 @@ def test_review_task_fact_collectors_attach_structured_facts_to_tasks() -> None:
     assert any("付款节点=存在" in item.quote for item in contract_task.evidence_bundle.direct_evidence)
 
 
+def test_standard_task_library_and_task_specific_evidence_can_cover_scoring_and_template_tasks() -> None:
+    text = """
+    项目属性：货物
+    采购标的：教师公寓家具
+    样品要求：投标人须提供样品。
+    样品分：10分
+    财务指标：营业收入越高得分越高。
+    不接受联合体投标，不允许合同分包。
+    联合体共同投标协议书
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    task_map = {item.catalog_id: item for item in report.review_points}
+
+    assert "RP-SCORE-003" in task_map
+    assert "RP-SCORE-004" in task_map
+    assert "RP-TPL-006" in task_map
+    assert any("样品分" in item.quote for item in task_map["RP-SCORE-003"].evidence_bundle.direct_evidence)
+    assert any("营业收入" in item.quote or "财务指标" in item.quote for item in task_map["RP-SCORE-004"].evidence_bundle.direct_evidence)
+    assert task_map["RP-TPL-006"].evidence_bundle.supporting_evidence or task_map["RP-TPL-006"].evidence_bundle.conflicting_evidence
+
+
 def test_task_evidence_assembler_can_capture_conflicting_and_rebuttal_evidence() -> None:
     text = """
     项目属性：服务
@@ -498,6 +519,24 @@ class FakeClient:
                 },
                 ensure_ascii=False,
             )
+        if "以 ReviewPoint 为单位进行二审" in system_prompt:
+            return json.dumps(
+                {
+                    "review_point_second_reviews": [
+                        {
+                            "point_id": "RP-001",
+                            "title": "专门面向中小企业却仍保留价格扣除",
+                            "role_judgment": "当前证据来源主要是采购约束条款，角色判断基本可靠。",
+                            "evidence_judgment": "已同时看到专门面向中小企业和价格扣除口径，直接证据较强。",
+                            "applicability_judgment": "要件链基本闭合，可支撑政策冲突判断。",
+                            "suggested_disposition": "include",
+                            "rationale": "该审查点证据、角色和适法性相互支撑，可作为 formal 高风险问题保留。",
+                            "adoption_status": "可直接采用",
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
         if "补充近似但未命中的专项风险" in system_prompt:
             return json.dumps(
                 {
@@ -592,6 +631,7 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert enhanced_report.llm_semantic_review.role_review_notes
     assert enhanced_report.llm_semantic_review.evidence_review_notes
     assert enhanced_report.llm_semantic_review.applicability_review_notes
+    assert enhanced_report.llm_semantic_review.review_point_second_reviews
     assert enhanced_report.pending_confirmation_items
     assert any(item.stage_name == "llm_semantic_review" for item in enhanced_report.stage_records)
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
@@ -600,6 +640,7 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
         "llm_role_review": "completed",
         "llm_evidence_review": "completed",
         "llm_applicability_review": "completed",
+        "llm_review_point_second_review": "completed",
         "llm_specialist_review": "completed",
         "llm_consistency_review": "completed",
         "llm_verdict_review": "completed",
@@ -610,6 +651,7 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert "## LLM角色复核" in markdown
     assert "## LLM证据复核" in markdown
     assert "## LLM适法性复核" in markdown
+    assert "## LLM审查点二审" in markdown
     assert "## 待确认问题单" in markdown
 
 
