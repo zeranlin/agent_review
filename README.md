@@ -40,6 +40,12 @@ src/agent_review/
   models.py                 # 结构化审查模型
   reporting.py              # Markdown/JSON 报告渲染
   cli.py                    # 本地命令行入口
+  parsers/                  # 输入与解析层
+  structure/                # 文件类型识别、章节定位、范围声明
+  extractors/               # 条款抽取层
+  rules/                    # 风险规则与建议映射
+  consistency/              # 一致性检查与结论裁决
+  outputs/                  # 输出层预留
 tests/
   test_engine.py            # 轻量校验测试
 AGENTS.md                   # 仓库内智能体协作规则
