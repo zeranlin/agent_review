@@ -75,18 +75,25 @@ pyproject.toml              # 包配置与测试配置
 1. `document_structure`
 2. `clause_extraction`
 3. `clause_role_classification`
-4. `dimension_review`
-5. `rule_evaluation`
-6. `consistency_review`
-7. `review_point_assembly`
-8. `applicability_check`
-9. `review_quality_gate`
-10. `formal_adjudication`
-11. `finalize_report`
+4. `review_task_planning`
+5. `dimension_review`
+6. `rule_evaluation`
+7. `consistency_review`
+8. `review_point_assembly`
+9. `applicability_check`
+10. `review_quality_gate`
+11. `formal_adjudication`
+12. `finalize_report`
 
 这样 `engine.py` 只负责装配输入源、触发 pipeline 和控制 LLM 增强，规则扩展和结果归并不再散落在主编排代码里。
 
 其中新增的 `clause_role_classification` 会对条款标注角色，例如采购约束条款、投标文件模板、政策说明、定义说明、附件引用等，用于后续降低模板误报。
+
+当前还新增了 `review_task_planning` 阶段：
+
+- 先从标准审查任务库中规划本次文件应执行的审查点
+- 再由规则命中、维度筛查和一致性检查去给这些任务补证据、补状态
+- 尚未取得证据的计划任务不会直接回写成 `Finding`，避免“任务库本身”污染正式结论
 
 当前还新增了 3 个“审查点驱动”核心骨架：
 

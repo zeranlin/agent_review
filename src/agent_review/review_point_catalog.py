@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from .models import ReviewPoint, ReviewPointCondition, ReviewPointDefinition, Severity
+from .models import ExtractedClause, ReviewPoint, ReviewPointCondition, ReviewPointDefinition, Severity
 
 
 CATALOG: list[ReviewPointDefinition] = [
@@ -489,6 +489,66 @@ def snapshot_catalog_for_points(review_points: list[ReviewPoint]) -> list[Review
         seen.add(definition.catalog_id)
         snapshot.append(definition)
     return snapshot
+
+
+def select_standard_review_tasks(
+    text: str,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ReviewPointDefinition]:
+    active_tags = _build_active_task_tags(text, extracted_clauses)
+    selected: list[ReviewPointDefinition] = []
+    seen: set[str] = set()
+    for definition in CATALOG:
+        if definition.catalog_id in seen:
+            continue
+        if not definition.scenario_tags or any(tag in active_tags for tag in definition.scenario_tags):
+            selected.append(definition)
+            seen.add(definition.catalog_id)
+    return selected
+
+
+def _build_active_task_tags(text: str, extracted_clauses: list[ExtractedClause]) -> set[str]:
+    active_tags = {
+        "policy",
+        "contract",
+        "template",
+        "consistency",
+        "structure",
+        "scoring",
+    }
+    project_type = _first_clause_value(extracted_clauses, "项目属性")
+    procurement_target = " ".join(
+        filter(
+            None,
+            [
+                _first_clause_value(extracted_clauses, "采购标的"),
+                _first_clause_value(extracted_clauses, "品目名称"),
+                text,
+            ],
+        )
+    )
+    if project_type == "服务":
+        active_tags.update({"service", "personnel"})
+    if project_type == "货物":
+        active_tags.update({"goods"})
+    if "家具" in procurement_target:
+        active_tags.update({"goods", "furniture"})
+    if "物业" in procurement_target:
+        active_tags.update({"service", "property"})
+    if _first_clause_value(extracted_clauses, "中小企业声明函类型"):
+        active_tags.add("policy")
+    return active_tags
+
+
+def _first_clause_value(extracted_clauses: list[ExtractedClause], field_name: str) -> str:
+    for clause in extracted_clauses:
+        if clause.field_name != field_name:
+            continue
+        if clause.normalized_value:
+            return clause.normalized_value
+        if clause.content:
+            return clause.content
+    return ""
 
 
 def _slugify(text: str) -> str:

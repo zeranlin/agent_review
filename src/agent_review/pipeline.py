@@ -8,6 +8,7 @@ from .adjudication import (
     build_point_applicability_checks,
     build_point_quality_gates,
     build_review_point_catalog_snapshot,
+    build_review_points_from_task_library,
     build_review_points_from_consistency_checks,
     build_review_points_from_findings,
     build_review_points_from_risk_hits,
@@ -96,6 +97,7 @@ class ReviewPipeline:
             self._stage_document_structure,
             self._stage_clause_extraction,
             self._stage_clause_role_classification,
+            self._stage_review_task_planning,
             self._stage_dimension_review,
             self._stage_rule_evaluation,
             self._stage_consistency_review,
@@ -200,6 +202,21 @@ class ReviewPipeline:
                 status="completed",
                 item_count=identified_count,
                 detail=f"完成条款角色识别，{identified_count} 条条款已获得角色标签。",
+            )
+        )
+
+    def _stage_review_task_planning(self, state: ReviewPipelineState) -> None:
+        planned_points = build_review_points_from_task_library(
+            state.normalized_text,
+            state.extracted_clauses,
+        )
+        state.review_points.extend(planned_points)
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="review_task_planning",
+                status="completed",
+                item_count=len(planned_points),
+                detail=f"已从标准审查任务库规划 {len(planned_points)} 个待执行审查点。",
             )
         )
 

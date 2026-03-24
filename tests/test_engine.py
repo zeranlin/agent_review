@@ -140,6 +140,7 @@ def test_missing_dimension_generates_missing_evidence() -> None:
         "document_structure",
         "clause_extraction",
         "clause_role_classification",
+        "review_task_planning",
         "dimension_review",
         "rule_evaluation",
         "consistency_review",
@@ -174,6 +175,19 @@ def test_review_point_catalog_covers_structured_policy_and_contract_points() -> 
         for item in report.review_points
         if item.title == "尾款支付与考核条款联动风险"
     )
+
+
+def test_review_task_planning_builds_standard_tasks_without_polluting_findings() -> None:
+    text = """
+    项目属性：服务
+    采购标的：物业服务
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    assert any(item.stage_name == "review_task_planning" for item in report.stage_records)
+    assert any(item.catalog_id == "RP-SME-002" for item in report.review_points)
+    assert any(item.catalog_id == "RP-PER-001" for item in report.review_points)
+    assert not any(item.title == "服务项目声明函类型疑似错用货物模板" for item in report.findings)
 
 
 def test_applicability_prefers_structured_clause_fields() -> None:

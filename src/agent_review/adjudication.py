@@ -24,7 +24,7 @@ from .models import (
     Severity,
 )
 from .quality import evidence_supports_title, infer_evidence_roles, infer_role_from_text, line_text_from_anchor, search_line_by_keyword
-from .review_point_catalog import resolve_review_point_definition, snapshot_catalog_for_points
+from .review_point_catalog import resolve_review_point_definition, select_standard_review_tasks, snapshot_catalog_for_points
 from .review_quality_gate import build_review_quality_gates
 
 
@@ -34,6 +34,40 @@ def build_review_points(
     extracted_clauses: list[ExtractedClause],
 ) -> list[ReviewPoint]:
     return build_review_points_from_findings(findings, report_text, extracted_clauses)
+
+
+def build_review_points_from_task_library(
+    report_text: str,
+    extracted_clauses: list[ExtractedClause],
+) -> list[ReviewPoint]:
+    task_definitions = select_standard_review_tasks(report_text, extracted_clauses)
+    review_points: list[ReviewPoint] = []
+    for index, definition in enumerate(task_definitions, start=1):
+        review_points.append(
+            ReviewPoint(
+                point_id=f"TASK-{index:03d}",
+                catalog_id=definition.catalog_id,
+                title=definition.title,
+                dimension=definition.dimension,
+                severity=definition.default_severity,
+                status=ReviewPointStatus.identified,
+                rationale=f"标准审查任务：{definition.basis_hint or definition.title}",
+                evidence_bundle=EvidenceBundle(
+                    direct_evidence=[],
+                    supporting_evidence=[],
+                    conflicting_evidence=[],
+                    rebuttal_evidence=[],
+                    missing_evidence_notes=["当前为标准审查任务，尚待规则、结构化条款或人工证据补充。"],
+                    clause_roles=[],
+                    sufficiency_summary="当前仅完成标准审查任务建模，尚未形成可直接裁决的证据。",
+                    evidence_level=EvidenceLevel.missing,
+                    evidence_score=0.0,
+                ),
+                legal_basis=[],
+                source_findings=[f"task_library:{definition.catalog_id}"],
+            )
+        )
+    return review_points
 
 
 def build_review_points_from_findings(
@@ -169,7 +203,7 @@ def build_review_points_from_consistency_checks(
 def merge_review_points(review_points: Iterable[ReviewPoint]) -> list[ReviewPoint]:
     grouped: dict[str, list[ReviewPoint]] = {}
     for point in review_points:
-        key = f"{point.dimension}|{point.title}"
+        key = point.catalog_id or f"{point.dimension}|{point.title}"
         grouped.setdefault(key, []).append(point)
 
     merged: list[ReviewPoint] = []
@@ -211,6 +245,8 @@ def convert_review_points_to_findings(
 ) -> list[Finding]:
     findings: list[Finding] = []
     for point in review_points:
+        if _is_task_library_placeholder(point):
+            continue
         evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence[:2]
         finding_type = _finding_type_from_review_point(point)
         next_action = (
@@ -551,6 +587,16 @@ def _confidence_from_review_point(point: ReviewPoint) -> float:
     if point.evidence_bundle.supporting_evidence:
         return min(0.88, base + 0.03)
     return base
+
+
+def _is_task_library_placeholder(point: ReviewPoint) -> bool:
+    return (
+        point.status == ReviewPointStatus.identified
+        and not point.evidence_bundle.direct_evidence
+        and not point.evidence_bundle.supporting_evidence
+        and point.source_findings
+        and all(source.startswith("task_library:") for source in point.source_findings)
+    )
 
 
 def _derive_evidence_level(
