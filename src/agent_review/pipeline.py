@@ -3,12 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .adjudication import build_formal_adjudication, build_review_points
+from .adjudication import (
+    build_formal_adjudication,
+    build_review_points_from_consistency_checks,
+    build_review_points_from_findings,
+    build_review_points_from_risk_hits,
+    convert_review_points_to_findings,
+    merge_review_points,
+)
 from .checklist import DEFAULT_DIMENSIONS
 from .consistency import (
     check_consistency,
     collect_relative_strengths,
-    convert_consistency_checks_to_findings,
 )
 from .extractors import classify_extracted_clauses, extract_clauses
 from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_risk_hits
@@ -42,7 +48,7 @@ from .models import (
     TaskStatus,
 )
 from .quality import derive_conclusion_by_evidence
-from .rules import build_recommendations, convert_risk_hits_to_findings, execute_rule_registry
+from .rules import build_recommendations, execute_rule_registry
 from .structure import build_file_info, build_scope_statement, detect_file_type, locate_sections
 
 
@@ -214,9 +220,8 @@ class ReviewPipeline:
         )
         state.rule_selection = rule_selection
         state.risk_hits = annotate_risk_hits(dedupe_risk_hits(risk_hits))
-        state.findings.extend(convert_risk_hits_to_findings(state.risk_hits))
+        state.review_points.extend(build_review_points_from_risk_hits(state.risk_hits))
         state.specialist_tables = build_specialist_tables(state.risk_hits)
-        executed_modules = rule_selection.core_modules + rule_selection.enhancement_modules
         state.stage_records.append(
             RunStageRecord(
                 stage_name="rule_evaluation",
@@ -238,8 +243,9 @@ class ReviewPipeline:
                 state.source_documents,
             )
         )
-        consistency_findings = convert_consistency_checks_to_findings(state.consistency_checks)
-        state.findings.extend(consistency_findings)
+        state.review_points.extend(
+            build_review_points_from_consistency_checks(state.consistency_checks)
+        )
         issue_count = sum(1 for item in state.consistency_checks if item.status == "issue")
         state.stage_records.append(
             RunStageRecord(
@@ -251,10 +257,13 @@ class ReviewPipeline:
         )
 
     def _stage_review_point_assembly(self, state: ReviewPipelineState) -> None:
-        state.review_points = build_review_points(
+        dimension_review_points = build_review_points_from_findings(
             state.findings,
             state.parse_result.text,
             state.extracted_clauses,
+        )
+        state.review_points = merge_review_points(
+            [*state.review_points, *dimension_review_points]
         )
         state.stage_records.append(
             RunStageRecord(
@@ -283,7 +292,9 @@ class ReviewPipeline:
         )
 
     def _stage_finalize_report(self, state: ReviewPipelineState) -> None:
-        state.findings = annotate_findings(dedupe_findings(state.findings))
+        state.findings = annotate_findings(
+            dedupe_findings(convert_review_points_to_findings(state.review_points))
+        )
         state.manual_review_queue = dedupe_strings(state.manual_review_queue)
         state.relative_strengths = dedupe_strings(
             collect_relative_strengths(state.section_index, state.findings)

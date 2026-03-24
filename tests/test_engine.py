@@ -6,7 +6,16 @@ from PIL import Image
 
 from agent_review.engine import TenderReviewEngine
 from agent_review.llm import QwenReviewEnhancer
-from agent_review.models import AdoptionStatus, ClauseRole, ConclusionLevel, FileType, FindingType, Recommendation, ReviewMode
+from agent_review.models import (
+    AdoptionStatus,
+    ClauseRole,
+    ConclusionLevel,
+    FileType,
+    FindingType,
+    Recommendation,
+    ReviewMode,
+    ReviewPointStatus,
+)
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
@@ -617,6 +626,31 @@ def test_report_contains_review_point_and_formal_adjudication_skeleton() -> None
     markdown = render_markdown(report)
     assert "## ReviewPoint" in markdown
     assert "## Formal Adjudication" in markdown
+
+
+def test_rule_and_consistency_layers_prioritize_review_points() -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    合同条款：验收合格后付款，但尾款根据采购人满意度考核后支付。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    point_map = {(item.dimension, item.title): item for item in report.review_points}
+
+    rule_point = point_map[("中小企业政策风险", "专门面向中小企业却仍保留价格扣除")]
+    assert any(source.startswith("risk_hit:") for source in rule_point.source_findings)
+    assert rule_point.status == ReviewPointStatus.confirmed
+    assert rule_point.evidence_bundle.direct_evidence
+
+    consistency_point = point_map[("跨条款一致性检查", "验收标准 vs 付款条件")]
+    assert any(source.startswith("consistency_check:") for source in consistency_point.source_findings)
+    assert consistency_point.status == ReviewPointStatus.suspected
+    assert consistency_point.evidence_bundle.missing_evidence_notes
+
+    findings = {(item.dimension, item.title): item for item in report.findings}
+    assert findings[("中小企业政策风险", "专门面向中小企业却仍保留价格扣除")].finding_type == FindingType.confirmed_issue
+    assert findings[("跨条款一致性检查", "验收标准 vs 付款条件")].finding_type == FindingType.warning
 
 
 def test_markdown_can_render_specialist_summary() -> None:
