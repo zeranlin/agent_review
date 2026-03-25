@@ -464,6 +464,41 @@ def _certificate_score_weight_value_evaluator(clause_mapping: dict[str, list[Ext
     return ApplicabilityStatus.unsatisfied, [f"已识别证书类评分总分={score_raw}分，当前未达到高权重阈值。"]
 
 
+def _credit_evaluation_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    credit_raw = _first_value(clause_mapping, "信用评价要求")
+    scoring_items = _first_value(clause_mapping, "评分项明细")
+    if not credit_raw:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到信用评价评分项。"]
+    if scoring_items:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：信用评价评分项={credit_raw}，且已识别评分项明细={scoring_items}。"]
+    return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：信用评价评分项={credit_raw}。"]
+
+
+def _team_stability_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    team_raw = _first_value(clause_mapping, "团队稳定性要求")
+    project_type = _first_value(clause_mapping, "项目属性")
+    if not team_raw:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到团队稳定性要求。"]
+    if any(token in team_raw for token in ["团队稳定", "核心团队", "人员稳定", "稳定性"]):
+        if project_type:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type}，团队稳定性要求={team_raw}。"]
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：团队稳定性要求={team_raw}。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别团队稳定性相关条款={team_raw}，但尚未形成过强约束信号。"]
+
+
+def _personnel_change_limit_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    change_raw = _first_value(clause_mapping, "人员更换限制")
+    approval_raw = _first_value(clause_mapping, "采购人批准更换")
+    if not change_raw and not approval_raw:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到人员更换限制。"]
+    text = change_raw or approval_raw
+    if any(token in text for token in ["采购人同意", "采购人批准", "须经采购人", "未经采购人同意", "不得更换"]):
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：人员更换限制={text}，限制强度较高。"]
+    if change_raw:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：人员更换限制={text}。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别采购人批准更换信号={text}，但尚未形成更强的人员更换限制表述。"]
+
+
 def _goods_baseline_clear_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     project_type = _first_normalized_or_content(clause_mapping, "项目属性")
     procurement_subject = _first_value(clause_mapping, "采购标的")
@@ -661,6 +696,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SCORE-009", "存在证书检测报告负担特征"): _bid_stage_material_burden_evaluator,
     ("RP-SCORE-009", "证书检测报告仅在履约或验收阶段提交"): _scoring_material_stage_exclusion_evaluator,
     ("RP-SCORE-010", "存在证书类评分总分"): _certificate_score_weight_value_evaluator,
+    ("RP-SCORE-011", "存在信用评价评分信号"): _credit_evaluation_scoring_evaluator,
+    ("RP-SCORE-011", "存在评分项明细"): _credit_evaluation_scoring_evaluator,
     ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,
@@ -685,4 +722,7 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-CONS-005", "存在分包条款"): _contains_relation("是否允许分包", "允许", "存在分包条款"),
     ("RP-CONS-007", "存在联合体条款"): _contains_relation("是否允许联合体", "允许", "存在联合体条款"),
     ("RP-CONS-007", "存在分包条款"): _contains_relation("是否允许分包", "允许", "存在分包条款"),
+    ("RP-PER-009", "存在团队稳定性要求"): _team_stability_requirement_evaluator,
+    ("RP-PER-010", "存在人员更换限制"): _personnel_change_limit_evaluator,
+    ("RP-PER-010", "采购人批准更换"): _personnel_change_limit_evaluator,
 }

@@ -72,10 +72,44 @@ def classify_clause_role(text: str) -> ClauseRole:
     ):
         return ClauseRole.policy_explanation
 
-    if any(marker in normalized for marker in ["付款", "验收", "违约", "解约", "质保", "履约", "安装", "调试"]):
+    if any(
+        marker in normalized
+        for marker in [
+            "付款",
+            "验收",
+            "违约",
+            "解约",
+            "质保",
+            "履约",
+            "安装",
+            "调试",
+            "团队稳定",
+            "人员更换",
+            "更换",
+            "替换",
+        ]
+    ):
         return ClauseRole.contract_term
 
-    if any(marker in normalized for marker in ["资格要求", "评分", "综合评分", "评标", "分值", "业绩", "证书", "样品", "技术要求", "商务要求"]):
+    if any(
+        marker in normalized
+        for marker in [
+            "资格要求",
+            "评分",
+            "综合评分",
+            "评标",
+            "分值",
+            "业绩",
+            "证书",
+            "样品",
+            "技术要求",
+            "商务要求",
+            "信用评价",
+            "信用分",
+            "信用等级",
+            "征信",
+        ]
+    ):
         return ClauseRole.qualification_or_scoring
 
     if any(marker in normalized for marker in ["不接受联合体", "不允许合同分包", "采购包", "中小企业", "价格扣除", "采购需求", "货物", "服务", "工程"]):
@@ -435,6 +469,33 @@ def _certificate_score_weight_extractor(lines: list[str]) -> ExtractedClause | N
     )
 
 
+def _credit_evaluation_scoring_extractor(lines: list[str]) -> ExtractedClause | None:
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    matched_terms: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        if any(token in line for token in ["信用中国", "企业信用信息公示系统", "失信被执行人"]):
+            continue
+        matched = [term for term in ["信用评价", "信用分", "信用等级", "信用评分", "征信"] if term in line]
+        if not matched:
+            continue
+        if not any(token in line for token in ["分", "评分", "评审", "加分", "得分"]):
+            continue
+        anchors.append(line_no)
+        matched_lines.append(line[:120])
+        matched_terms.extend(matched)
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:320],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["信用评价评分项", *dict.fromkeys(matched_terms)],
+    )
+
+
 def _service_content_extractor(lines: list[str]) -> ExtractedClause | None:
     service_terms = [
         "人工管护",
@@ -508,8 +569,74 @@ def _plan_scoring_quant_extractor(lines: list[str]) -> ExtractedClause | None:
     )
 
 
+def _team_stability_requirement_extractor(lines: list[str]) -> ExtractedClause | None:
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    matched_terms: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        matched = [term for term in ["团队稳定", "核心团队", "人员稳定", "稳定性", "团队成员"] if term in line]
+        if not matched:
+            continue
+        if not any(token in line for token in ["要求", "不得", "保持", "稳定", "更换", "人员"]):
+            continue
+        anchors.append(line_no)
+        matched_lines.append(line[:120])
+        matched_terms.extend(matched)
+    if not anchors:
+        return None
+    return _build_clause(
+        "；".join(dict.fromkeys(matched_lines))[:320],
+        anchors[0],
+        normalized_value="存在",
+        relation_tags=["团队稳定性要求", *dict.fromkeys(matched_terms)],
+    )
+
+
+def _personnel_change_limit_extractor(lines: list[str]) -> ExtractedClause | None:
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    matched_terms: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in ["更换", "替换", "变更", "调整", "撤换"]):
+            continue
+        if not any(
+            token in line
+            for token in [
+                "人员",
+                "岗位",
+                "团队",
+                "项目负责人",
+                "采购人同意",
+                "采购人批准",
+                "须经采购人",
+                "不得更换",
+                "未经采购人同意",
+            ]
+        ):
+            continue
+        matched = [term for term in ["更换", "替换", "变更", "调整", "撤换", "采购人同意", "采购人批准"] if term in line]
+        anchors.append(line_no)
+        matched_lines.append(line[:120])
+        matched_terms.extend(matched)
+    if not anchors:
+        return None
+    return _build_clause(
+        "；".join(dict.fromkeys(matched_lines))[:320],
+        anchors[0],
+        normalized_value="存在",
+        relation_tags=["人员更换限制", *dict.fromkeys(matched_terms)],
+    )
+
+
 def _contract_result_template_extractor(lines: list[str]) -> ExtractedClause | None:
-    keywords = ["项目成果", "移作他用", "泄露本项目成果", "提交全部符合项目合同要求的项目成果"]
+    keywords = [
+        "项目成果",
+        "成果交付",
+        "成果保密",
+        "移作他用",
+        "泄露本项目成果",
+        "提交全部符合项目合同要求的项目成果",
+    ]
     for line_no, line in enumerate(lines, start=1):
         matched = [token for token in keywords if token in line]
         if not matched:
@@ -525,17 +652,26 @@ def _contract_result_template_extractor(lines: list[str]) -> ExtractedClause | N
 
 def _contract_template_residue_extractor(lines: list[str]) -> ExtractedClause | None:
     keywords = ["X年", "事件发生后天内", "设计、测试、验收", "设计、测试", "免费质保服务", "于事件发生后"]
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    matched_terms: list[str] = []
     for line_no, line in enumerate(lines, start=1):
         matched = [token for token in keywords if token in line]
         if not matched:
             continue
-        return _build_clause(
-            line,
-            line_no,
-            normalized_value="存在",
-            relation_tags=["合同模板残留", *matched],
-        )
-    return None
+        anchors.append(line_no)
+        matched_lines.append(line[:160])
+        matched_terms.extend(matched)
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:320],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["合同模板残留", *dict.fromkeys(matched_terms)],
+    )
 
 
 def _flexible_acceptance_extractor(lines: list[str]) -> ExtractedClause | None:
@@ -709,6 +845,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("评分条款", "样品分", _simple_keyword_extractor(["样品分"])),
     ("评分条款", "评分项明细", _scoring_item_details_extractor),
     ("评分条款", "证书类评分总分", _certificate_score_weight_extractor),
+    ("评分条款", "信用评价要求", _credit_evaluation_scoring_extractor),
     ("评分条款", "行业相关性存疑评分项", _industry_mismatch_scoring_extractor),
     ("评分条款", "方案评分扣分模式", _plan_scoring_quant_extractor),
     ("合同条款", "付款节点", _payment_extractor),
@@ -731,6 +868,8 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("人员条款", "学历职称要求", _personnel_line_extractor(["学历", "职称"], "存在", ["学历职称要求"])),
     ("人员条款", "采购人审批录用", _personnel_line_extractor(["批准录用", "录用审批", "录用须经采购人审批", "聘用须经采购人审批"], "存在", ["采购人审批录用"])),
     ("人员条款", "采购人批准更换", _personnel_line_extractor(["批准更换", "人员更换须经采购人同意"], "存在", ["采购人批准更换"])),
+    ("人员条款", "团队稳定性要求", _team_stability_requirement_extractor),
+    ("人员条款", "人员更换限制", _personnel_change_limit_extractor),
     ("人员条款", "采购人直接指挥", _personnel_line_extractor(["采购人有权直接指挥", "服从采购人安排"], "存在", ["采购人直接指挥"])),
     ("政策条款", "是否专门面向中小企业", _boolean_policy_extractor(["专门面向中小企业", "中小微企业采购"], ["专门面向中小企业", "面向中小微企业"])),
     ("政策条款", "是否为预留份额采购", _boolean_policy_extractor(["预留份额"], ["预留份额"])),

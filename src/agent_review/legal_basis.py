@@ -368,6 +368,42 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         ),
     ],
+    "信用评价作为评分因素": [
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="评审因素设置相关条款",
+            summary="评分因素应与采购需求和履约能力直接相关，信用评价如单列评分，应核查其关联性和分值适度性。",
+            basis_type="部门规章",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求与评审关联性要求",
+            summary="信用评价、信用分等材料如作为评分因素，不宜脱离项目实际需要单列过重权重。",
+            basis_type="部门规范性文件",
+        ),
+    ],
+    "团队稳定性要求过强": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="技术、商务要求客观量化要求",
+            summary="人员或团队稳定性要求应与履约需要直接相关，避免过度限定团队构成或稳定性。",
+            basis_type="部门规范性文件",
+        ),
+    ],
+    "人员更换限制较强": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="人员更换控制宜限于关键岗位和履约保障，不宜扩展为采购人审批供应商内部任免。",
+            basis_type="部门规范性文件",
+        ),
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="合同履约约束相关条款",
+            summary="人员更换限制应与项目履约责任相适应，避免形成过强的人员控制条款。",
+            basis_type="部门规章",
+        ),
+    ],
     "证书类评分分值偏高": [
         LegalBasis(
             source_name="政府采购货物和服务招标投标管理办法",

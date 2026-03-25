@@ -102,7 +102,7 @@ def _assemble_policy_conflict_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         ["是否专门面向中小企业", "是否仍保留价格扣除条款", "中小企业声明函类型"],
     )
@@ -121,7 +121,7 @@ def _assemble_contract_linkage_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         [
             "付款节点",
@@ -142,7 +142,20 @@ def _assemble_personnel_boundary_evidence(
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
     relevant = _collect_relevant_clauses(definition, extracted_clauses)
-    relevant.extend(_collect_by_fields(extracted_clauses, ["项目属性", "采购标的"]))
+    relevant.extend(
+        _collect_by_fields_in_order(
+            extracted_clauses,
+            [
+                "项目属性",
+                "采购标的",
+                "人员评分要求",
+                "学历职称要求",
+                "团队稳定性要求",
+                "人员更换限制",
+                "采购人批准更换",
+            ],
+        )
+    )
     return _assemble_bundle_for_definition(definition, _dedupe_clauses(relevant))
 
 
@@ -150,7 +163,7 @@ def _assemble_structure_conflict_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         [
             "项目属性",
@@ -172,7 +185,7 @@ def _assemble_scoring_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         [
             "评分方法",
@@ -189,6 +202,7 @@ def _assemble_scoring_evidence(
             "评分项明细",
             "证书检测报告负担特征",
             "证书类评分总分",
+            "信用评价要求",
             "证书材料适用阶段",
             "检测报告适用阶段",
             "采购标的",
@@ -200,11 +214,29 @@ def _assemble_scoring_evidence(
     return _assemble_bundle_for_definition(definition, relevant)
 
 
+def _assemble_credit_evaluation_scoring_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields_in_order(
+        extracted_clauses,
+        [
+            "信用评价要求",
+            "评分项明细",
+            "评分方法",
+            "项目属性",
+            "采购标的",
+            "预算金额",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
 def _assemble_certificate_score_weight_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         [
             "证书类评分总分",
@@ -240,7 +272,7 @@ def _assemble_restrictive_competition_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         [
             "是否指定品牌",
@@ -260,7 +292,7 @@ def _assemble_template_conflict_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         [
             "项目属性",
@@ -281,7 +313,7 @@ def _assemble_contract_template_residue_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         [
             "合同模板残留",
@@ -297,7 +329,7 @@ def _assemble_consistency_policy_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields(
+    relevant = _collect_by_fields_in_order(
         extracted_clauses,
         [
             "是否专门面向中小企业",
@@ -656,6 +688,16 @@ def _collect_by_fields(
     return [clause for clause in extracted_clauses if clause.field_name in field_names]
 
 
+def _collect_by_fields_in_order(
+    extracted_clauses: list[ExtractedClause],
+    field_names: list[str],
+) -> list[ExtractedClause]:
+    collected: list[ExtractedClause] = []
+    for field_name in field_names:
+        collected.extend(clause for clause in extracted_clauses if clause.field_name == field_name)
+    return _dedupe_clauses(collected)
+
+
 def _match_condition_clauses(
     condition: ReviewPointCondition,
     clauses: list[ExtractedClause],
@@ -835,6 +877,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-SCORE-008": _assemble_scoring_evidence,
     "RP-SCORE-009": _assemble_scoring_evidence,
     "RP-SCORE-010": _assemble_certificate_score_weight_evidence,
+    "RP-SCORE-011": _assemble_credit_evaluation_scoring_evidence,
     "RP-CONTRACT-002": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-003": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-005": _assemble_contract_linkage_evidence,
@@ -851,6 +894,8 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-PER-006": _assemble_personnel_boundary_evidence,
     "RP-PER-007": _assemble_personnel_boundary_evidence,
     "RP-PER-008": _assemble_personnel_boundary_evidence,
+    "RP-PER-009": _assemble_personnel_boundary_evidence,
+    "RP-PER-010": _assemble_personnel_boundary_evidence,
     "RP-STRUCT-001": _assemble_structure_conflict_evidence,
     "RP-STRUCT-002": _assemble_structure_conflict_evidence,
     "RP-STRUCT-003": _assemble_structure_conflict_evidence,

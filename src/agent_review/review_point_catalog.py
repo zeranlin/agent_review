@@ -279,6 +279,21 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="证书类评分分值应与项目规模和履约能力相匹配，避免权重明显偏高。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-SCORE-011",
+        title="信用评价作为评分因素",
+        dimension="评审标准明确性",
+        default_severity=Severity.high,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在信用评价评分信号",
+                clause_fields=["信用评价要求"],
+                signal_groups=[["信用评价", "信用分", "征信"], ["评分", "分", "得分"]],
+            )
+        ],
+        basis_hint="信用评价如作为评分因素，应核查其与项目履约能力的直接关联及分值设置是否适度。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-PER-001",
         title="性别限制",
         dimension="人员条件与用工边界风险",
@@ -351,6 +366,36 @@ CATALOG: list[ReviewPointDefinition] = [
         scenario_tags=["service", "personnel"],
         required_conditions=[ReviewPointCondition("人员证明叠加", clause_fields=["人员评分要求", "学历职称要求"], signal_groups=[["社保"], ["学历", "职称"]])],
         basis_hint="叠加证明材料应与履职直接相关并保持必要性。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-PER-009",
+        title="团队稳定性要求过强",
+        dimension="人员条件与用工边界风险",
+        default_severity=Severity.high,
+        scenario_tags=["service", "personnel"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在团队稳定性要求",
+                clause_fields=["团队稳定性要求"],
+                signal_groups=[["团队稳定", "核心团队", "人员稳定"]],
+            )
+        ],
+        basis_hint="团队稳定性要求应与履约需要直接相关，避免过度锁定人员构成。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-PER-010",
+        title="人员更换限制较强",
+        dimension="人员条件与用工边界风险",
+        default_severity=Severity.high,
+        scenario_tags=["service", "personnel", "contract"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在人员更换限制",
+                clause_fields=["人员更换限制", "采购人批准更换"],
+                signal_groups=[["更换", "替换", "变更", "调整"], ["采购人同意", "采购人批准", "须经"]],
+            )
+        ],
+        basis_hint="人员更换控制宜限于关键岗位与履约保障，不宜扩展为采购人审批内部任免。",
     ),
     ReviewPointDefinition(
         catalog_id="RP-CONTRACT-001",
@@ -886,6 +931,11 @@ def _build_active_task_tags(text: str, extracted_clauses: list[ExtractedClause])
         active_tags.update({"service", "property"})
     if _first_clause_value(extracted_clauses, "中小企业声明函类型"):
         active_tags.add("policy")
+    if any(
+        _first_clause_value(extracted_clauses, field)
+        for field in ["团队稳定性要求", "人员更换限制", "采购人批准更换", "人员评分要求"]
+    ):
+        active_tags.add("personnel")
     return active_tags
 
 

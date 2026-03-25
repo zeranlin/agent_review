@@ -2119,3 +2119,79 @@ def test_markdown_can_render_specialist_summary() -> None:
 
     assert "中小企业政策一致性表摘要" in markdown
     assert "这是经过LLM增强的中小企业政策专项摘要。" in markdown
+
+
+def test_sme_policy_dual_anchor_closes_evidence_bundle() -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函（货物）：全部货物由中小企业制造。
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    point_map = {item.catalog_id: item for item in report.review_points}
+    sme_point = point_map["RP-SME-001"]
+    assert any(
+        "是否专门面向中小企业=是" in item.quote for item in sme_point.evidence_bundle.direct_evidence
+    )
+    assert any(
+        "是否仍保留价格扣除条款=是" in item.quote for item in sme_point.evidence_bundle.direct_evidence
+    )
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    sme_check = applicability_map["RP-SME-001"]
+    assert sme_check.applicable is True
+    assert sme_check.requirement_chain_complete is True
+
+
+def test_scoring_review_point_anchors_credit_evaluation_evidence() -> None:
+    text = """
+    项目属性：货物
+    评分方法：综合评分法。
+    信用评价：信用分越高得分越高。
+    信用评价5分。
+    评分项明细：信用评价得5分，财务报告得2分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    point_map = {item.catalog_id: item for item in report.review_points}
+    credit_point = point_map["RP-SCORE-011"]
+    assert any("信用评价要求" in item.quote for item in credit_point.evidence_bundle.direct_evidence)
+    assert any("评分项明细" in item.quote for item in credit_point.evidence_bundle.direct_evidence)
+    assert any("评分方法" in item.quote for item in credit_point.evidence_bundle.direct_evidence)
+
+
+def test_contract_template_term_extractor_captures_result_and_residue_terms() -> None:
+    text = """
+    未经采购人同意，不得将本项目成果移作他用，不得向第三方泄露本项目成果。
+    合同签订之日起1个月内完成设计、测试、验收。
+    提供X年的免费质保服务。
+    于事件发生后天内完成处理。
+    """
+    clauses = {item.field_name: item for item in extract_clauses(text)}
+
+    assert clauses["合同成果模板术语"].normalized_value == "存在"
+    assert clauses["合同模板残留"].normalized_value == "存在"
+    assert "项目成果" in clauses["合同成果模板术语"].content
+    assert "免费质保服务" in clauses["合同模板残留"].content
+    assert "事件发生后" in clauses["合同模板残留"].content
+
+
+def test_credit_team_stability_and_personnel_change_mother_topics_are_selected() -> None:
+    text = """
+    项目属性：服务
+    评分方法：综合评分法。
+    信用评价：信用分越高得分越高。
+    团队稳定性要求：核心团队成员在项目实施期间不得随意更换。
+    人员更换须经采购人批准。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+
+    clauses = {item.field_name: item for item in report.extracted_clauses}
+    assert clauses["信用评价要求"].normalized_value == "存在"
+    assert clauses["团队稳定性要求"].normalized_value == "存在"
+    assert clauses["人员更换限制"].normalized_value == "存在"
+
+    point_titles = {item.title for item in report.review_points}
+    assert "信用评价作为评分因素" in point_titles
+    assert "团队稳定性要求过强" in point_titles
+    assert "人员更换限制较强" in point_titles

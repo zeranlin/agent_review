@@ -807,6 +807,10 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
             ("scoring_relevance", "评分项与采购标的不相关", "评分因素关联性审查", "高风险"),
         ),
         (
+            {"RP-SCORE-011"},
+            ("credit_evaluation", "信用评价作为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
             {"RP-SCORE-006", "RP-SCORE-007"},
             ("scoring_quant", "方案评分主观性过强，量化不足", "评分标准量化性审查", "中风险"),
         ),
@@ -825,6 +829,14 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
         (
             {"RP-CONTRACT-010"},
             ("warranty_scope", "货物保修表述与项目实际履约内容不匹配", "合同履约条款适配性审查", "中风险"),
+        ),
+        (
+            {"RP-PER-009"},
+            ("team_stability", "团队稳定性要求过强", "人员条件与用工边界审查", "高风险"),
+        ),
+        (
+            {"RP-PER-010"},
+            ("personnel_change", "人员更换限制较强", "人员条件与用工边界审查", "高风险"),
         ),
     ]
     for catalog_ids, group in group_rules:
@@ -860,6 +872,16 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             limit=4,
             strict=True,
         )
+    if title == "信用评价作为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["信用评价"],
+            ["信用分"],
+            ["征信"],
+            ["评分", "得分"],
+            limit=4,
+            strict=True,
+        )
     if title == "方案评分主观性过强，量化不足":
         return _select_group_quote_records(
             quote_records,
@@ -887,6 +909,25 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             limit=4,
             strict=True,
         )
+    if title == "团队稳定性要求过强":
+        return _select_group_quote_records(
+            quote_records,
+            ["团队稳定"],
+            ["核心团队"],
+            ["人员稳定"],
+            limit=3,
+            strict=True,
+        )
+    if title == "人员更换限制较强":
+        return _select_group_quote_records(
+            quote_records,
+            ["人员更换"],
+            ["采购人批准"],
+            ["采购人同意"],
+            ["须经"],
+            limit=4,
+            strict=True,
+        )
     return quote_records[:3]
 
 
@@ -903,6 +944,11 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
             r"投标人具有[^。；\n]{0,80}软件企业认定证书[^。；\n]{0,60}",
             r"投标人具有[^。；\n]{0,120}ITSS[^。；\n]{0,120}",
             r"财务报告[^。；\n]{0,120}",
+        ],
+        "信用评价作为评分因素": [
+            r"信用评价[^。；\n]{0,100}",
+            r"信用分[^。；\n]{0,100}",
+            r"征信[^。；\n]{0,100}",
         ],
         "方案评分主观性过强，量化不足": [
             r"以上方案齐全且无缺陷得30分[^。；\n]{0,120}",
@@ -923,6 +969,20 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
             r"质量保修范围和保修期[^。]*货物质保期3年[^。]*",
             r"人工管护[^。；\n]{0,120}",
             r"合同履行期限[^。；\n]{0,80}",
+        ],
+        "团队稳定性要求过强": [
+            r"团队稳定[^。；\n]{0,100}",
+            r"核心团队[^。；\n]{0,100}",
+            r"人员稳定[^。；\n]{0,100}",
+        ],
+        "人员更换限制较强": [
+            r"人员更换[^。；\n]{0,100}",
+            r"替换[^。；\n]{0,100}",
+            r"变更[^。；\n]{0,100}",
+            r"调整[^。；\n]{0,100}",
+            r"采购人同意[^。；\n]{0,120}",
+            r"采购人批准[^。；\n]{0,120}",
+            r"须经[^。；\n]{0,120}",
         ],
         "中小企业采购金额口径不一致": [
             r"预算金额（元）[:：]?\s*[0-9,\.]+元?",
@@ -983,11 +1043,14 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
     templates = {
         "structure_mismatch": "文件将项目定性为货物，但采购内容中同时包含持续性作业服务，合同类型又偏向承揽或服务口径，项目属性、采购内容与合同类型之间存在明显错配风险。",
         "scoring_relevance": "评分中出现利润率、软件企业认定证书、ITSS 或财务报告等内容，与项目实际履约能力缺乏直接关联，存在限制竞争风险。",
+        "credit_evaluation": "评分中出现信用评价、信用分或征信等内容，如作为评分因素，需复核其与项目履约能力的直接关联和分值是否适度。",
         "scoring_quant": "方案评分以主观分档和“无缺陷得满分”等规则为核心，量化和客观性不足，评委裁量空间较大。",
         "contract_template": "合同条款中出现“项目成果、移作他用、泄露成果”等表述，更符合咨询、设计或信息化项目，和当前项目行业场景明显不匹配。",
         "acceptance_flexible": "验收条款赋予采购人较大的单方裁量空间，缺乏固定、明确、可预期的验收标准，容易引发履约争议。",
         "amount_consistency": "预算金额、最高限价与面向中小企业采购金额之间存在异常对应关系，金额口径不清，文件严谨性不足。",
         "warranty_scope": "项目核心履约内容包含持续性作业或服务责任，但合同条款仍仅以货物质保表述概括，未能准确覆盖实际履约责任。",
+        "team_stability": "团队稳定性要求将供应商内部人员构成或稳定性过度前置为采购要求，容易形成不必要的履约门槛。",
+        "personnel_change": "人员更换限制过强会使采购人审批介入供应商内部人员管理，容易扩大为不必要的人员控制条款。",
     }
     if group_key in templates:
         return templates[group_key]
@@ -1209,11 +1272,14 @@ def _build_reviewer_recommendations(issue_entries: list[dict[str, object]]) -> l
     rules = {
         "项目属性与采购内容、合同类型不一致": "建议重新核定项目属性、采购内容和合同类型的一致性，必要时明确货物与持续性作业服务的边界。",
         "评分项与采购标的不相关": "建议删除与项目履约能力无直接关联的评分项，仅保留与本项目直接相关的客观评价因素。",
+        "信用评价作为评分因素": "建议核查信用评价是否确属本项目必需评分因素，并说明其与履约能力的对应关系和分值依据。",
         "方案评分主观性过强，量化不足": "建议将方案评分细化为客观、量化、可核验的指标，减少评委自由裁量空间。",
         "合同条款存在明显模板错配": "建议重写合同条款，删除与当前项目场景不匹配的成果交付或保密模板表述。",
         "验收标准表述过于弹性": "建议明确验收依据和标准，避免使用优胜原则或采购人单方弹性判断表述。",
         "中小企业采购金额口径不一致": "建议统一预算金额、最高限价和面向中小企业采购金额等关键金额口径。",
         "货物保修表述与项目实际履约内容不匹配": "建议按项目实际履约内容重写质保和管护责任条款，避免仅以货物质保概括全部责任。",
+        "团队稳定性要求过强": "建议将团队稳定性要求限定在关键岗位或必要履约岗位，避免过度锁定供应商内部人员配置。",
+        "人员更换限制较强": "建议将人员更换控制限定在关键岗位并保留必要审批边界，避免采购人深度介入供应商内部人事管理。",
     }
     recommendations: list[str] = []
     for item in issue_entries:

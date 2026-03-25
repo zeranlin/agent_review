@@ -157,6 +157,21 @@ def _default_dynamic_task_config(task_type: str, title: str) -> dict[str, object
                 "basis_hint": "应复核合同条款是否失衡、模板是否残留，以及是否影响履约和争议处理。",
             }
         )
+    elif task_type == "personnel":
+        config.update(
+            {
+                "focus_fields": ["团队稳定性要求", "人员更换限制", "采购人批准更换", "人员评分要求", "人员条件"],
+                "signal_groups": [
+                    ["团队稳定", "核心团队", "人员稳定"],
+                    ["更换", "替换", "变更", "调整"],
+                    ["采购人同意", "采购人批准", "须经"],
+                ],
+                "rebuttal_templates": [["仅关键岗位", "按合同约定"], ["不影响履约", "协商更换"]],
+                "evidence_hints": ["优先采集团队稳定性、人员更换限制、采购人审批口径和人员评分条款。"],
+                "enhancement_fields": ["团队稳定性要求", "人员更换限制", "采购人批准更换", "人员评分要求", "人员条件"],
+                "basis_hint": "应复核团队稳定和人员更换约束是否过强，是否变相锁定供应商内部人员管理。",
+            }
+        )
     elif task_type == "policy":
         config.update(
             {
@@ -287,7 +302,7 @@ def _parse_task_type(item: dict[str, object], title: str, dimension: str) -> str
     haystack = f"{title} {dimension}".lower()
     if "结构" in haystack or "属性" in haystack:
         return "structure"
-    if "评分" in haystack or "评审" in haystack:
+    if "评分" in haystack or "评审" in haystack or "信用" in haystack:
         return "scoring"
     if "合同" in haystack or "付款" in haystack or "验收" in haystack:
         return "contract"
@@ -297,7 +312,7 @@ def _parse_task_type(item: dict[str, object], title: str, dimension: str) -> str
         return "policy"
     if "限制竞争" in haystack or "品牌" in haystack:
         return "restrictive"
-    if "人员" in haystack or "用工" in haystack:
+    if "人员" in haystack or "用工" in haystack or "团队稳定" in haystack or "更换" in haystack:
         return "personnel"
     if "一致性" in haystack or "冲突" in haystack:
         return "consistency"
