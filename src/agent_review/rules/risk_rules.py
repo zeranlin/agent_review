@@ -30,7 +30,7 @@ def match_risk_rules(text: str) -> list[RiskHit]:
     for group, rule_name, severity, keywords, rationale in keyword_rules:
         for line_no, line in enumerate(lines, start=1):
             if rule_name == "产地厂家商标限制":
-                if any(token in line for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权", "厂家出厂标准", "原厂正品"]):
+                if any(token in line for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权", "厂家出厂标准", "原厂正品", "原产地证明", "进口设备", "同品牌"]):
                     continue
                 if not any(token in line for token in ["指定", "限定", "必须", "要求", "提供", "采用"]):
                     continue

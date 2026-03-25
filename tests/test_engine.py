@@ -1132,6 +1132,15 @@ def test_rigid_patent_requirement_can_be_formally_supported() -> None:
     assert any("刚性门槛" in item.detail for item in check.requirement_results)
 
 
+def test_rigid_patent_requirement_still_extracts_when_line_also_mentions_infringement() -> None:
+    text = """
+    中标人必须具备与采购标的相关的外观、结构、工艺及技术专利（专利须在保护期内），并保证不侵犯第三方知识产权。
+    """
+    clauses = extract_clauses(text)
+    patent_clause = next(item for item in clauses if item.field_name == "是否要求专利")
+    assert patent_clause.normalized_value == "刚性门槛"
+
+
 def test_bid_stage_material_burden_point_prefers_bid_submission_context() -> None:
     text = """
     采购标的：家具
@@ -1211,6 +1220,24 @@ def test_risk_rules_do_not_treat_factory_quality_wording_as_origin_brand_restric
     hits = match_risk_rules(text)
     assert all(item.rule_name != "指定品牌/原厂限制" for item in hits)
     assert all(item.rule_name != "产地厂家商标限制" for item in hits)
+
+
+def test_risk_rules_do_not_treat_same_brand_rule_or_origin_proof_as_restrictive() -> None:
+    text = """
+    提供相同品牌产品的，按评标办法处理。
+    进口设备必须具备有效的原产地证明。
+    """
+    hits = match_risk_rules(text)
+    assert all(item.rule_name != "指定品牌/原厂限制" for item in hits)
+    assert all(item.rule_name != "产地厂家商标限制" for item in hits)
+
+
+def test_contract_type_extractor_ignores_generic_sales_or_service_contract_wording() -> None:
+    text = """
+    根据上述业绩情况，按招标文件要求附销售或服务合同复印件及评审标准要求的证明材料。
+    """
+    clauses = extract_clauses(text)
+    assert all(item.field_name != "合同类型" for item in clauses)
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:

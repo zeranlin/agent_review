@@ -156,9 +156,9 @@ def evidence_supports_title(title: str, quote: str) -> bool:
         "身高限制": [["身高"]],
         "容貌体形要求": [["容貌", "体形", "五官"]],
         "产地厂家商标限制": [["产地", "厂家", "商标", "品牌", "原厂"]],
-        "刚性门槛型专利要求": [["专利"], ["必须具备", "须具备", "应具备", "必须具有"]],
+        "刚性门槛型专利要求": [["专利", "是否要求专利"], ["必须具备", "须具备", "应具备", "必须具有", "刚性门槛"]],
         "投标阶段证书或检测报告负担过重": [["检测报告", "认证证书", "管理体系认证"], ["提供", "提交", "具备", "评分", "评审"]],
-        "证书类评分分值偏高": [["资质证书", "管理体系认证", "认证证书"], ["分"]],
+        "证书类评分分值偏高": [["资质证书", "管理体系认证", "认证证书", "证书类评分总分"], ["分"]],
         "合同文本存在明显模板残留": [["X年", "事件发生后", "设计、测试", "免费质保服务"]],
         "货物服务属性冲突": [["货物"], ["服务", "实施", "运维", "承接"]],
         "货物项目混入大量服务履约内容": [["货物"], ["服务", "实施", "运维", "承接"]],
@@ -175,11 +175,22 @@ def evidence_supports_title(title: str, quote: str) -> bool:
         return False
     if title == "产地厂家商标限制" and any(token in quote for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权"]):
         return False
-    if title == "产地厂家商标限制" and any(token in quote for token in ["厂家出厂标准", "原厂正品"]):
+    if title == "产地厂家商标限制" and any(token in quote for token in ["厂家出厂标准", "原厂正品", "原产地证明", "进口设备"]):
+        return False
+    if title == "指定品牌/原厂限制" and any(token in quote for token in ["相同品牌产品", "同品牌投标人"]):
         return False
     if title == "专利要求" and any(token in quote for token in ["专利权", "知识产权", "侵犯", "纠纷", "不会产生"]):
         return False
     if title == "刚性门槛型专利要求" and any(token in quote for token in ["专利权", "知识产权", "侵犯", "纠纷", "不会产生"]):
+        if not any(token in quote for token in ["必须具备", "须具备", "应具备", "必须具有", "刚性门槛"]):
+            return False
+    if title == "投标阶段证书或检测报告负担过重" and all(token not in quote for token in ["检测报告", "认证证书", "管理体系认证", "证书检测报告负担特征"]):
+        return False
+    if title == "证书类评分分值偏高" and "证书类评分总分=" in quote:
+        return True
+    if title == "刚性门槛型专利要求" and "是否要求专利=刚性门槛" in quote:
+        return True
+    if title == "项目属性与合同类型口径疑似不一致" and "合同类型=采购合同" in quote:
         return False
     if title == "采购人单方解释或决定条款" and "采购代理机构" in quote:
         return False

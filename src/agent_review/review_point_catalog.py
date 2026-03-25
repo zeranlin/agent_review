@@ -539,6 +539,9 @@ CATALOG: list[ReviewPointDefinition] = [
             ReviewPointCondition("存在项目属性", clause_fields=["项目属性"]),
             ReviewPointCondition("存在合同类型", clause_fields=["合同类型"]),
         ],
+        exclusion_conditions=[
+            ReviewPointCondition("文件整体货物主线清楚", clause_fields=["项目属性", "采购标的", "是否含持续性服务"]),
+        ],
         basis_hint="项目属性、采购内容与合同类型应形成一致的法律关系结构。",
     ),
     ReviewPointDefinition(

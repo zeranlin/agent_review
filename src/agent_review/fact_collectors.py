@@ -197,6 +197,41 @@ def _assemble_scoring_evidence(
     return _assemble_bundle_for_definition(definition, relevant)
 
 
+def _assemble_certificate_score_weight_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        [
+            "证书类评分总分",
+            "证书检测报告负担特征",
+            "证书材料适用阶段",
+            "检测报告适用阶段",
+            "预算金额",
+            "采购标的",
+            "项目属性",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_rigid_patent_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        [
+            "是否要求专利",
+            "采购标的",
+            "品目名称",
+            "项目属性",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
 def _assemble_restrictive_competition_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
@@ -233,6 +268,22 @@ def _assemble_template_conflict_evidence(
             "合同模板残留",
             "合同成果模板术语",
             "合同履行期限",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_contract_template_residue_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields(
+        extracted_clauses,
+        [
+            "合同模板残留",
+            "合同履行期限",
+            "采购标的",
+            "项目属性",
         ],
     )
     return _assemble_bundle_for_definition(definition, relevant)
@@ -753,7 +804,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-REST-001": _assemble_restrictive_competition_evidence,
     "RP-REST-002": _assemble_restrictive_competition_evidence,
     "RP-REST-003": _assemble_restrictive_competition_evidence,
-    "RP-REST-004": _assemble_restrictive_competition_evidence,
+    "RP-REST-004": _assemble_rigid_patent_evidence,
     "RP-SCORE-001": _assemble_scoring_evidence,
     "RP-SCORE-002": _assemble_scoring_evidence,
     "RP-SCORE-003": _assemble_scoring_evidence,
@@ -763,7 +814,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-SCORE-007": _assemble_scoring_evidence,
     "RP-SCORE-008": _assemble_scoring_evidence,
     "RP-SCORE-009": _assemble_scoring_evidence,
-    "RP-SCORE-010": _assemble_scoring_evidence,
+    "RP-SCORE-010": _assemble_certificate_score_weight_evidence,
     "RP-CONTRACT-002": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-003": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-005": _assemble_contract_linkage_evidence,
@@ -792,7 +843,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-TPL-004": _assemble_template_conflict_evidence,
     "RP-TPL-005": _assemble_template_conflict_evidence,
     "RP-TPL-006": _assemble_template_conflict_evidence,
-    "RP-TPL-007": _assemble_template_conflict_evidence,
+    "RP-TPL-007": _assemble_contract_template_residue_evidence,
     "RP-CONS-003": _assemble_policy_conflict_evidence,
     "RP-CONS-004": _assemble_contract_linkage_evidence,
     "RP-CONS-005": _assemble_consistency_policy_evidence,

@@ -101,6 +101,8 @@ def _brand_requirement_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if not any(token in line for token in ["品牌", "原厂"]):
             continue
+        if any(token in line for token in ["相同品牌产品", "同品牌投标人", "同品牌"]):
+            continue
         if any(token in line for token in ["原厂服务", "原厂服务团队", "原厂售后"]):
             return _build_clause(line, line_no, normalized_value="存在", relation_tags=["指定品牌/原厂限制"])
         if "原厂正品" in line and not any(token in line for token in ["指定品牌", "指定原厂", "原厂授权", "原厂证明"]):
@@ -291,6 +293,21 @@ def _contract_type_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if "是否属于签订不超过3年履行期限政府采购合同的项目" in line:
             continue
+        if any(
+            token in line
+            for token in [
+                "销售或服务合同",
+                "服务合同复印件",
+                "销售合同复印件",
+                "政府采购合同",
+                "采购合同履约",
+                "采购合同复印件",
+                "补充合同",
+                "签订合同",
+                "签订采购合同",
+            ]
+        ):
+            continue
         if "采购合同" in line and "合同类型" not in line:
             continue
         for contract_type in contract_types:
@@ -443,13 +460,14 @@ def _patent_requirement_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if "专利" not in line:
             continue
-        if any(token in line for token in ["专利权", "知识产权", "侵犯", "纠纷", "不会产生"]):
-            continue
         relation_tags = ["专利要求"]
         normalized_value = "存在"
-        if any(token in line for token in ["必须具备", "须具备", "应具备", "必须具有", "须具有"]):
+        strong_gate = any(token in line for token in ["必须具备", "须具备", "应具备", "必须具有", "须具有"])
+        if strong_gate:
             normalized_value = "刚性门槛"
             relation_tags.append("刚性门槛")
+        elif any(token in line for token in ["专利权", "知识产权", "侵犯", "纠纷", "不会产生"]):
+            continue
         return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags)
     return None
 
@@ -500,6 +518,8 @@ def _origin_brand_restriction_extractor(lines: list[str]) -> ExtractedClause | N
     requirement_tokens = ["指定", "限定", "采用", "必须", "应当", "要求", "提供"]
     for line_no, line in enumerate(lines, start=1):
         if not any(token in line for token in ["产地", "厂家", "商标", "品牌", "原厂"]):
+            continue
+        if any(token in line for token in ["原产地证明", "进口设备", "相同品牌产品", "同品牌投标人", "同品牌"]):
             continue
         if any(token in line for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权", "厂家出厂标准", "原厂正品"]):
             continue

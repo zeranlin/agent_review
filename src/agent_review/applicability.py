@@ -329,10 +329,13 @@ def _payment_assessment_link_evaluator(clause_mapping: dict[str, list[ExtractedC
 def _contract_type_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     project_type = _first_normalized_or_content(clause_mapping, "项目属性")
     contract_type = _first_normalized_or_content(clause_mapping, "合同类型")
+    procurement_subject = _first_value(clause_mapping, "采购标的")
     service_tags = _collect_tags(clause_mapping, "采购内容构成") | _collect_tags(clause_mapping, "是否含持续性服务")
     if not project_type or not contract_type:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取项目属性和合同类型。"]
     if project_type == "货物" and contract_type in {"承揽合同", "服务合同"}:
+        if "家具" in procurement_subject and "持续性作业服务" not in service_tags:
+            return ApplicabilityStatus.unsatisfied, [f"已识别项目属性={project_type}、合同类型={contract_type}，但采购标的={procurement_subject} 仍以典型货物为主，尚不足以直接认定口径错配。"]
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type}，合同类型={contract_type}，合同口径偏服务/承揽。"]
     if project_type == "服务" and contract_type == "买卖合同":
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type}，合同类型={contract_type}，合同口径偏货物买卖。"]
@@ -450,11 +453,32 @@ def _certificate_score_weight_value_evaluator(clause_mapping: dict[str, list[Ext
     budget = _parse_amount(budget_raw)
     if score is None:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到证书类评分总分。"]
-    if score >= 8:
+    if score >= 10:
+        if budget is not None:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：证书类评分总分={score_raw}分，预算金额={budget_raw}，证书类评分权重已达到高风险阈值。"]
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：证书类评分总分={score_raw}分，已达到高风险阈值。"]
+    if score >= 8 and budget is not None and budget <= 1000000:
         if budget is not None:
             return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：证书类评分总分={score_raw}分，预算金额={budget_raw}，证书类评分权重疑似偏高。"]
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：证书类评分总分={score_raw}分，证书类评分权重疑似偏高。"]
     return ApplicabilityStatus.unsatisfied, [f"已识别证书类评分总分={score_raw}分，当前未达到高权重阈值。"]
+
+
+def _goods_baseline_clear_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    project_type = _first_normalized_or_content(clause_mapping, "项目属性")
+    procurement_subject = _first_value(clause_mapping, "采购标的")
+    continuous_service = _first_normalized_or_content(clause_mapping, "是否含持续性服务")
+    contract_type = _first_normalized_or_content(clause_mapping, "合同类型")
+    if not project_type or not procurement_subject:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取项目属性和采购标的。"]
+    if (
+        project_type == "货物"
+        and "家具" in procurement_subject
+        and continuous_service != "是"
+        and contract_type in {"", "采购合同"}
+    ):
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type}，采购标的={procurement_subject}，未识别持续性服务，文件整体货物主线清楚。"]
+    return ApplicabilityStatus.not_applicable, [f"当前未形成可排除结构错配的正向基线：项目属性={project_type or '未识别'}，采购标的={procurement_subject or '未识别'}，合同类型={contract_type or '未识别'}，持续性服务={continuous_service or '未识别'}。"]
 
 
 def _contract_template_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
@@ -558,6 +582,7 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-STRUCT-005", "存在声明函类型"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-007", "存在项目属性"): _contract_type_mismatch_evaluator,
     ("RP-STRUCT-007", "存在合同类型"): _contract_type_mismatch_evaluator,
+    ("RP-STRUCT-007", "文件整体货物主线清楚"): _goods_baseline_clear_evaluator,
     ("RP-STRUCT-008", "项目属性为货物"): _continuous_service_in_goods_evaluator,
     ("RP-STRUCT-008", "存在持续性作业服务"): _continuous_service_in_goods_evaluator,
     ("RP-REST-004", "专利要求具有刚性门槛特征"): _rigid_patent_requirement_evaluator,
