@@ -839,6 +839,7 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
 
 
 def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]) -> list[dict[str, str]]:
+    quote_records = _refine_quote_records_for_title(title, quote_records)
     quotes = [item["quote"] for item in quote_records]
     if title == "项目属性与采购内容、合同类型不一致":
         return _select_group_quote_records(
@@ -847,6 +848,7 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             ["人工管护", "清林整地", "抚育", "运水"],
             ["合同类型", "承揽合同"],
             limit=4,
+            strict=True,
         )
     if title == "评分项与采购标的不相关":
         return _select_group_quote_records(
@@ -865,6 +867,7 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             ["每缺少一项内容扣5分", "每有一处缺陷扣2.5分"],
             ["缺陷指"],
             limit=4,
+            strict=True,
         )
     if title == "中小企业采购金额口径不一致":
         return _select_group_quote_records(
@@ -880,9 +883,78 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             quote_records,
             ["质量保修范围和保修期", "货物质保期"],
             ["人工管护", "抚育", "运水"],
+            ["合同履行期限", "1095日"],
             limit=4,
+            strict=True,
         )
     return quote_records[:3]
+
+
+def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, str]]) -> list[dict[str, str]]:
+    pattern_map: dict[str, list[str]] = {
+        "项目属性与采购内容、合同类型不一致": [
+            r"项目所属分类[^。；\n]{0,80}",
+            r"人工管护[^。；\n]{0,160}",
+            r"合同类型[^。；\n]{0,60}",
+            r"承揽合同[^。；\n]{0,40}",
+        ],
+        "评分项与采购标的不相关": [
+            r"利润率[^。；\n]{0,100}",
+            r"投标人具有[^。；\n]{0,80}软件企业认定证书[^。；\n]{0,60}",
+            r"投标人具有[^。；\n]{0,120}ITSS[^。；\n]{0,120}",
+            r"财务报告[^。；\n]{0,120}",
+        ],
+        "方案评分主观性过强，量化不足": [
+            r"以上方案齐全且无缺陷得30分[^。；\n]{0,120}",
+            r"以上方案齐全且无缺陷得15分[^。；\n]{0,120}",
+            r"每缺少一项内容扣5分[^。；\n]{0,100}",
+            r"每[项中]*每有一处缺陷扣2\.5分[^。；\n]{0,100}",
+            r"缺陷指[^。]{0,200}",
+        ],
+        "合同条款存在明显模板错配": [
+            r"未经采购人同意[^。]*本项目成果[^。]*",
+            r"[^。]*不得向第三方泄露本项目成果[^。]*",
+            r"[^。]*未在合同规定日期内提交全部符合项目合同要求的项目成果[^。]*",
+        ],
+        "验收标准表述过于弹性": [
+            r"[^。]*按质量要求和技术指标、行业标准比较优胜的原则[^。]*",
+        ],
+        "货物保修表述与项目实际履约内容不匹配": [
+            r"质量保修范围和保修期[^。]*货物质保期3年[^。]*",
+            r"人工管护[^。；\n]{0,120}",
+            r"合同履行期限[^。；\n]{0,80}",
+        ],
+        "中小企业采购金额口径不一致": [
+            r"预算金额（元）[:：]?\s*[0-9,\.]+元?",
+            r"面向中小企业采购金额(?:为)?[0-9,\.]+元?",
+            r"最高限价（元）[:：]?\s*[0-9,\.]+",
+        ],
+    }
+    patterns = pattern_map.get(title)
+    if not patterns:
+        return quote_records
+    refined: list[dict[str, str]] = []
+    for record in quote_records:
+        snippets = _extract_pattern_snippets(record["quote"], patterns)
+        if snippets:
+            for snippet in snippets:
+                refined.append({"location": record["location"], "quote": snippet})
+        else:
+            refined.append(record)
+    deduped = _dedupe_quote_records(refined)
+    return deduped or quote_records
+
+
+def _extract_pattern_snippets(text: str, patterns: list[str]) -> list[str]:
+    snippets: list[str] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, text):
+            snippet = re.sub(r"\s+", " ", match.group(0)).strip(" ；;，,。")
+            if not snippet:
+                continue
+            if snippet not in snippets:
+                snippets.append(snippet)
+    return snippets
 
 
 def _select_group_quote_records(

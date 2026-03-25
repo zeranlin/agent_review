@@ -1692,12 +1692,14 @@ def test_reviewer_report_prefers_scoring_relevance_and_amount_clusters() -> None
     report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
     reviewer = render_reviewer_report(report)
 
-    assert "“5 详细评审 利润率" in reviewer
+    assert "“利润率 1.近三年平均净利润率" in reviewer
     assert "软件企业认定证书" in reviewer
     assert "ITSS" in reviewer
     assert "预算金额（元）：2,899,600.00元" in reviewer
     assert "面向中小企业采购金额为2680443.18元" in reviewer
     assert "最高限价（元）：2,680,443.18" in reviewer
+    assert "政府采购项目采购需求" not in reviewer
+    assert "实施方案" not in reviewer.split("**1. 评分项与采购标的不相关**", 1)[1].split("**2.", 1)[0]
 
 
 def test_reviewer_report_formats_location_ranges_and_generates_issue_recommendations() -> None:
@@ -1713,6 +1715,24 @@ def test_reviewer_report_formats_location_ranges_and_generates_issue_recommendat
     assert "原文位置：第" in reviewer
     assert "**三、审查意见**" in reviewer
     assert "建议重新核定项目属性、采购内容和合同类型的一致性" in reviewer
+
+
+def test_reviewer_report_refines_contract_and_warranty_quotes() -> None:
+    text = """
+    未经采购人同意，投标人不得将本项目成果移作他用，不得向第三方泄露本项目成果。
+    投标人未在合同规定日期内提交全部符合项目合同要求的项目成果。
+    如采购双方如对质量要求和技术指标的约定标准有相互抵触或异议的事项，由采购人在采购文件与中标（成交）人投标（响应）文件中按质量要求和技术指标、行业标准比较优胜的原则确定该项的约定标准进行验收。
+    人工管护：管护期3年，包含抚育、运水等持续性作业内容。
+    质量保修范围和保修期：货物质保期3年（自验收合格之日起计）。
+    3）合同履行期限：自合同签订之日起1095日。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "不得将本项目成果移作他用" in reviewer
+    assert "比较优胜的原则" in reviewer
+    assert "货物质保期3年" in reviewer
+    assert "1095日" in reviewer
 
 
 def test_warranty_scope_mismatch_review_point_can_formalize() -> None:
