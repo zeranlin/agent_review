@@ -1,9 +1,11 @@
 from pathlib import Path
 import json
 import re
+from types import SimpleNamespace
 
 from docx import Document
 from PIL import Image
+import pytest
 
 from agent_review.applicability import build_applicability_checks
 from agent_review.adjudication import build_formal_adjudication
@@ -31,6 +33,8 @@ from agent_review.models import (
     ParsedTable,
     QualityGateStatus,
     Severity,
+    TaskRecord,
+    TaskStatus,
 )
 from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
@@ -45,6 +49,7 @@ from agent_review.reporting import (
     render_reviewer_report,
 )
 from agent_review.llm.prompts import build_review_point_second_review_prompt
+from agent_review.web import ReviewWebApp, markdown_to_html
 
 
 def test_detects_manual_review_for_attachment_markers() -> None:
@@ -2577,3 +2582,38 @@ def test_credit_team_stability_and_personnel_change_mother_topics_are_selected()
     assert "信用评价作为评分因素" in point_titles
     assert "团队稳定性要求过强" in point_titles
     assert "人员更换限制较强" in point_titles
+
+
+def test_markdown_to_html_renders_reviewer_report_like_content() -> None:
+    markdown = """
+**招标文件合规审查意见书**
+
+**一、审查结论**
+经审查，该采购需求文件存在较明显合规风险。
+
+**1. 评分项与采购标的不相关**
+问题定性：**高风险**
+
+法律/政策依据：
+- [《政府采购需求管理办法》](https://example.com/rule)
+"""
+    html = markdown_to_html(markdown)
+
+    assert "<h1>招标文件合规审查意见书</h1>" in html
+    assert "<h2>一、审查结论</h2>" in html
+    assert "<h3>1. 评分项与采购标的不相关</h3>" in html
+    assert "<strong>高风险</strong>" in html
+    assert 'href="https://example.com/rule"' in html
+
+
+def test_review_web_requires_all_high_value_llm_tasks_completed() -> None:
+    report = SimpleNamespace(
+        task_records=[
+            TaskRecord(task_name="llm_scenario_review", status=TaskStatus.completed),
+            TaskRecord(task_name="llm_scoring_review", status=TaskStatus.completed),
+            TaskRecord(task_name="llm_review_point_second_review", status=TaskStatus.failed),
+        ]
+    )
+
+    with pytest.raises(RuntimeError):
+        ReviewWebApp._ensure_complete_enhanced_run(report)

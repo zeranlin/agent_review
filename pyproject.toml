@@ -20,6 +20,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 agent-review = "agent_review.cli:main"
+agent-review-web = "agent_review.web:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -179,6 +179,33 @@ python -m agent_review.cli --input sample.txt --format markdown
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest
 ```
 
+## 最小 Web 演示壳
+
+当前仓库已提供一个极简 Web 演示入口，固定走 `enhanced + LLM` 审查链：
+
+1. 上传一个招标文件
+2. 点击开始审核
+3. 页面显示“审核中...”
+4. 审核完成后直接渲染 `reviewer_report.md`
+
+启动方式：
+
+```bash
+python -m agent_review.web --host 127.0.0.1 --port 8765 --llm-timeout 300
+```
+
+或者安装后直接使用：
+
+```bash
+agent-review-web --host 127.0.0.1 --port 8765 --llm-timeout 300
+```
+
+说明：
+
+- 该入口不会展示半成品结果。
+- 只有 `llm_scenario_review`、`llm_scoring_review`、`llm_review_point_second_review` 三个高价值任务全部完成后，才会进入结果页。
+- 如果增强链未完整完成，页面会直接显示失败信息，而不是展示不完整报告。
+
 ## 当前范围
 
 当前版本不直接代替正式法律意见。
