@@ -307,19 +307,28 @@ def build_applicability_review_prompt(report: ReviewReport) -> str:
 
 
 def build_scenario_review_prompt(report: ReviewReport) -> str:
+    extracted_clauses = [
+        {
+            "category": item.category,
+            "field_name": item.field_name,
+            "content": item.content[:120],
+            "source_anchor": item.source_anchor,
+        }
+        for item in report.extracted_clauses[:18]
+    ]
     payload = {
         "document_name": report.file_info.document_name,
         "file_type": report.file_info.file_type.value,
         "review_scope": report.file_info.review_scope,
         "summary": report.summary,
-        "extracted_clauses": [item.to_dict() for item in report.extracted_clauses[:40]],
+        "extracted_clauses": extracted_clauses,
         "existing_catalog": [
             {
                 "catalog_id": item.catalog_id,
                 "title": item.title,
                 "dimension": item.dimension,
             }
-            for item in report.review_point_catalog[:40]
+            for item in report.review_point_catalog[:18]
         ],
     }
     return f"""请根据以下结构化审查结果，输出 JSON：
@@ -451,8 +460,8 @@ def build_scoring_review_prompt(report: ReviewReport) -> str:
 """
 
 
-def build_review_point_second_review_prompt(report: ReviewReport) -> str:
-    selected_points = _select_second_review_points(report)
+def build_review_point_second_review_prompt(report: ReviewReport, selected_points: list | None = None) -> str:
+    selected_points = selected_points or _select_second_review_points(report)
     selected_ids = {item.point_id for item in selected_points}
     catalog_index = {item.catalog_id: item for item in report.review_point_catalog}
     dynamic_index = _build_dynamic_task_context_index(report)
@@ -460,7 +469,28 @@ def build_review_point_second_review_prompt(report: ReviewReport) -> str:
         "document_name": report.file_info.document_name,
         "review_points": [
             {
-                **item.to_dict(),
+                "point_id": item.point_id,
+                "catalog_id": item.catalog_id,
+                "title": item.title,
+                "dimension": item.dimension,
+                "severity": item.severity.value,
+                "status": item.status.value,
+                "rationale": item.rationale[:180],
+                "evidence_summary": item.evidence_bundle.sufficiency_summary,
+                "direct_evidence": [
+                    {
+                        "quote": evidence.quote[:140],
+                        "section_hint": evidence.section_hint,
+                    }
+                    for evidence in item.evidence_bundle.direct_evidence[:2]
+                ],
+                "supporting_evidence": [
+                    {
+                        "quote": evidence.quote[:120],
+                        "section_hint": evidence.section_hint,
+                    }
+                    for evidence in item.evidence_bundle.supporting_evidence[:2]
+                ],
                 "task_type": _resolve_review_point_task_type(item, catalog_index, dynamic_index),
                 "second_review_focus": _build_second_review_focus(
                     _resolve_review_point_task_type(item, catalog_index, dynamic_index)
@@ -468,9 +498,38 @@ def build_review_point_second_review_prompt(report: ReviewReport) -> str:
             }
             for item in selected_points
         ],
-        "applicability_checks": [item.to_dict() for item in report.applicability_checks if item.point_id in selected_ids],
-        "quality_gates": [item.to_dict() for item in report.quality_gates if item.point_id in selected_ids],
-        "formal_adjudication": [item.to_dict() for item in report.formal_adjudication if item.point_id in selected_ids],
+        "applicability_checks": [
+            {
+                "point_id": item.point_id,
+                "applicable": item.applicable,
+                "summary": item.summary,
+                "satisfied_conditions": item.satisfied_conditions[:3],
+                "missing_conditions": item.missing_conditions[:3],
+                "blocking_conditions": item.blocking_conditions[:3],
+            }
+            for item in report.applicability_checks
+            if item.point_id in selected_ids
+        ],
+        "quality_gates": [
+            {
+                "point_id": item.point_id,
+                "status": item.status.value,
+                "reasons": item.reasons[:3],
+            }
+            for item in report.quality_gates
+            if item.point_id in selected_ids
+        ],
+        "formal_adjudication": [
+            {
+                "point_id": item.point_id,
+                "disposition": item.disposition.value,
+                "rationale": item.rationale[:180],
+                "primary_quote": item.primary_quote[:160],
+                "review_reason": item.review_reason,
+            }
+            for item in report.formal_adjudication
+            if item.point_id in selected_ids
+        ],
     }
     return f"""请根据以下结构化审查结果，输出 JSON：
 
@@ -497,7 +556,7 @@ def build_review_point_second_review_prompt(report: ReviewReport) -> str:
 """
 
 
-def _select_second_review_points(report: ReviewReport, limit: int = 12) -> list:
+def _select_second_review_points(report: ReviewReport, limit: int = 4) -> list:
     dynamic_titles = {item.title for item in report.llm_semantic_review.dynamic_review_tasks}
     dynamic_points = [
         item

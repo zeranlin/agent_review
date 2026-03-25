@@ -47,13 +47,14 @@ from .prompts import (
     build_applicability_review_prompt,
     build_clause_supplement_prompt,
     build_consistency_review_prompt,
-    build_evidence_review_prompt,
-    build_scoring_review_prompt,
-    build_scenario_review_prompt,
-    build_review_point_second_review_prompt,
-    build_role_review_prompt,
-    build_specialist_review_prompt,
-    build_verdict_review_prompt,
+        build_evidence_review_prompt,
+        build_scoring_review_prompt,
+        build_scenario_review_prompt,
+        build_review_point_second_review_prompt,
+        _select_second_review_points,
+        build_role_review_prompt,
+        build_specialist_review_prompt,
+        build_verdict_review_prompt,
 )
 from .task_planner import build_dynamic_review_points, parse_dynamic_review_tasks
 
@@ -226,14 +227,16 @@ class QwenReviewEnhancer:
             task_name="llm_review_point_second_review",
             task_records=task_records,
             system_prompt=REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_review_point_second_review_prompt(working_report),
-            skip_when=(not self._is_task_enabled("llm_review_point_second_review")) or (not working_report.review_points),
-            skip_detail=self._skip_detail("llm_review_point_second_review", "当前无 ReviewPoint，跳过审查点二审。"),
+            user_prompt="",
+            skip_when=True,
+            skip_detail="使用分批二审执行器。",
+        )
+        second_review_payload, second_review_error = self._run_second_review_batches(
+            working_report,
+            task_records,
         )
         if second_review_payload:
-            semantic_review.review_point_second_reviews = _parse_review_point_second_reviews(
-                second_review_payload.get("review_point_second_reviews")
-            )
+            semantic_review.review_point_second_reviews = second_review_payload
         if second_review_error:
             warnings.append(second_review_error)
 
@@ -404,6 +407,60 @@ class QwenReviewEnhancer:
             record.detail = str(exc)
             record.item_count = 0
             return None, f"{task_name} 未生效：{exc}"
+
+    def _run_second_review_batches(
+        self,
+        report: ReviewReport,
+        task_records: list[TaskRecord],
+        batch_size: int = 1,
+    ) -> tuple[list[ReviewPointSecondReview] | None, str | None]:
+        task_name = "llm_review_point_second_review"
+        record = _find_task_record(task_records, task_name)
+        if (not self._is_task_enabled(task_name)) or (not report.review_points):
+            record.status = TaskStatus.skipped
+            record.detail = self._skip_detail(task_name, "当前无 ReviewPoint，跳过审查点二审。")
+            record.item_count = 0
+            return None, None
+
+        selected_points = _select_second_review_points(report)
+        if not selected_points:
+            record.status = TaskStatus.skipped
+            record.detail = "当前无可用于二审的 ReviewPoint。"
+            record.item_count = 0
+            return None, None
+
+        record.status = TaskStatus.running
+        record.detail = f"按批次执行审查点二审，共 {len(selected_points)} 个审查点。"
+        parsed_reviews: list[ReviewPointSecondReview] = []
+        errors: list[str] = []
+
+        for index in range(0, len(selected_points), batch_size):
+            batch = selected_points[index : index + batch_size]
+            try:
+                raw = self.client.generate_text(
+                    system_prompt=REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
+                    user_prompt=build_review_point_second_review_prompt(report, batch),
+                )
+                parsed = _parse_json_response(raw)
+                parsed_reviews.extend(
+                    _parse_review_point_second_reviews(parsed.get("review_point_second_reviews"))
+                )
+            except Exception as exc:
+                errors.append(str(exc))
+
+        if parsed_reviews:
+            record.status = TaskStatus.completed if not errors else TaskStatus.completed
+            record.detail = (
+                f"分批二审完成，成功 {len(parsed_reviews)} 条。"
+                + (f" 部分批次失败：{'; '.join(errors[:2])}" if errors else "")
+            )
+            record.item_count = len(parsed_reviews)
+            return parsed_reviews, None if not errors else f"{task_name} 部分批次未生效：{'; '.join(errors[:2])}"
+
+        record.status = _infer_task_status(Exception(errors[0] if errors else "no second review results"))
+        record.detail = errors[0] if errors else "二审未返回结果。"
+        record.item_count = 0
+        return None, f"{task_name} 未生效：{record.detail}"
 
 
 def _seed_llm_task_records(existing_records: list[TaskRecord]) -> list[TaskRecord]:
