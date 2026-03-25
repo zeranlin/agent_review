@@ -383,18 +383,33 @@ def _material_stage_extractor(keywords: list[str]) -> ClauseExtractor:
 
 def _material_burden_extractor(lines: list[str]) -> ExtractedClause | None:
     burden_terms = ["检测报告", "认证证书", "管理体系认证", "环境标志", "环保产品认证"]
-    requirement_terms = ["需", "须", "必须", "提供", "提交", "具备"]
+    requirement_terms = ["需", "须", "必须", "提供", "提交", "具备", "具有"]
+    score_pattern = re.compile(r"(\(\d+(?:\.\d+)?分\)|（\d+(?:\.\d+)?分）|得\d+(?:\.\d+)?分|最高得)")
+    excluded_terms = [
+        "电子签名和电子印章",
+        "CA数字证书",
+        "电子认证服务许可证",
+        "电子认证服务使用密码许可证",
+        "第三方书面声明",
+        "资料虚假",
+        "隐瞒真实情况",
+        "业绩成果",
+    ]
     matched_lines: list[str] = []
     anchors: list[int] = []
     matched_terms: list[str] = []
     for line_no, line in enumerate(lines, start=1):
+        if any(term in line for term in excluded_terms):
+            continue
+        if score_pattern.search(line):
+            continue
         matched = [term for term in burden_terms if term in line]
         if not matched:
             continue
         if not any(term in line for term in requirement_terms):
             continue
         anchors.append(line_no)
-        matched_lines.append(_build_window_clause(lines, line_no, after=1).content)
+        matched_lines.append(line[:180])
         matched_terms.extend(matched)
     if not anchors:
         return None
@@ -409,11 +424,24 @@ def _material_burden_extractor(lines: list[str]) -> ExtractedClause | None:
 
 
 def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
-    anchors: list[int] = []
-    matched_lines: list[str] = []
-    relation_tags: list[str] = []
+    score_pattern = re.compile(r"(\(\d+(?:\.\d+)?分\)|（\d+(?:\.\d+)?分）|得\d+(?:\.\d+)?分|最高得)")
+    excluded_tokens = [
+        "电子签名和电子印章",
+        "CA数字证书",
+        "分支机构",
+        "授权书",
+        "信用评价分无法使用",
+        "联合体共同投标协议书",
+        "联合体投标",
+        "评审标准不明确",
+    ]
+    scored_matches: list[tuple[int, int, str, list[str]]] = []
     for line_no, line in enumerate(lines, start=1):
+        if any(token in line for token in excluded_tokens):
+            continue
         if not any(token in line for token in ["分", "得分", "评分", "评审"]):
+            continue
+        if not score_pattern.search(line):
             continue
         if not any(
             token in line
@@ -433,26 +461,37 @@ def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
             ]
         ):
             continue
-        anchors.append(line_no)
-        matched_lines.append(_build_window_clause(lines, line_no, after=1).content)
+        score = 1
+        if "项目负责人" in line or "项目经理" in line or "项目主管" in line:
+            score += 3
+        if any(token in line for token in ["资质证书", "管理体系认证", "认证证书", "检测报告", "信用评价"]):
+            score += 2
+        if "实施方案" in line or "项目整体" in line or "售后服务方案" in line:
+            score += 1
+        line_tags: list[str] = []
         if "实施方案" in line or "项目整体" in line:
-            relation_tags.append("实施方案评分项")
+            line_tags.append("实施方案评分项")
         if "售后服务方案" in line or "售后" in line:
-            relation_tags.append("售后评分项")
+            line_tags.append("售后评分项")
         if "资质证书" in line:
-            relation_tags.append("资质证书评分项")
+            line_tags.append("资质证书评分项")
         if "管理体系认证" in line or "认证证书" in line:
-            relation_tags.append("认证证书评分项")
+            line_tags.append("认证证书评分项")
         if "检测报告" in line:
-            relation_tags.append("检测报告评分项")
+            line_tags.append("检测报告评分项")
         if "财务" in line or "利润率" in line:
-            relation_tags.append("财务指标评分项")
+            line_tags.append("财务指标评分项")
         if "项目负责人" in line or "业绩" in line:
-            relation_tags.append("业绩人员评分项")
+            line_tags.append("业绩人员评分项")
         if "信用评价" in line or "信用分" in line or "信用等级" in line:
-            relation_tags.append("信用评价评分项")
-    if not anchors:
+            line_tags.append("信用评价评分项")
+        scored_matches.append((score, line_no, line[:220], line_tags))
+    if not scored_matches:
         return None
+    scored_matches.sort(key=lambda item: (-item[0], item[1]))
+    anchors = [line_no for _, line_no, _, _ in scored_matches[:5]]
+    matched_lines = [line for _, _, line, _ in scored_matches[:5]]
+    relation_tags = [tag for _, _, _, tags in scored_matches[:5] for tag in tags]
     return ExtractedClause(
         category="",
         field_name="",
@@ -555,8 +594,21 @@ def _package_split_extractor(lines: list[str]) -> ExtractedClause | None:
 
 
 def _qualification_detail_extractor(lines: list[str]) -> ExtractedClause | None:
-    anchors: list[int] = []
-    matched_lines: list[str] = []
+    scored_matches: list[tuple[int, int, str]] = []
+    strong_specific_tokens = [
+        "资质证书",
+        "认证证书",
+        "管理体系认证",
+        "检测报告",
+        "项目负责人",
+        "项目经理",
+        "项目主管",
+        "保安服务许可证",
+        "职称证书",
+        "信用评价",
+        "信用等级",
+        "业绩要求",
+    ]
     specific_tokens = [
         "资格要求",
         "供应商资格",
@@ -567,26 +619,66 @@ def _qualification_detail_extractor(lines: list[str]) -> ExtractedClause | None:
         "检测报告",
         "业绩要求",
         "项目负责人",
+        "项目经理",
+        "项目主管",
+        "保安服务许可证",
+        "职称证书",
         "信用评价",
         "信用等级",
     ]
     requirement_tokens = ["须具备", "应具备", "具有", "取得", "提供", "提交", "满足"]
-    excluded_tokens = ["法定代表人", "声明函", "政府采购法第二十二条", "重大违法记录", "串通投标", "隐瞒真实情况"]
+    mandatory_tokens = ["否则将视为非实质性响应", "不得少于", "须驻场", "持证上岗", "方可上岗", "提供承诺函", "报采购人审核", "经采购人确认"]
+    excluded_tokens = [
+        "法定代表人",
+        "声明函",
+        "政府采购法第二十二条",
+        "重大违法记录",
+        "串通投标",
+        "隐瞒真实情况",
+        "电子签名和电子印章",
+        "CA数字证书",
+        "供应商提供承诺函",
+        "第三方书面声明",
+        "资料虚假",
+        "资质证件",
+        "业绩成果",
+        "投标文件组成部分",
+        "分支机构",
+        "授权书",
+        "营业执照",
+        "执业许可证",
+        "节能产品",
+        "环境标志产品",
+    ]
+    score_pattern = re.compile(r"(\(\d+(?:\.\d+)?分\)|（\d+(?:\.\d+)?分）|得\d+(?:\.\d+)?分|最高得)")
     for line_no, line in enumerate(lines, start=1):
         if any(token in line for token in excluded_tokens):
             continue
         if not any(token in line for token in specific_tokens):
             continue
-        if not any(token in line for token in requirement_tokens) and not any(token in line for token in ["资格要求", "供应商资格", "特定资格要求"]):
+        if score_pattern.search(line):
             continue
-        anchors.append(line_no)
+        if not any(token in line for token in requirement_tokens + mandatory_tokens) and not any(token in line for token in ["资格要求", "供应商资格", "特定资格要求"]):
+            continue
+        score = 1
+        if any(token in line for token in mandatory_tokens):
+            score += 3
+        if any(token in line for token in ["项目负责人", "项目经理", "项目主管", "保安服务许可证", "职称证书"]):
+            score += 3
+        if any(token in line for token in ["资质证书", "认证证书", "管理体系认证", "检测报告"]):
+            score += 2
+        if any(token in line for token in ["资格要求", "供应商资格", "特定资格要求"]):
+            score += 1
         after = 12 if any(token in line for token in ["本项目特定的资格要求", "投标人的资格要求", "特定资格要求"]) else 4
         window = _build_window_clause(lines, line_no, after=after, normalized_value="存在", relation_tags=["资格条件明细"])
-        matched_lines.append(window.content)
-        if len(matched_lines) >= 3:
-            break
-    if not anchors:
+        if any(token in line for token in ["资格要求", "供应商资格", "特定资格要求"]) and not any(token in window.content for token in strong_specific_tokens):
+            continue
+        scored_matches.append((score, line_no, window.content))
+    if not scored_matches:
         return None
+    scored_matches.sort(key=lambda item: (-item[0], item[1]))
+    anchors = [line_no for _, line_no, _ in scored_matches[:3]]
+    matched_lines = [content for _, _, content in scored_matches[:3]]
     return ExtractedClause(
         category="",
         field_name="",

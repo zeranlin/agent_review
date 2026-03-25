@@ -1684,6 +1684,22 @@ def test_qualification_overlap_prefers_dual_anchor_clauses() -> None:
     assert applicability_map["RP-QUAL-001"].applicable is True
 
 
+def test_qualification_overlap_can_close_with_mandatory_project_manager_requirement_and_scoring() -> None:
+    text = """
+    ★项目负责人要求：要求有5年以上工作经验，具有园林绿化类中级（或以上）职称证书，投标时提供承诺函，否则将视为非实质性响应。
+    商务部分 | 商务部分 | 项目养护负责人资质 (13.0分) | 项目负责人：具有园林绿化类专业中级（或以上）职称证书的，得5分；具有同类型项目管理经验的，得5分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-overlap-project-manager.txt")
+    point = next(item for item in report.review_points if item.catalog_id == "RP-QUAL-001")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-QUAL-001"]
+
+    quotes = [item.quote for item in point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence]
+    assert any("项目负责人要求" in quote and "职称证书" in quote for quote in quotes)
+    assert any("项目养护负责人资质" in quote and "得5分" in quote for quote in quotes)
+    assert check.applicable is True
+
+
 def test_credit_transparency_and_procedural_fairness_prefer_raw_clauses() -> None:
     text = """
     评分标准：信用评价5分，按地方信用评价结果计分。
@@ -1723,6 +1739,22 @@ def test_qualification_overlap_ignores_generic_anti_collusion_and_social_securit
     评分标准：项目负责人类似项目业绩5分；拟投入团队人员社保齐全得3分。
     """
     report = TenderReviewEngine().review_text(text, document_name="qualification-overlap-boilerplate.txt")
+    point = next(item for item in report.review_points if item.catalog_id == "RP-QUAL-001")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-QUAL-001"]
+
+    assert check.applicable is False
+    assert point.evidence_bundle.direct_evidence == []
+
+
+def test_qualification_overlap_ignores_generic_article22_block_plus_project_manager_scoring() -> None:
+    text = """
+    二.投标人的资格要求；1.投标人应具备《中华人民共和国政府采购法》第二十二条规定的条件，
+    依据投标函及营业执照、执业许可证、社保缴纳等材料响应。
+    商务部分 | 商务部分 | 本项目项目经理的资质情况 (5.0分) | 投标人拟派在本项目的项目经理：
+    具有工程类本科学历得1分；具有机电类职称得2分；具有项目经理任职经历得2分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-overlap-article22-project-manager.txt")
     point = next(item for item in report.review_points if item.catalog_id == "RP-QUAL-001")
     applicability_map = {item.catalog_id: item for item in report.applicability_checks}
     check = applicability_map["RP-QUAL-001"]
@@ -1773,6 +1805,23 @@ def test_excessive_certificate_requirement_can_close_with_qualification_and_bid_
     assert check.applicable is True
 
 
+def test_excessive_certificate_requirement_can_close_with_strong_material_burden_without_specific_qualification_gate() -> None:
+    text = """
+    技术要求：木质家具需具备符合国家标准要求的主要原材料检测报告。
+    技术要求：具有质量管理体系认证证书、中国环保产品认证证书、中国环境标志产品认证证书。
+    商务部分 | 商务部分 | 资质证书 (5.0分) | 投标单位每具有1个环境标志产品相关认证证书得1分，本项最高得5分。注：提供认证证书扫描件。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-certificate-strong-burden.txt")
+    point = next(item for item in report.review_points if item.catalog_id == "RP-QUAL-002")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-QUAL-002"]
+    burden_clauses = [item.content for item in report.extracted_clauses if item.field_name == "证书检测报告负担特征"]
+    scoring_clauses = [item.content for item in report.extracted_clauses if item.field_name == "评分项明细"]
+    assert any("主要原材料检测报告" in quote or "质量管理体系认证证书" in quote for quote in burden_clauses)
+    assert any("资质证书 (5.0分)" in quote or "提供认证证书扫描件" in quote for quote in scoring_clauses)
+    assert check.applicable is True
+
+
 def test_certificate_stage_extractor_ignores_generic_personnel_certificate_commitment() -> None:
     text = """
     中标人须保证，投标文件所提供的人员证书在合同履行期内持续有效。
@@ -1795,6 +1844,33 @@ def test_excessive_certificate_requirement_ignores_personnel_and_false_informati
 
     assert check.applicable is False
     assert point.evidence_bundle.direct_evidence == []
+
+
+def test_excessive_certificate_requirement_ignores_generic_integrity_clause_with_detection_report_wording() -> None:
+    text = """
+    供应商提供承诺函、第三方书面声明、检测报告、资质证件、业绩成果等材料作为投标文件组成部分的，
+    应保证资料内容书写正确、真实有效、完整一致。如相关第三方书面声明、相关检测报告等资料虚假，
+    监管部门有权根据调查情形认定其是否属于提供虚假材料谋取中标。
+    商务部分 | 商务部分 | 在有效期内的质量管理体系、环境管理体系、职业健康安全管理体系认证情况 (3.0分) |
+    每具有一项得1分，最高得3分。注：提供认证证书扫描件。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-certificate-ignore-integrity-clause.txt")
+    point = next(item for item in report.review_points if item.catalog_id == "RP-QUAL-002")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-QUAL-002"]
+
+    assert check.applicable is False
+    quotes = [item.quote for item in point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence]
+    assert not any("供应商提供承诺函" in quote or "第三方书面声明" in quote for quote in quotes)
+
+
+def test_material_burden_extractor_ignores_ca_digital_certificate_boilerplate() -> None:
+    text = """
+    电子签名和电子印章：是指获得电子认证服务许可证的机构签发的电子签名和电子签章认证证书（即CA数字证书）。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="certificate-burden-ignore-ca.txt")
+    clauses = [item for item in report.extracted_clauses if item.field_name == "证书检测报告负担特征"]
+    assert clauses == []
 
 
 def test_contract_linkage_can_close_with_satisfaction_and_tail_payment() -> None:

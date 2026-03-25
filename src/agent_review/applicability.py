@@ -278,6 +278,13 @@ def _texts_for_fields(clause_mapping: dict[str, list[ExtractedClause]], field_na
     return texts
 
 
+def _clauses_for_fields(clause_mapping: dict[str, list[ExtractedClause]], field_names: list[str]) -> list[ExtractedClause]:
+    clauses: list[ExtractedClause] = []
+    for field_name in field_names:
+        clauses.extend(clause_mapping.get(field_name, []))
+    return clauses
+
+
 def _contains_any(text: str, tokens: list[str]) -> bool:
     return any(token in text for token in tokens)
 
@@ -543,7 +550,7 @@ def _package_split_reason_presence_evaluator(clause_mapping: dict[str, list[Extr
 def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     qualification_texts = _texts_for_fields(
         clause_mapping,
-        ["资格条件明细", "一般资格要求", "特定资格要求"],
+        ["资格条件明细", "特定资格要求"],
     )
     scoring_texts = _texts_for_fields(
         clause_mapping,
@@ -573,9 +580,9 @@ def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[Extr
     if not qualification_texts or not scoring_texts:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取资格条款和评分条款。"]
     overlap_groups = [
-        ("资质证书", ["资质", "证书", "认证"]),
-        ("项目业绩/项目负责人", ["项目负责人", "业绩"]),
-        ("人员要求", ["人员", "社保", "职称", "学历"]),
+        ("资质证书", ["资质证书", "认证证书", "管理体系认证", "检测报告", "保安服务许可证"]),
+        ("项目业绩/项目负责人", ["项目负责人", "项目经理", "项目主管", "业绩"]),
+        ("人员要求", ["人员", "社保", "职称", "学历", "驻场"]),
         ("信用要求", ["信用"]),
     ]
     matched_labels: list[str] = []
@@ -588,8 +595,8 @@ def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[Extr
 
 
 def _excessive_certificate_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
-    qualification_texts = _texts_for_fields(clause_mapping, ["特定资格要求", "一般资格要求", "资格条件明细"])
-    burden_texts = _texts_for_fields(clause_mapping, ["证书检测报告负担特征", "行业相关性存疑评分项", "评分项明细"])
+    qualification_texts = _texts_for_fields(clause_mapping, ["特定资格要求", "资格条件明细"])
+    burden_clauses = _clauses_for_fields(clause_mapping, ["证书检测报告负担特征", "行业相关性存疑评分项", "评分项明细"])
     cert_stage = _first_normalized_or_content(clause_mapping, "证书材料适用阶段")
     qualification_texts = [
         text
@@ -607,16 +614,16 @@ def _excessive_certificate_requirement_evaluator(clause_mapping: dict[str, list[
             ]
         )
     ]
-    burden_texts = [
-        text
-        for text in burden_texts
-        if any(token in text for token in ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"])
+    burden_clauses = [
+        clause
+        for clause in burden_clauses
+        if any(token in clause.content for token in ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"])
         and (
-            any(token in text for token in ["评分", "得分", "加分", "投标文件", "提交", "提供", "扫描件"])
-            or "证书检测报告负担特征" in text
+            clause.field_name == "证书检测报告负担特征"
+            or any(token in clause.content for token in ["评分", "得分", "加分", "投标文件", "提交", "提供", "扫描件"])
         )
         and not any(
-            token in text
+            token in clause.content
             for token in [
                 "隐瞒真实情况",
                 "转让或者租借",
@@ -626,11 +633,32 @@ def _excessive_certificate_requirement_evaluator(clause_mapping: dict[str, list[
                 "项目负责人",
                 "主要技术人员",
                 "社会保险",
+                "电子签名和电子印章",
+                "CA数字证书",
+                "电子认证服务许可证",
+                "电子认证服务使用密码许可证",
+                "供应商提供承诺函",
+                "第三方书面声明",
+                "资料虚假",
+                "隐瞒真实情况",
+                "业绩成果",
             ]
         )
     ]
+    burden_texts = [clause.content or clause.normalized_value for clause in burden_clauses]
     qual_has_cert = any(_contains_any(text, ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"]) for text in qualification_texts)
     burden_has_cert = any(_contains_any(text, ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"]) for text in burden_texts)
+    strong_burden = any(
+        _contains_any(text, ["检测报告", "认证证书", "管理体系", "环境标志", "环保产品"])
+        and _contains_any(text, ["须", "必须", "提供", "提交", "具备", "需"])
+        and not _contains_any(text, ["得分", "得1分", "得2分", "得3分", "最高得", "评分", "评审"])
+        for text in burden_texts
+    )
+    non_scoring_burden = any(
+        _contains_any(text, ["检测报告", "认证证书", "管理体系", "环境标志", "环保产品"])
+        and not _contains_any(text, ["得分", "得1分", "得2分", "得3分", "最高得", "评分", "评审"])
+        for text in burden_texts
+    )
     if not qualification_texts and not burden_texts:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到特定资质、证书或检测报告负担信号。"]
     if qual_has_cert and burden_has_cert:
@@ -638,7 +666,12 @@ def _excessive_certificate_requirement_evaluator(clause_mapping: dict[str, list[
         if cert_stage:
             detail += f"，材料阶段={cert_stage}"
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：{detail}。"]
-    if burden_has_cert and cert_stage == "投标阶段":
+    if strong_burden:
+        detail = "已识别强制性证书或检测报告要求"
+        if cert_stage:
+            detail += f"，材料阶段={cert_stage}"
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：{detail}。"]
+    if burden_has_cert and cert_stage == "投标阶段" and non_scoring_burden:
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别投标阶段证书或检测报告前置要求，材料阶段={cert_stage}。"]
     return ApplicabilityStatus.unsatisfied, ["已识别部分资质/证书或材料要求，但当前仍不足以判断其已超出必要限度。"]
 

@@ -473,15 +473,49 @@ def _assemble_qualification_boundary_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    score_like_tokens = [
+        "得分",
+        "得1分",
+        "得2分",
+        "得3分",
+        "得4分",
+        "得5分",
+        "得6分",
+        "得7分",
+        "得8分",
+        "得9分",
+        "得10分",
+        "最高得",
+        "评分",
+        "评审",
+    ]
     overlap_groups = [
-        ["资质", "证书", "认证"],
-        ["项目负责人", "业绩"],
-        ["人员", "社保", "职称", "学历"],
+        ["资质证书", "认证证书", "管理体系认证", "检测报告", "保安服务许可证"],
+        ["项目负责人", "项目经理", "项目主管", "业绩"],
+        ["人员", "社保", "职称", "学历", "驻场"],
         ["信用"],
     ]
     overlap_tokens = [token for group in overlap_groups for token in group]
+    qualification_specific_tokens = [
+        "资质证书",
+        "认证证书",
+        "管理体系认证",
+        "检测报告",
+        "项目负责人",
+        "项目经理",
+        "项目主管",
+        "保安服务许可证",
+        "职称证书",
+        "信用评价",
+        "信用等级",
+        "业绩要求",
+        "持证上岗",
+        "不得少于",
+        "否则将视为非实质性响应",
+        "须驻场",
+    ]
     cert_tokens = ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"]
-    qualification_fields = ["一般资格要求", "特定资格要求", "资格条件明细"]
+    qualification_fields = ["特定资格要求", "资格条件明细"]
     scoring_fields = ["评分项明细", "行业相关性存疑评分项", "证书检测报告负担特征", "证书类评分总分", "信用评价要求"]
     excluded_qualification_tokens = [
         "政府采购法第二十二条",
@@ -494,21 +528,38 @@ def _assemble_qualification_boundary_evidence(
         "本单位缴纳社会保险",
         "项目负责人或者主要技术人员不是本单位人员",
         "法定代表人",
+        "电子签名和电子印章",
+        "CA数字证书",
+        "供应商提供承诺函",
+        "第三方书面声明",
+        "资料虚假",
+        "资质证件",
+        "业绩成果",
+        "投标文件组成部分",
+        "分支机构",
+        "授权书",
+        "营业执照",
+        "执业许可证",
+        "节能产品",
+        "环境标志产品",
     ]
-    qualification_requirement_tokens = ["须具备", "应具备", "具有", "取得", "提供", "提交", "满足"]
+    qualification_requirement_tokens = ["须具备", "应具备", "具有", "取得", "提供", "提交", "满足", "持有", "驻场", "方可上岗", "否则将视为非实质性响应", "不得少于"]
     scoring_requirement_tokens = ["评分", "得分", "分", "加分", "评审"]
     qualification_pool = [
         clause
         for clause in _collect_text_anchor_clauses(extracted_clauses, qualification_fields, overlap_tokens)
         if any(token in clause.content for token in overlap_tokens)
+        and any(token in clause.content for token in qualification_specific_tokens)
         and any(token in clause.content for token in qualification_requirement_tokens)
         and not any(token in clause.content for token in excluded_qualification_tokens)
+        and "最高得" not in clause.content
     ]
     scoring_pool = [
         clause
         for clause in _collect_text_anchor_clauses(extracted_clauses, scoring_fields, overlap_tokens)
         if any(token in clause.content for token in overlap_tokens)
         and any(token in clause.content for token in scoring_requirement_tokens)
+        and not any(token in clause.content for token in ["电子签名和电子印章", "CA数字证书", "信用评价分无法使用", "联合体投标"])
     ]
     if definition.catalog_id == "RP-QUAL-001":
         matched_tokens = [
@@ -554,6 +605,17 @@ def _assemble_qualification_boundary_evidence(
             "项目负责人",
             "主要技术人员",
             "社会保险",
+            "电子签名和电子印章",
+            "CA数字证书",
+            "电子认证服务许可证",
+            "电子认证服务使用密码许可证",
+            "供应商提供承诺函",
+            "第三方书面声明",
+            "资料虚假",
+            "业绩成果",
+            "中小企业声明函",
+            "分支机构",
+            "授权书",
         ]
         qualification_clauses = [
             clause
@@ -573,21 +635,44 @@ def _assemble_qualification_boundary_evidence(
         ]
         stage_clauses = _collect_by_fields_in_order(extracted_clauses, ["证书材料适用阶段", "检测报告适用阶段"])
         stage_is_bid = any("投标阶段" in (clause.normalized_value or clause.content) for clause in stage_clauses)
+        non_scoring_burden = [
+            clause
+            for clause in burden_clauses
+            if not any(token in clause.content for token in score_like_tokens)
+        ]
+        scoring_burden = [
+            clause
+            for clause in burden_clauses
+            if clause not in non_scoring_burden
+        ]
         burden_clauses.sort(
             key=lambda clause: (
                 clause.field_name != "评分项明细",
                 not any(token in clause.content for token in ["投标文件", "提交", "提供", "扫描件"]),
+                not any(token in clause.content for token in ["检测报告", "认证证书", "管理体系", "环境标志", "环保产品"]),
                 len(clause.content),
             )
         )
         direct_clauses = []
         if qualification_clauses and burden_clauses:
             direct_clauses = _dedupe_clauses([qualification_clauses[0], burden_clauses[0]])
-        elif burden_clauses and stage_is_bid:
-            direct_clauses = _dedupe_clauses([burden_clauses[0], *stage_clauses[:1]])
+        elif burden_clauses and any(
+            any(token in clause.content for token in ["检测报告", "认证证书", "管理体系", "环境标志", "环保产品"])
+            and any(token in clause.content for token in ["须", "必须", "提供", "提交", "具备", "需"])
+            and not any(token in clause.content for token in score_like_tokens)
+            for clause in burden_clauses
+        ):
+            direct_clauses = _dedupe_clauses([*non_scoring_burden[:1], *scoring_burden[:1]])
+        elif non_scoring_burden and stage_is_bid:
+            direct_clauses = _dedupe_clauses([non_scoring_burden[0], *stage_clauses[:1]])
         supporting_clauses = _dedupe_clauses([*qualification_clauses[:1], *burden_clauses[:1], *stage_clauses[:1]])
         if not qualification_clauses and not stage_is_bid:
             supporting_clauses = []
+        supporting_clauses = [
+            clause
+            for clause in supporting_clauses
+            if not any(token in clause.content for token in ["电子签名和电子印章", "CA数字证书"])
+        ]
         supporting_clauses = [clause for clause in supporting_clauses if clause not in direct_clauses]
         missing_fields = []
         if not qualification_clauses:
