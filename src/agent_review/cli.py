@@ -12,6 +12,7 @@ from .reporting import (
     render_json,
     render_markdown,
     render_opinion_letter,
+    render_reviewer_report,
 )
 
 
@@ -25,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--format",
-        choices=("markdown", "json", "opinion", "formal"),
+        choices=("markdown", "json", "opinion", "formal", "reviewer"),
         default="markdown",
         help="终端输出格式。",
     )
@@ -85,6 +86,8 @@ def main() -> int:
         sys.stdout.write(render_formal_review_opinion(report))
     elif args.format == "opinion":
         sys.stdout.write(render_opinion_letter(report))
+    elif args.format == "reviewer":
+        sys.stdout.write(render_reviewer_report(report))
     else:
         sys.stdout.write(render_markdown(report))
     sys.stdout.write("\n")

@@ -40,6 +40,7 @@ from agent_review.reporting import (
     render_formal_review_opinion,
     render_markdown,
     render_opinion_letter,
+    render_reviewer_report,
 )
 from agent_review.llm.prompts import build_review_point_second_review_prompt
 
@@ -1477,6 +1478,7 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.final_markdown_path).exists()
     assert Path(bundle.opinion_letter_path).exists()
     assert Path(bundle.formal_review_opinion_path).exists()
+    assert Path(bundle.reviewer_report_path).exists()
     assert Path(bundle.manifest_path).exists()
     assert Path(bundle.llm_tasks_path).exists()
     assert Path(bundle.high_risk_review_path).exists()
@@ -1489,6 +1491,7 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert manifest["artifact_paths"]["final_report"]["json"] == bundle.final_json_path
     assert manifest["artifact_paths"]["opinion_letter"] == bundle.opinion_letter_path
     assert manifest["artifact_paths"]["formal_review_opinion"] == bundle.formal_review_opinion_path
+    assert manifest["artifact_paths"]["reviewer_report"] == bundle.reviewer_report_path
     assert manifest["stage_records"]
     assert "core_modules" in manifest["rule_selection"]
     assert "enhancement_modules" in manifest["rule_selection"]
@@ -1633,6 +1636,19 @@ def test_formal_review_opinion_can_render_review_layer_for_manual_confirmation()
     formal = render_formal_review_opinion(report)
 
     assert "## 建议复核问题" in formal
+
+
+def test_reviewer_report_uses_reviewer_friendly_language() -> None:
+    text = """
+    本项目属于专门面向中小企业采购的项目。
+    对小型、微型企业给予价格扣除。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "已发现明确风险，证据较充分。" in reviewer
+    assert "要件链成立" not in reviewer
+    assert "已满足 1 项要件" not in reviewer
 
 
 def test_formal_review_opinion_suppresses_review_mirror_items() -> None:

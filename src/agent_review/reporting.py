@@ -74,6 +74,69 @@ def render_formal_review_opinion(report: ReviewReport) -> str:
     return "\n".join(lines)
 
 
+def render_reviewer_report(report: ReviewReport) -> str:
+    items = _build_formal_review_items(report)
+    review_items = _build_review_review_items(report)
+    lines = [
+        "# 招标文件审查人员版风险报告",
+        "",
+        f"- 审查对象: {report.file_info.document_name}",
+        f"- 总体判断: {report.overall_conclusion.value}",
+        "",
+    ]
+
+    if items:
+        lines.extend(
+            [
+                "## 已发现明确风险",
+                "",
+            ]
+        )
+        for index, item in enumerate(items, start=1):
+            lines.extend(
+                [
+                    f"### {index}. {item['问题标题']}",
+                    "",
+                    f"- 条款位置: {item['条款位置']}",
+                    f"- 原文摘录: {item['原文摘录']}",
+                    f"- 风险判断: 已发现明确风险，证据较充分。",
+                    f"- 法律/政策依据: {item['法律/政策依据']}",
+                    "",
+                ]
+            )
+
+    if review_items:
+        lines.extend(
+            [
+                "## 建议复核问题",
+                "",
+            ]
+        )
+        for index, item in enumerate(review_items, start=1):
+            lines.extend(
+                [
+                    f"### {index}. {item['问题标题']}",
+                    "",
+                    f"- 条款位置: {item['条款位置']}",
+                    f"- 原文摘录: {item['原文摘录']}",
+                    f"- 风险判断: 已发现风险线索，建议进一步复核。",
+                    f"- 法律/政策依据: {item['法律/政策依据']}",
+                    "",
+                ]
+            )
+
+    if not items and not review_items:
+        lines.extend(
+            [
+                "## 审查结果",
+                "",
+                "当前未发现可直接输出的明确风险点。",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
 def render_markdown(report: ReviewReport) -> str:
     issue_findings = [
         item
