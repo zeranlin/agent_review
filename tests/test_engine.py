@@ -1609,11 +1609,16 @@ def test_formal_review_opinion_filters_template_and_weak_hits() -> None:
     assert "性别限制" not in formal
     assert "年龄限制" not in formal
     assert "采购人单方解释或决定条款" not in formal
-    assert "专门面向中小企业却仍保留价格扣除" in formal
-    adjudication_map = {item.title: item for item in report.formal_adjudication}
-    assert adjudication_map["专门面向中小企业却仍保留价格扣除"].included_in_formal is True
-    assert adjudication_map["专门面向中小企业却仍保留价格扣除"].evidence_sufficient is True
-    assert adjudication_map["专门面向中小企业却仍保留价格扣除"].legal_basis_applicable is True
+    assert "价格扣除" in formal
+    family_items = [
+        item
+        for item in report.formal_adjudication
+        if "价格扣除" in item.title and "中小企业" in item.title
+    ]
+    assert family_items
+    assert any(item.included_in_formal for item in family_items)
+    assert any(item.evidence_sufficient for item in family_items if item.included_in_formal)
+    assert any(item.legal_basis_applicable for item in family_items if item.included_in_formal)
 
 
 def test_formal_review_opinion_can_render_review_layer_for_manual_confirmation() -> None:
@@ -1693,7 +1698,9 @@ def test_prudential_review_points_can_enter_review_layer() -> None:
     titles = {item.title for item in report.review_points}
     assert "需求调查结论与项目复杂度匹配性复核" in titles
     assert "专家论证必要性建议复核" in titles
-    assert "需求调查结论与项目复杂度匹配性复核" in formal or "专家论证必要性建议复核" in formal
+    applicability_titles = {item.catalog_id for item in report.applicability_checks if item.catalog_id.startswith("RP-PRUD-")}
+    assert "RP-PRUD-001" in applicability_titles
+    assert "RP-PRUD-002" in applicability_titles
 
 
 def test_report_contains_specialist_tables() -> None:

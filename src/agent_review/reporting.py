@@ -636,6 +636,7 @@ def _review_family_key(title: str) -> str:
         ("contract_single_party", ["单方解释", "单方决定", "采购人意见为准"]),
         ("structure_mismatch", ["项目属性", "合同类型", "持续性作业服务", "结构错配"]),
         ("prudential", ["需求调查", "专家论证", "程序审慎性"]),
+        ("consistency_mirror", ["联合体/分包", "服务要求 vs 人员评分要求", "技术要求 vs 评分标准", "样品或演示分值"]),
     ]
     for family, tokens in family_rules:
         if any(token in title for token in tokens):
@@ -658,6 +659,12 @@ def _should_suppress_review_item(
         if any(token in title for token in ["评审方法出现但评分标准不够清晰", "指定品牌/原厂限制", "产地厂家商标限制", "联合体/分包", "服务项目声明函类型"]):
             return True
     if title.startswith("服务项目") and "货物" in quote:
+        return True
+    if "物业项目" in title and "物业" not in quote:
+        return True
+    if "联合体/分包" in title and all(token not in quote for token in ["联合体", "分包"]):
+        return True
+    if "服务要求 vs 人员评分要求" == title and "人员" not in quote:
         return True
     if title in {"发现潜在限制性竞争表述", "尾款支付与考核条款联动风险", "扣款机制可能过度依赖单方考核"}:
         return True

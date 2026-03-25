@@ -190,9 +190,23 @@ def _default_dynamic_task_config(task_type: str, title: str) -> dict[str, object
                 "basis_hint": "应复核跨章节、跨金额字段和跨合同结构的一致性。",
             }
         )
+    elif task_type == "generic":
+        config.update(
+            {
+                "focus_fields": ["采购内容构成", "合同履行期限", "预算金额"],
+                "signal_groups": [["需求调查", "专家论证", "程序"], ["复杂", "长期", "多项内容"]],
+                "rebuttal_templates": [["已开展需求调查", "已组织专家论证"], ["项目简单", "标准化采购"]],
+                "evidence_hints": ["优先采集程序性条款、项目复杂度、履约周期和采购内容构成。"],
+                "enhancement_fields": ["需求调查结论", "专家论证结论", "采购内容构成", "合同履行期限", "预算金额"],
+                "basis_hint": "应复核程序安排是否与项目复杂度和风险程度相匹配。",
+            }
+        )
     if "需求调查" in title or "专家论证" in title:
         config["focus_fields"] = list(dict.fromkeys([*config["focus_fields"], "需求调查结论", "专家论证结论", "预算金额", "合同履行期限", "采购内容构成"]))
         config["evidence_hints"] = list(dict.fromkeys([*config["evidence_hints"], "优先采集需求调查、专家论证、项目复杂度和履约周期条款。"]))
+        for rebuttal_group in [["已开展需求调查", "已组织专家论证"], ["项目简单", "标准化采购"]]:
+            if rebuttal_group not in config["rebuttal_templates"]:
+                config["rebuttal_templates"].append(rebuttal_group)
         config["enhancement_fields"] = list(dict.fromkeys([*config["enhancement_fields"], "需求调查结论", "专家论证结论", "预算金额", "合同履行期限", "采购内容构成"]))
         config["basis_hint"] = str(config["basis_hint"] or "应复核项目复杂度、程序要求与需求调查或专家论证结论是否匹配。")
     return config

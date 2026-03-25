@@ -657,19 +657,12 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
     ranked = _rank_evidence_for_formal(point.title, evidence, report_text)
     primary = ranked[0]
     section_hint = primary.section_hint or "未明确定位"
+    quote_cluster = _build_formal_evidence_cluster(point.title, ranked, report_text, section_hint)
     raw_quote = primary.quote.strip()
-    supplemental: list[str] = []
-    for item in ranked[:4]:
-        line_quote = line_text_from_anchor(report_text, item.section_hint)
-        if line_quote:
-            supplemental.append(line_quote)
-        elif item.quote.strip():
-            supplemental.append(item.quote.strip())
-
-    quote = "；".join(dict.fromkeys([item for item in supplemental if item]))
 
     if raw_quote and " / " in raw_quote:
         parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
+        supplemental: list[str] = []
         for part in parts:
             matched = search_line_by_keyword(report_text, part)
             if matched:
@@ -677,8 +670,8 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
         if supplemental:
             return section_hint, "；".join(dict.fromkeys(supplemental))
 
-    if quote:
-        return section_hint, quote
+    if quote_cluster:
+        return section_hint, quote_cluster
 
     if raw_quote and " / " in raw_quote:
         parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
@@ -721,6 +714,44 @@ def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text:
         )
 
     return sorted(evidence, key=score, reverse=True)
+
+
+def _build_formal_evidence_cluster(
+    title: str,
+    ranked: list[Evidence],
+    report_text: str,
+    primary_section_hint: str,
+) -> str:
+    cluster: list[str] = []
+    family_key = _formal_family_key(title)
+    for item in ranked[:5]:
+        if item.section_hint and primary_section_hint and item.section_hint != primary_section_hint:
+            if _formal_family_key(title) != "scoring":
+                continue
+        line_quote = line_text_from_anchor(report_text, item.section_hint) or item.quote.strip()
+        if not line_quote:
+            continue
+        if not evidence_supports_title(title, line_quote):
+            if family_key != "scoring":
+                continue
+        if cluster and line_quote in cluster:
+            continue
+        cluster.append(line_quote)
+        if len(cluster) >= 2:
+            break
+    return "；".join(cluster)
+
+
+def _formal_family_key(title: str) -> str:
+    if any(token in title for token in ["方案评分", "评分分档", "评分量化"]):
+        return "scoring"
+    if any(token in title for token in ["证书", "检测报告", "财务指标"]):
+        return "score_weight"
+    if any(token in title for token in ["专利"]):
+        return "restrictive"
+    if any(token in title for token in ["模板残留", "成果模板"]):
+        return "template"
+    return "generic"
 
 
 def _resolve_review_point_roles(
