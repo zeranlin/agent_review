@@ -6,14 +6,17 @@ from docx import Document
 from PIL import Image
 
 from agent_review.applicability import build_applicability_checks
+from agent_review.adjudication import build_formal_adjudication
 from agent_review.engine import TenderReviewEngine
 from agent_review.extractors.clauses import extract_clauses
 from agent_review.llm import QwenReviewEnhancer
 from agent_review.models import (
     AdoptionStatus,
+    ApplicabilityCheck,
     ApplicabilityStatus,
     ClauseRole,
     ConclusionLevel,
+    Evidence,
     EvidenceBundle,
     FileType,
     FindingType,
@@ -21,6 +24,9 @@ from agent_review.models import (
     ReviewMode,
     ReviewPoint,
     ReviewPointStatus,
+    ReviewQualityGate,
+    LegalBasis,
+    QualityGateStatus,
     Severity,
 )
 from agent_review.outputs import write_review_artifacts
@@ -1238,6 +1244,77 @@ def test_contract_type_extractor_ignores_generic_sales_or_service_contract_wordi
     """
     clauses = extract_clauses(text)
     assert all(item.field_name != "合同类型" for item in clauses)
+
+
+def test_formal_filters_generic_patent_when_rigid_patent_exists() -> None:
+    generic = ReviewPoint(
+        point_id="RP-G",
+        catalog_id="RP-REST-003",
+        title="专利要求",
+        dimension="A.限制竞争风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.suspected,
+        rationale="泛化专利要求。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="是否要求专利=刚性门槛", section_hint="line:10")],
+        ),
+        source_findings=["task_library:RP-REST-003"],
+        legal_basis=[LegalBasis(source_name="测试依据", article_hint="第1条", summary="测试用")],
+    )
+    rigid = ReviewPoint(
+        point_id="RP-R",
+        catalog_id="RP-REST-004",
+        title="刚性门槛型专利要求",
+        dimension="A.限制竞争风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.suspected,
+        rationale="刚性门槛型专利要求。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="是否要求专利=刚性门槛", section_hint="line:10")],
+        ),
+        source_findings=["task_library:RP-REST-004"],
+        legal_basis=[LegalBasis(source_name="测试依据", article_hint="第1条", summary="测试用")],
+    )
+    checks = [
+        ApplicabilityCheck(
+            point_id="RP-G",
+            catalog_id="RP-REST-003",
+            applicable=True,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=["存在专利要求"],
+            missing_conditions=[],
+            blocking_conditions=[],
+            requirement_chain_complete=True,
+            summary="要件链成立。",
+        ),
+        ApplicabilityCheck(
+            point_id="RP-R",
+            catalog_id="RP-REST-004",
+            applicable=True,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=["专利要求具有刚性门槛特征"],
+            missing_conditions=[],
+            blocking_conditions=[],
+            requirement_chain_complete=True,
+            summary="要件链成立。",
+        ),
+    ]
+    gates = [
+        ReviewQualityGate(point_id="RP-G", status=QualityGateStatus.passed, reasons=[]),
+        ReviewQualityGate(point_id="RP-R", status=QualityGateStatus.passed, reasons=[]),
+    ]
+    adjudications = build_formal_adjudication(
+        [generic, rigid],
+        checks,
+        gates,
+        "第10行：投标人必须具备相关专利。",
+        [],
+    )
+    mapping = {item.catalog_id: item for item in adjudications}
+    assert mapping["RP-REST-003"].included_in_formal is False
+    assert mapping["RP-REST-004"].included_in_formal is True
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:

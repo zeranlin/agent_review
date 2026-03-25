@@ -278,6 +278,11 @@ def build_formal_adjudication(
 ) -> list[FormalAdjudication]:
     applicability_index = {item.point_id: item for item in applicability_checks}
     quality_gate_index = {item.point_id: item for item in quality_gates}
+    rigid_patent_present = any(
+        point.catalog_id == "RP-REST-004"
+        and (applicability_index.get(point.point_id).applicable if applicability_index.get(point.point_id) else False)
+        for point in review_points
+    )
     results: list[FormalAdjudication] = []
     for point in review_points:
         applicability = applicability_index.get(point.point_id)
@@ -316,7 +321,10 @@ def build_formal_adjudication(
 
         applicability_summary = applicability.summary if applicability else "未进行适法性检查。"
         quality_status = quality_gate.status if quality_gate else QualityGateStatus.passed
-        if quality_status == QualityGateStatus.filtered:
+        if point.catalog_id == "RP-REST-003" and rigid_patent_present:
+            disposition = FormalDisposition.filtered_out
+            rationale = "同一证据链已被“刚性门槛型专利要求”更精确覆盖，泛化专利要求不再单独进入正式意见。"
+        elif quality_status == QualityGateStatus.filtered:
             disposition = FormalDisposition.filtered_out
             rationale = "当前审查点未通过 review_quality_gate，暂不进入正式意见。"
         elif point.status == ReviewPointStatus.identified or point.severity not in {Severity.high, Severity.critical}:
