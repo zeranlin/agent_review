@@ -338,6 +338,7 @@ class ReviewPipeline:
             state.quality_gates,
             state.parse_result.text,
             state.extracted_clauses,
+            state.parse_result.tables,
         )
         included_count = sum(1 for item in state.formal_adjudication if item.included_in_formal)
         state.stage_records.append(

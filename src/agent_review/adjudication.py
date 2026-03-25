@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import re
 
 from .applicability import build_applicability_checks
 from .fact_collectors import collect_task_facts
@@ -17,6 +18,7 @@ from .models import (
     FormalAdjudication,
     FormalDisposition,
     LegalBasis,
+    ParsedTable,
     QualityGateStatus,
     RiskHit,
     ReviewPoint,
@@ -282,6 +284,7 @@ def build_formal_adjudication(
     quality_gates: list[ReviewQualityGate],
     report_text: str,
     extracted_clauses: list[ExtractedClause],
+    parse_tables: list[ParsedTable] | None = None,
 ) -> list[FormalAdjudication]:
     applicability_index = {item.point_id: item for item in applicability_checks}
     quality_gate_index = {item.point_id: item for item in quality_gates}
@@ -294,7 +297,11 @@ def build_formal_adjudication(
     for point in review_points:
         applicability = applicability_index.get(point.point_id)
         quality_gate = quality_gate_index.get(point.point_id)
-        section_hint, quote = _resolve_review_point_evidence(point, report_text)
+        section_hint, quote = _resolve_review_point_evidence(
+            point,
+            report_text,
+            parse_tables or [],
+        )
         roles = _resolve_review_point_roles(point, extracted_clauses, quote)
         has_direct = bool(point.evidence_bundle.direct_evidence)
         strong_anchor = bool(section_hint) and section_hint not in {
@@ -656,16 +663,26 @@ def _derive_evidence_score(
     return 0.0
 
 
-def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tuple[str, str]:
+def _resolve_review_point_evidence(
+    point: ReviewPoint,
+    report_text: str,
+    parse_tables: list[ParsedTable],
+) -> tuple[str, str]:
     evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
     if not evidence:
         return "未明确定位", "当前自动抽取未定位到可直接引用的原文。"
+
+    family_key = _formal_family_key(point.title)
+    table_quote = ""
+    if family_key in {"scoring", "score_weight"}:
+        table_quote = _find_table_row_quote(point.title, evidence, parse_tables)
 
     ranked = _rank_evidence_for_formal(point.title, evidence, report_text)
     primary = ranked[0]
     section_hint = primary.section_hint or "未明确定位"
     quote_cluster = _build_formal_evidence_cluster(point.title, ranked, report_text, section_hint)
     raw_quote = primary.quote.strip()
+    line_quote = clause_window_from_anchor(report_text, section_hint)
 
     if raw_quote and " / " in raw_quote:
         parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
@@ -676,6 +693,17 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
                 supplemental.append(matched)
         if supplemental:
             return section_hint, "；".join(dict.fromkeys(supplemental))
+
+    if table_quote and family_key in {"scoring", "score_weight"}:
+        return section_hint, table_quote
+
+    if family_key in {"scoring", "score_weight"}:
+        scoring_row = _reconstruct_scoring_row_window(
+            quote_cluster or line_quote or raw_quote,
+            point.title,
+        )
+        if scoring_row and evidence_supports_title(point.title, scoring_row):
+            return section_hint, scoring_row
 
     if quote_cluster:
         return section_hint, quote_cluster
@@ -688,6 +716,47 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
     if raw_quote:
         return section_hint, raw_quote
     return section_hint, "当前自动抽取未定位到可直接引用的原文。"
+
+
+def _find_table_row_quote(
+    title: str,
+    evidence: list[Evidence],
+    parse_tables: list[ParsedTable],
+) -> str:
+    if not parse_tables:
+        return ""
+
+    best_row = ""
+    best_score = 0
+    title_tokens = _formal_title_tokens(title)
+    family_tokens = _formal_family_tokens(title)
+
+    for item in evidence[:5]:
+        quote_tokens = _formal_quote_tokens(item.quote.strip())
+        for table in parse_tables:
+            for row in table.rows:
+                row_text = " | ".join(cell.strip() for cell in row if cell and cell.strip())
+                if not row_text:
+                    continue
+                score = 0
+                if item.quote and item.quote.strip() and item.quote.strip() in row_text:
+                    score += 6
+                for token in title_tokens:
+                    if token in row_text:
+                        score += 2
+                for token in quote_tokens:
+                    if token in row_text:
+                        score += 3 if len(token) >= 4 else 1
+                for token in family_tokens:
+                    if token in row_text:
+                        score += 1
+                if score > best_score and evidence_supports_title(title, row_text):
+                    best_score = score
+                    best_row = row_text
+
+    if best_score < 3:
+        return ""
+    return best_row
 
 
 def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text: str) -> list[Evidence]:
@@ -759,6 +828,65 @@ def _formal_family_key(title: str) -> str:
     if any(token in title for token in ["模板残留", "成果模板"]):
         return "template"
     return "generic"
+
+
+def _formal_family_tokens(title: str) -> list[str]:
+    family = _formal_family_key(title)
+    if family == "scoring":
+        return ["评分", "方案", "售后", "优于", "完全满足", "不完全满足", "扣分"]
+    if family == "score_weight":
+        return ["评分", "证书", "认证", "检测报告", "财务", "分值", "分"]
+    return []
+
+
+def _formal_title_tokens(title: str) -> list[str]:
+    return [token for token in re.findall(r"[\u4e00-\u9fffA-Za-z0-9]+", title) if len(token) >= 2]
+
+
+def _formal_quote_tokens(quote: str) -> list[str]:
+    return [token for token in re.findall(r"[\u4e00-\u9fffA-Za-z0-9]+", quote) if len(token) >= 3]
+
+
+def _reconstruct_scoring_row_window(text: str, title: str) -> str:
+    if not text:
+        return ""
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not any(token in normalized for token in ["评审", "评分", "分值", "详细评审"]):
+        return ""
+
+    row_pattern = re.compile(
+        r"(\d+\s+详细评审\s+.*?)(?=(?:\d+\s+详细评审\s+)|$)"
+    )
+    matches = [item.strip() for item in row_pattern.findall(normalized) if item.strip()]
+    if matches:
+        scored = sorted(matches, key=lambda item: _score_scoring_row_candidate(item, title), reverse=True)
+        if _score_scoring_row_candidate(scored[0], title) > 0:
+            return scored[0]
+
+    if "评审项编号" in normalized:
+        marker = normalized.find("评审项编号")
+        sliced = normalized[marker:]
+        row_start = re.search(r"\d+\s+详细评审\s+", sliced)
+        if row_start:
+            candidate = sliced[row_start.start() :].strip()
+            return candidate
+    return ""
+
+
+def _score_scoring_row_candidate(text: str, title: str) -> int:
+    score = 0
+    family = _formal_family_key(title)
+    if family == "scoring":
+        for token in ["实施方案", "售后服务", "完全满足", "优于", "不完全满足", "缺陷", "扣分"]:
+            if token in text:
+                score += 2
+    if family == "score_weight":
+        for token in ["资质证书", "管理体系认证", "认证证书", "检测报告", "软件企业认定证书", "ITSS", "利润率", "财务报告"]:
+            if token in text:
+                score += 2
+    if "分" in text:
+        score += 1
+    return score
 
 
 def _resolve_review_point_roles(

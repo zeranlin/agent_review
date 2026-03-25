@@ -505,6 +505,7 @@ def _merge_dynamic_tasks_into_report(
             quality_gates,
             report.parse_result.text,
             report.extracted_clauses,
+            report.parse_result.tables,
         ),
     )
 

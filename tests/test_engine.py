@@ -28,6 +28,7 @@ from agent_review.models import (
     ReviewPointStatus,
     ReviewQualityGate,
     LegalBasis,
+    ParsedTable,
     QualityGateStatus,
     Severity,
 )
@@ -1685,6 +1686,190 @@ def test_formal_review_prefers_clause_window_over_fragment_line() -> None:
 
     assert "投标人具有行政单位颁发的软件企业认定证书（5分）" in reviewer
     assert "ITSS" in reviewer
+
+
+def test_formal_review_prefers_scoring_table_row_over_fragment_line() -> None:
+    report_text = "\n".join(
+        [
+            "6 详细评审 履约能力 投标人具有行政单位颁发",
+            "的软件企业认定证书（5",
+            "分）。",
+        ]
+    )
+    point = ReviewPoint(
+        point_id="RP-1",
+        catalog_id="RP-SCORE-008",
+        title="证书检测报告及财务指标权重合理性复核",
+        dimension="B.评分不规范风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.confirmed,
+        rationale="已识别证书类评分负担。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="的软件企业认定证书（5", section_hint="line:2")],
+            supporting_evidence=[],
+            conflicting_evidence=[],
+            rebuttal_evidence=[],
+            missing_evidence_notes=[],
+            sufficiency_summary="证据较充分。",
+            clause_roles=[],
+            evidence_level="strong",
+            evidence_score=0.9,
+        ),
+        legal_basis=[
+            LegalBasis(
+                source_name="政府采购需求管理办法",
+                article_hint="相关条款",
+                summary="评分材料要求应与项目实际需要相适应。",
+            )
+        ],
+    )
+    checks = [
+        ApplicabilityCheck(
+            point_id="RP-1",
+            catalog_id="RP-SCORE-008",
+            applicable=True,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=["存在证书报告或财务指标评分信号"],
+            missing_conditions=[],
+            blocking_conditions=[],
+            requirement_chain_complete=True,
+            summary="要件链成立。",
+        )
+    ]
+    gates = [ReviewQualityGate(point_id="RP-1", status=QualityGateStatus.passed, reasons=[])]
+    tables = [
+        ParsedTable(
+            table_index=1,
+            row_count=1,
+            rows=[["履约能力", "投标人具有行政单位颁发的软件企业认定证书（5分）"]],
+            source="ocr_table",
+        )
+    ]
+
+    adjudications = build_formal_adjudication([point], checks, gates, report_text, [], tables)
+
+    assert adjudications[0].primary_quote == "履约能力 | 投标人具有行政单位颁发的软件企业认定证书（5分）"
+
+
+def test_formal_review_prefers_scoring_table_row_over_clause_window() -> None:
+    report_text = "\n".join(
+        [
+            "评审项编号 一级评审项 二级评审项 详细要求 分值",
+            "客观评审项技术参数与性能指标要求没有负偏离得10分。",
+            "2 详细评审 实施方案根据投标人对本项目提供的实施方案进行评审。",
+        ]
+    )
+    point = ReviewPoint(
+        point_id="RP-2",
+        catalog_id="RP-SCORE-010",
+        title="证书类评分分值偏高",
+        dimension="B.评分不规范风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.confirmed,
+        rationale="已识别证书类评分分值偏高。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="资质证书 / 管理体系认证情况", section_hint="line:1")],
+            supporting_evidence=[],
+            conflicting_evidence=[],
+            rebuttal_evidence=[],
+            missing_evidence_notes=[],
+            sufficiency_summary="证据较充分。",
+            clause_roles=[],
+            evidence_level="strong",
+            evidence_score=0.9,
+        ),
+        legal_basis=[
+            LegalBasis(
+                source_name="政府采购需求管理办法",
+                article_hint="相关条款",
+                summary="证书类评分分值应与项目实际需求相匹配。",
+            )
+        ],
+    )
+    checks = [
+        ApplicabilityCheck(
+            point_id="RP-2",
+            catalog_id="RP-SCORE-010",
+            applicable=True,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=["存在证书类评分总分"],
+            missing_conditions=[],
+            blocking_conditions=[],
+            requirement_chain_complete=True,
+            summary="要件链成立。",
+        )
+    ]
+    gates = [ReviewQualityGate(point_id="RP-2", status=QualityGateStatus.passed, reasons=[])]
+    tables = [
+        ParsedTable(
+            table_index=1,
+            row_count=1,
+            rows=[["资质证书", "5分", "管理体系认证情况", "5分"]],
+            source="ocr_table",
+        )
+    ]
+
+    adjudications = build_formal_adjudication([point], checks, gates, report_text, [], tables)
+
+    assert adjudications[0].primary_quote == "资质证书 | 5分 | 管理体系认证情况 | 5分"
+
+
+def test_formal_review_can_reconstruct_scoring_row_from_flattened_pdf_text() -> None:
+    report_text = (
+        "评审项编号 一级评审项 二级评审项 详细要求 分值 "
+        "客观评审项 技术参数与性能指标要求没有负偏离得10分。"
+        "6 详细评审 履约能力 投标人具有行政单位颁发的软件企业认定证书（5分）。"
+        "投标人具有有效的ITSS证书（2分）。"
+    )
+    point = ReviewPoint(
+        point_id="RP-3",
+        catalog_id="RP-SCORE-008",
+        title="证书检测报告及财务指标权重合理性复核",
+        dimension="B.评分不规范风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.confirmed,
+        rationale="已识别证书和财务指标评分信号。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="软件企业认定证书 / ITSS", section_hint="line:1")],
+            supporting_evidence=[],
+            conflicting_evidence=[],
+            rebuttal_evidence=[],
+            missing_evidence_notes=[],
+            sufficiency_summary="证据较充分。",
+            clause_roles=[],
+            evidence_level="strong",
+            evidence_score=0.9,
+        ),
+        legal_basis=[
+            LegalBasis(
+                source_name="政府采购需求管理办法",
+                article_hint="相关条款",
+                summary="评分因素应与项目履约能力直接相关。",
+            )
+        ],
+    )
+    checks = [
+        ApplicabilityCheck(
+            point_id="RP-3",
+            catalog_id="RP-SCORE-008",
+            applicable=True,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=["存在证书报告或财务指标评分信号"],
+            missing_conditions=[],
+            blocking_conditions=[],
+            requirement_chain_complete=True,
+            summary="要件链成立。",
+        )
+    ]
+    gates = [ReviewQualityGate(point_id="RP-3", status=QualityGateStatus.passed, reasons=[])]
+
+    adjudications = build_formal_adjudication([point], checks, gates, report_text, [], [])
+
+    assert "详细评审 履约能力" in adjudications[0].primary_quote
+    assert "软件企业认定证书（5分）" in adjudications[0].primary_quote
 
 
 def test_formal_review_opinion_suppresses_review_mirror_items() -> None:
