@@ -170,12 +170,17 @@ def _build_run_manifest(
     high_risk_review_path: Path,
     pending_confirmation_path: Path,
 ) -> dict[str, object]:
+    formal_items = [item for item in report.formal_adjudication if item.included_in_formal]
     return {
         "schema_version": "1.0",
         "run_dir": str(target_dir),
         "document_name": report.file_info.document_name,
         "review_mode": report.review_mode.value,
         "overall_conclusion": report.overall_conclusion.value,
+        "llm_enhanced": report.llm_enhanced,
+        "review_points_count": len(report.review_points),
+        "formal_count": len(formal_items),
+        "formal_adjudication": [item.to_dict() for item in formal_items],
         "llm": {
             "requested": report.review_mode.value == "enhanced",
             "enhanced": report.llm_enhanced,

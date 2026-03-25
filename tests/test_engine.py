@@ -235,7 +235,7 @@ def test_review_task_fact_collectors_attach_structured_facts_to_tasks() -> None:
     )
 
     assert contract_task.evidence_bundle.direct_evidence
-    assert any("付款节点=存在" in item.quote for item in contract_task.evidence_bundle.direct_evidence)
+    assert any("付款方式" in item.quote or "尾款" in item.quote for item in contract_task.evidence_bundle.direct_evidence)
 
 
 def test_new_procurement_and_package_review_points_are_built() -> None:
@@ -1601,6 +1601,55 @@ def test_write_review_artifacts_outputs_specialist_table_files(tmp_path: Path) -
         assert Path(bundle.specialist_table_paths[table_name]["final"]).exists()
 
 
+def test_write_review_artifacts_manifest_contains_formal_counts(tmp_path: Path) -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    enhanced_report = TenderReviewEngine(
+        review_enhancer=FakeEnhancer(),
+        review_mode=ReviewMode.enhanced,
+    ).review_text(text, document_name="demo.txt")
+
+    bundle = write_review_artifacts(enhanced_report, base_report, tmp_path)
+    manifest = json.loads(Path(bundle.manifest_path).read_text(encoding="utf-8"))
+
+    assert manifest["llm_enhanced"] is True
+    assert manifest["review_points_count"] == len(enhanced_report.review_points)
+    assert manifest["formal_count"] == len(
+        [item for item in enhanced_report.formal_adjudication if item.included_in_formal]
+    )
+    assert isinstance(manifest["formal_adjudication"], list)
+
+
+def test_new_topic_evidence_prefers_clause_windows_over_presence_markers() -> None:
+    text = """
+    采购方式：公开招标。
+    资格要求：投标人须具备特定资质证书，项目负责人须具有类似项目业绩。
+    评分标准：资质证书5分，信用评价5分。
+    付款方式：验收合格后支付合同总价，满意度考核不达标的扣减尾款。
+    验收标准：采购人确认并组织验收。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    point_map = {item.catalog_id: item for item in report.review_points}
+
+    procurement_point = point_map["RP-PROC-001"]
+    qualification_point = point_map["RP-QUAL-001"]
+    linkage_point = point_map["RP-CONTRACT-011"]
+
+    assert any("采购方式：公开招标" in item.quote for item in procurement_point.evidence_bundle.direct_evidence)
+    assert all("=存在" not in item.quote for item in qualification_point.evidence_bundle.direct_evidence)
+    assert any(
+        "资质证书5分" in item.quote or "信用评价5分" in item.quote
+        for item in qualification_point.evidence_bundle.direct_evidence + qualification_point.evidence_bundle.supporting_evidence
+    )
+    assert any(
+        "满意度考核不达标的扣减尾款" in item.quote or "验收合格后支付合同总价" in item.quote
+        for item in linkage_point.evidence_bundle.direct_evidence
+    )
+
+
 def test_markdown_report_uses_v2_sections() -> None:
     text = """
     项目属性：服务
@@ -2249,9 +2298,10 @@ def test_scoring_review_point_anchors_credit_evaluation_evidence() -> None:
 
     point_map = {item.catalog_id: item for item in report.review_points}
     credit_point = point_map["RP-SCORE-011"]
-    assert any("信用评价要求" in item.quote for item in credit_point.evidence_bundle.direct_evidence)
-    assert any("评分项明细" in item.quote for item in credit_point.evidence_bundle.direct_evidence)
-    assert any("评分方法" in item.quote for item in credit_point.evidence_bundle.direct_evidence)
+    direct_quotes = [item.quote for item in credit_point.evidence_bundle.direct_evidence]
+    assert any("信用评价" in quote for quote in direct_quotes)
+    assert any("评分项明细" in quote or "信用评价得5分" in quote for quote in direct_quotes)
+    assert any("评分方法" in quote or "综合评分法" in quote for quote in direct_quotes)
 
 
 def test_contract_template_term_extractor_captures_result_and_residue_terms() -> None:

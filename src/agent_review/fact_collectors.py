@@ -483,6 +483,9 @@ def _assemble_bundle_for_definition(
             ClauseRole.appendix_reference,
         }
     ]
+    weak_role_clauses.extend(
+        clause for clause in relevant if _is_weak_anchor_clause(clause)
+    )
     rebuttal_clauses = [
         clause
         for clause in relevant
@@ -542,6 +545,26 @@ def _assemble_bundle_for_definition(
         evidence_score=evidence_score,
     )
     return bundle, status, rationale
+
+
+def _is_weak_anchor_clause(clause: ExtractedClause) -> bool:
+    text = clause.content.strip()
+    if not text:
+        return True
+    if text in {
+        "公开招标文件",
+        "投标人的资格要求",
+        "评分项明细=存在",
+        "资格条件明细=存在",
+    }:
+        return True
+    if clause.field_name in {"采购方式", "一般资格要求", "特定资格要求", "评分方法"} and len(text) <= 8:
+        return True
+    if clause.field_name in {"付款节点", "验收标准"} and len(text) <= 10:
+        return True
+    if clause.normalized_value == "存在" and len(text) <= 10:
+        return True
+    return False
 
 
 def _collect_dynamic_enhancement_clauses_by_type(
@@ -848,8 +871,25 @@ def _to_evidence(clause: ExtractedClause) -> Evidence:
         "人员更换限制",
         "采购人批准更换",
         "采购人审批录用",
+        "采购方式",
+        "采购方式适用理由",
+        "资格条件明细",
+        "评分项明细",
+        "信用评价要求",
+        "付款节点",
+        "验收标准",
+        "违约责任",
+        "解约条款",
+        "整改条款",
+        "申辩条款",
+        "转包外包条款",
     }
     if clause.field_name in raw_quote_fields and clause.content:
+        return Evidence(
+            quote=clause.content,
+            section_hint=clause.source_anchor,
+        )
+    if clause.normalized_value == "存在" and clause.content and len(clause.content) > 12:
         return Evidence(
             quote=clause.content,
             section_hint=clause.source_anchor,
