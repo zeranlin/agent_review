@@ -11,16 +11,17 @@ def render_json(report: ReviewReport) -> str:
 
 def render_formal_review_opinion(report: ReviewReport) -> str:
     items = _build_formal_review_items(report)
+    review_items = _build_review_review_items(report)
     lines = [
         "# 招标文件高风险正式审查意见",
         "",
         f"- 审查对象: {report.file_info.document_name}",
         f"- 结论等级: {report.overall_conclusion.value}",
-        f"- 输出范围: 仅保留高风险问题",
+        f"- 输出范围: 正式高风险 + 建议复核",
         "",
     ]
 
-    if not items:
+    if not items and not review_items:
         lines.extend(
             [
                 "## 审查结果",
@@ -45,6 +46,29 @@ def render_formal_review_opinion(report: ReviewReport) -> str:
                 "",
             ]
         )
+
+    if review_items:
+        lines.extend(
+            [
+                "## 建议复核问题",
+                "",
+            ]
+        )
+        for index, item in enumerate(review_items, start=1):
+            lines.extend(
+                [
+                    f"### {index}. {item['问题标题']}",
+                    "",
+                    f"- 问题标题: {item['问题标题']}",
+                    f"- 条款位置: {item['条款位置']}",
+                    f"- 原文摘录: {item['原文摘录']}",
+                    f"- 问题类型: {item['问题类型']}",
+                    f"- 风险等级: {item['风险等级']}",
+                    f"- 复核判断: {item['合规判断']}",
+                    f"- 法律/政策依据: {item['法律/政策依据']}",
+                    "",
+                ]
+            )
 
     return "\n".join(lines)
 
@@ -549,6 +573,44 @@ def _build_formal_review_items(report: ReviewReport) -> list[dict[str, str]]:
                 "问题类型": issue_type,
                 "风险等级": "高风险" if point.severity.value == "high" else "严重风险",
                 "合规判断": f"{compliance}；要件判断：{adjudication.applicability_summary}",
+                "法律/政策依据": basis_text,
+            }
+        )
+    return items
+
+
+def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
+    point_index = {item.point_id: item for item in report.review_points}
+    items: list[dict[str, str]] = []
+    seen_keys: set[str] = set()
+    for adjudication in report.formal_adjudication:
+        if not adjudication.recommended_for_review:
+            continue
+        point = point_index.get(adjudication.point_id)
+        if point is None or point.severity.value not in {"critical", "high"}:
+            continue
+        title = point.title.strip()
+        section_hint = adjudication.section_hint or "未明确定位"
+        quote = adjudication.primary_quote or "当前自动抽取未定位到可直接引用的原文。"
+        basis_text = (
+            "；".join(
+                f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
+                for item in point.legal_basis
+            )
+            or "当前结果未自动挂接明确法规依据，建议结合原始条款进一步复核。"
+        )
+        dedupe_key = f"review|{section_hint}|{quote}"
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        items.append(
+            {
+                "问题标题": title,
+                "条款位置": section_hint,
+                "原文摘录": quote,
+                "问题类型": point.dimension or "建议复核问题",
+                "风险等级": "建议复核",
+                "合规判断": f"{adjudication.review_reason or '当前风险方向已识别，但正式定性条件尚未闭合。'}；要件判断：{adjudication.applicability_summary}",
                 "法律/政策依据": basis_text,
             }
         )

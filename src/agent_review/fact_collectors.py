@@ -186,12 +186,15 @@ def _assemble_scoring_evidence(
             "人员评分要求",
             "行业相关性存疑评分项",
             "方案评分扣分模式",
+            "评分项明细",
             "证书检测报告负担特征",
             "证书类评分总分",
             "证书材料适用阶段",
             "检测报告适用阶段",
             "采购标的",
             "项目属性",
+            "需求调查结论",
+            "专家论证结论",
         ],
     )
     return _assemble_bundle_for_definition(definition, relevant)
@@ -208,6 +211,7 @@ def _assemble_certificate_score_weight_evidence(
             "证书检测报告负担特征",
             "证书材料适用阶段",
             "检测报告适用阶段",
+            "评分项明细",
             "预算金额",
             "采购标的",
             "项目属性",
@@ -414,7 +418,15 @@ def _assemble_dynamic_generic_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> list[ExtractedClause]:
-    return _collect_relevant_clauses(definition, extracted_clauses)
+    relevant = _collect_relevant_clauses(definition, extracted_clauses)
+    if any(token in definition.title for token in ["需求调查", "专家论证", "程序"]):
+        relevant.extend(
+            _collect_by_fields(
+                extracted_clauses,
+                ["需求调查结论", "专家论证结论", "预算金额", "合同履行期限", "采购内容构成"],
+            )
+        )
+    return _dedupe_clauses(relevant)
 
 
 def _assemble_dynamic_structure_evidence(
@@ -433,6 +445,8 @@ def _assemble_dynamic_structure_evidence(
             "合同类型",
             "合同履行期限",
             "质保期",
+            "需求调查结论",
+            "专家论证结论",
         ],
     )
     relevant.extend(_collect_relevant_clauses(definition, extracted_clauses))
@@ -455,6 +469,12 @@ def _assemble_dynamic_scoring_evidence(
             "人员评分要求",
             "行业相关性存疑评分项",
             "方案评分扣分模式",
+            "评分项明细",
+            "证书类评分总分",
+            "证书检测报告负担特征",
+            "证书材料适用阶段",
+            "检测报告适用阶段",
+            "预算金额",
             "采购标的",
             "项目属性",
         ],

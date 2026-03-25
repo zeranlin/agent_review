@@ -604,6 +604,8 @@ class FormalAdjudication:
     legal_basis_applicable: bool = False
     applicability_summary: str = ""
     quality_gate_status: QualityGateStatus = QualityGateStatus.passed
+    recommended_for_review: bool = False
+    review_reason: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -619,6 +621,8 @@ class FormalAdjudication:
             "legal_basis_applicable": self.legal_basis_applicable,
             "applicability_summary": self.applicability_summary,
             "quality_gate_status": self.quality_gate_status.value,
+            "recommended_for_review": self.recommended_for_review,
+            "review_reason": self.review_reason,
         }
 
 

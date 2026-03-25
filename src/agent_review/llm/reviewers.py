@@ -699,13 +699,19 @@ def _apply_review_point_second_reviews(
         if not _can_apply_second_review_override(adjudication.disposition, suggested, review.adoption_status):
             updated.append(adjudication)
             continue
+        intensity_note = f"；强度判断：{review.intensity_judgment}" if review.intensity_judgment else ""
+        recommended_for_review = adjudication.recommended_for_review
+        review_reason = adjudication.review_reason
+        if suggested == FormalDisposition.manual_confirmation and review.intensity_judgment in {"证据不足", "一般要求"}:
+            recommended_for_review = True
+            review_reason = review_reason or "LLM二审认为当前更适合作为建议复核，不宜直接进入正式高风险。"
         updated.append(
             FormalAdjudication(
                 point_id=adjudication.point_id,
                 catalog_id=adjudication.catalog_id,
                 title=adjudication.title,
                 disposition=suggested,
-                rationale=f"{adjudication.rationale}；LLM二审：{review.rationale}",
+                rationale=f"{adjudication.rationale}；LLM二审：{review.rationale}{intensity_note}",
                 included_in_formal=suggested == FormalDisposition.include,
                 section_hint=adjudication.section_hint,
                 primary_quote=adjudication.primary_quote,
@@ -713,6 +719,8 @@ def _apply_review_point_second_reviews(
                 legal_basis_applicable=adjudication.legal_basis_applicable,
                 applicability_summary=adjudication.applicability_summary,
                 quality_gate_status=adjudication.quality_gate_status,
+                recommended_for_review=recommended_for_review,
+                review_reason=review_reason,
             )
         )
     return updated

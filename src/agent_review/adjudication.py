@@ -345,6 +345,18 @@ def build_formal_adjudication(
         else:
             disposition = FormalDisposition.filtered_out
             rationale = "当前审查点未通过正式裁决过滤，暂不进入正式意见。"
+        recommended_for_review = (
+            disposition == FormalDisposition.manual_confirmation
+            and point.severity in {Severity.high, Severity.critical}
+        )
+        review_reason = ""
+        if recommended_for_review:
+            if not evidence_sufficient:
+                review_reason = "当前已识别高风险方向，但主证据、锚点或条款角色仍需进一步复核。"
+            elif not legal_basis_applicable:
+                review_reason = "当前已识别高风险方向，但法规适用链条尚未闭合，建议人工复核后决定是否进入正式高风险。"
+            else:
+                review_reason = "当前已识别高风险方向，但仍需人工确认后再正式定性。"
         results.append(
             FormalAdjudication(
                 point_id=point.point_id,
@@ -359,6 +371,8 @@ def build_formal_adjudication(
                 legal_basis_applicable=legal_basis_applicable,
                 applicability_summary=applicability_summary,
                 quality_gate_status=quality_status,
+                recommended_for_review=recommended_for_review,
+                review_reason=review_reason,
             )
         )
     return results

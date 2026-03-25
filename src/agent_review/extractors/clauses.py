@@ -272,6 +272,86 @@ def _material_burden_extractor(lines: list[str]) -> ExtractedClause | None:
     )
 
 
+def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    relation_tags: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in ["分", "得分", "评分", "评审"]):
+            continue
+        if not any(
+            token in line
+            for token in [
+                "实施方案",
+                "售后服务方案",
+                "资质证书",
+                "管理体系认证",
+                "检测报告",
+                "财务",
+                "利润率",
+                "项目整体",
+                "方案",
+            ]
+        ):
+            continue
+        anchors.append(line_no)
+        matched_lines.append(line[:120])
+        if "实施方案" in line or "项目整体" in line:
+            relation_tags.append("实施方案评分项")
+        if "售后服务方案" in line or "售后" in line:
+            relation_tags.append("售后评分项")
+        if "资质证书" in line:
+            relation_tags.append("资质证书评分项")
+        if "管理体系认证" in line or "认证证书" in line:
+            relation_tags.append("认证证书评分项")
+        if "检测报告" in line:
+            relation_tags.append("检测报告评分项")
+        if "财务" in line or "利润率" in line:
+            relation_tags.append("财务指标评分项")
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:480],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["评分项明细", *dict.fromkeys(relation_tags)],
+    )
+
+
+def _demand_survey_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        if "需求调查" not in line:
+            continue
+        normalized_value = "未明确"
+        relation_tags = ["需求调查结论"]
+        if any(token in line for token in ["不需要需求调查", "无需需求调查", "未开展需求调查"]):
+            normalized_value = "不需要"
+            relation_tags.append("不需要")
+        elif any(token in line for token in ["需要需求调查", "应开展需求调查", "已开展需求调查"]):
+            normalized_value = "需要"
+            relation_tags.append("需要")
+        return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags)
+    return None
+
+
+def _expert_review_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in ["专家论证", "论证意见", "需求论证"]):
+            continue
+        normalized_value = "未明确"
+        relation_tags = ["专家论证结论"]
+        if any(token in line for token in ["不需要", "无需", "未进行", "不组织", "未组织"]):
+            normalized_value = "不需要"
+            relation_tags.append("不需要")
+        elif any(token in line for token in ["需要", "应当", "已组织", "已开展"]):
+            normalized_value = "需要"
+            relation_tags.append("需要")
+        return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags)
+    return None
+
+
 def _amount_extractor(keywords: list[str]) -> ClauseExtractor:
     def extractor(lines: list[str]) -> ExtractedClause | None:
         for line_no, line in enumerate(lines, start=1):
@@ -598,6 +678,8 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("项目基本信息", "合同类型", _contract_type_extractor),
     ("项目基本信息", "采购内容构成", _service_content_extractor),
     ("项目基本信息", "是否含持续性服务", _service_content_extractor),
+    ("项目基本信息", "需求调查结论", _demand_survey_extractor),
+    ("项目基本信息", "专家论证结论", _expert_review_extractor),
     ("资格条款", "一般资格要求", _simple_keyword_extractor(["资格要求", "供应商资格"])),
     ("资格条款", "特定资格要求", _simple_keyword_extractor(["特定资格要求", "资质要求"])),
     ("资格条款", "信用要求", _simple_keyword_extractor(["信用要求"])),
@@ -625,6 +707,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("评分条款", "财务指标加分", _simple_keyword_extractor(["财务指标", "利润率", "营业收入", "注册资本", "资产规模"])),
     ("评分条款", "人员评分要求", _simple_keyword_extractor(["项目负责人", "人员配置", "社保", "学历", "职称"])),
     ("评分条款", "样品分", _simple_keyword_extractor(["样品分"])),
+    ("评分条款", "评分项明细", _scoring_item_details_extractor),
     ("评分条款", "证书类评分总分", _certificate_score_weight_extractor),
     ("评分条款", "行业相关性存疑评分项", _industry_mismatch_scoring_extractor),
     ("评分条款", "方案评分扣分模式", _plan_scoring_quant_extractor),

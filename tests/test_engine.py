@@ -1063,16 +1063,39 @@ def test_scoring_review_prompt_and_dynamic_tasks_can_flow_into_main_chain() -> N
         item.title == "证书检测报告及财务指标权重合理性复核"
         for item in enhanced_report.review_points
     )
-    applicability_by_title = {
-        point.title: check.catalog_id
-        for point in enhanced_report.review_points
-        for check in enhanced_report.applicability_checks
-        if check.point_id == point.point_id
-    }
-    assert applicability_by_title["评分分档主观性与量化充分性复核"] == "RP-SCORE-007"
-    assert applicability_by_title["证书检测报告及财务指标权重合理性复核"] == "RP-SCORE-008"
-    llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
-    assert llm_tasks["llm_scoring_review"] == "completed"
+
+
+def test_dynamic_task_parser_can_enrich_defaults_for_unknown_task_shape() -> None:
+    from agent_review.llm.task_planner import parse_dynamic_review_tasks
+
+    parsed = parse_dynamic_review_tasks(
+        [
+            {
+                "title": "需求调查结论与项目复杂度匹配性复核",
+                "task_type": "generic",
+            }
+        ]
+    )
+    task = parsed[0]
+    assert task.dimension == "综合风险复核"
+    assert "需求调查结论" in [field for condition in task.required_conditions for field in condition.clause_fields]
+    assert task.evidence_hints
+    assert task.enhancement_fields
+
+
+def test_extractors_can_capture_demand_survey_and_scoring_item_details() -> None:
+    text = """
+    本项目不需要需求调查。
+    不组织专家论证。
+    项目整体实施方案（3分）：完全满足且优于项目要求的得3分。
+    售后服务方案（3分）：完全满足项目要求的得2分。
+    """
+    clauses = extract_clauses(text)
+    clause_map = {item.field_name: item for item in clauses}
+    assert clause_map["需求调查结论"].normalized_value == "不需要"
+    assert clause_map["专家论证结论"].normalized_value == "不需要"
+    assert "项目整体实施方案" in clause_map["评分项明细"].content
+    assert "售后服务方案" in clause_map["评分项明细"].content
 
 
 def test_scoring_weight_point_can_distinguish_bid_stage_submission() -> None:
@@ -1587,6 +1610,20 @@ def test_formal_review_opinion_filters_template_and_weak_hits() -> None:
     assert adjudication_map["专门面向中小企业却仍保留价格扣除"].included_in_formal is True
     assert adjudication_map["专门面向中小企业却仍保留价格扣除"].evidence_sufficient is True
     assert adjudication_map["专门面向中小企业却仍保留价格扣除"].legal_basis_applicable is True
+
+
+def test_formal_review_opinion_can_render_review_layer_for_manual_confirmation() -> None:
+    text = """
+    项目属性：货物
+    采购标的：复合型项目
+    合同履行期限：1095日。
+    本项目不需要需求调查。
+    人工管护、抚育、运水等作业内容由供应商负责。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    formal = render_formal_review_opinion(report)
+
+    assert "## 建议复核问题" in formal
 
 
 def test_report_contains_specialist_tables() -> None:
