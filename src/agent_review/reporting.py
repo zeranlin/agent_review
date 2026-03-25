@@ -666,6 +666,26 @@ def _should_suppress_review_item(
         return True
     if "服务要求 vs 人员评分要求" == title and "人员" not in quote:
         return True
+    if title == "指定品牌/原厂限制" and any(
+        token in quote for token in ["检测报告", "认证证书", "管理体系认证", "环保产品认证", "环境标志产品认证"]
+    ):
+        return True
+    if title == "评审方法出现但评分标准不够清晰" and "scoring_quant" in formal_families:
+        return True
+    if title == "项目属性与所属行业口径疑似不一致" and all(
+        token not in quote for token in ["服务", "工程", "承揽合同", "持续性作业", "错配", "不一致"]
+    ):
+        return True
+    if title == "项目属性与声明函模板口径冲突" and (
+        "structure_mismatch" in formal_families
+        or all(token not in quote for token in ["声明函", "制造商", "模板", "货物", "服务"])
+    ):
+        return True
+    if title == "验收标准 vs 付款条件" and (
+        all(token not in quote for token in ["验收", "付款", "支付", "尾款"])
+        or "4.6不同投标人的投标保证金" in quote
+    ):
+        return True
     if title in {"发现潜在限制性竞争表述", "尾款支付与考核条款联动风险", "扣款机制可能过度依赖单方考核"}:
         return True
     if any(token in review_reason for token in ["镜像重复", "与 formal 同题", "主证据代表性不足"]) and _review_family_key(title) in formal_families:
