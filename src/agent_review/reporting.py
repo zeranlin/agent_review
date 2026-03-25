@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from .quality import evidence_supports_title
 from .models import FindingType, ReviewReport
 
 
@@ -367,9 +368,11 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append("## LLM审查点二审")
         for item in report.llm_semantic_review.review_point_second_reviews:
             intensity = f"，强度判断：{item.intensity_judgment}" if item.intensity_judgment else ""
+            primary = f"，主证据：{item.primary_evidence_judgment}" if item.primary_evidence_judgment else ""
+            supporting = f"，辅助证据：{item.supporting_evidence_judgment}" if item.supporting_evidence_judgment else ""
             lines.append(
                 f"- {item.point_id} {item.title}: 建议 {item.suggested_disposition or 'manual_confirmation'}，"
-                f"{item.rationale}{intensity}（{item.adoption_status.value}）"
+                f"{item.rationale}{intensity}{primary}{supporting}（{item.adoption_status.value}）"
             )
         lines.append("")
 
@@ -581,8 +584,10 @@ def _build_formal_review_items(report: ReviewReport) -> list[dict[str, str]]:
 
 def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
     point_index = {item.point_id: item for item in report.review_points}
+    formal_titles = {item.title.strip() for item in report.formal_adjudication if item.included_in_formal}
+    formal_families = {_review_family_key(title) for title in formal_titles}
     items: list[dict[str, str]] = []
-    seen_keys: set[str] = set()
+    seen_families: set[str] = set()
     for adjudication in report.formal_adjudication:
         if not adjudication.recommended_for_review:
             continue
@@ -590,8 +595,15 @@ def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
         if point is None or point.severity.value not in {"critical", "high"}:
             continue
         title = point.title.strip()
+        if not title or title in formal_titles:
+            continue
+        family_key = _review_family_key(title)
+        if family_key in formal_families or family_key in seen_families:
+            continue
         section_hint = adjudication.section_hint or "未明确定位"
         quote = adjudication.primary_quote or "当前自动抽取未定位到可直接引用的原文。"
+        if _should_suppress_review_item(title, quote, adjudication.review_reason, formal_families):
+            continue
         basis_text = (
             "；".join(
                 f"{item.source_name}{(' ' + item.article_hint) if item.article_hint else ''}：{item.summary}"
@@ -599,10 +611,7 @@ def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
             )
             or "当前结果未自动挂接明确法规依据，建议结合原始条款进一步复核。"
         )
-        dedupe_key = f"review|{section_hint}|{quote}"
-        if dedupe_key in seen_keys:
-            continue
-        seen_keys.add(dedupe_key)
+        seen_families.add(family_key)
         items.append(
             {
                 "问题标题": title,
@@ -614,7 +623,47 @@ def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
                 "法律/政策依据": basis_text,
             }
         )
-    return items
+    items.sort(key=lambda item: (item["风险等级"], item["问题标题"]))
+    return items[:8]
+
+
+def _review_family_key(title: str) -> str:
+    family_rules = [
+        ("policy_price", ["价格扣除", "中小企业"]),
+        ("scoring_quant", ["方案评分", "量化不足", "评分分档主观性", "评分量化"]),
+        ("scoring_weight", ["证书类评分分值偏高", "检测报告负担", "证书检测报告及财务指标权重合理性复核", "行业无关证书", "财务指标"]),
+        ("contract_template", ["合同文本存在明显模板残留", "成果模板", "模板残留"]),
+        ("contract_single_party", ["单方解释", "单方决定", "采购人意见为准"]),
+        ("structure_mismatch", ["项目属性", "合同类型", "持续性作业服务", "结构错配"]),
+        ("prudential", ["需求调查", "专家论证", "程序审慎性"]),
+    ]
+    for family, tokens in family_rules:
+        if any(token in title for token in tokens):
+            return family
+    return title
+
+
+def _should_suppress_review_item(
+    title: str,
+    quote: str,
+    review_reason: str,
+    formal_families: set[str],
+) -> bool:
+    if quote != "当前自动抽取未定位到可直接引用的原文。" and not evidence_supports_title(title, quote):
+        if not any(token in title for token in ["需求调查", "专家论证", "程序审慎性"]):
+            return True
+    if quote == "当前自动抽取未定位到可直接引用的原文。":
+        if _review_family_key(title) in formal_families:
+            return True
+        if any(token in title for token in ["评审方法出现但评分标准不够清晰", "指定品牌/原厂限制", "产地厂家商标限制", "联合体/分包", "服务项目声明函类型"]):
+            return True
+    if title.startswith("服务项目") and "货物" in quote:
+        return True
+    if title in {"发现潜在限制性竞争表述", "尾款支付与考核条款联动风险", "扣款机制可能过度依赖单方考核"}:
+        return True
+    if any(token in review_reason for token in ["镜像重复", "与 formal 同题", "主证据代表性不足"]) and _review_family_key(title) in formal_families:
+        return True
+    return False
 
 
 def _build_compliance_judgment(point_status: str) -> str:

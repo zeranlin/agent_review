@@ -758,6 +758,38 @@ CATALOG: list[ReviewPointDefinition] = [
         ],
         basis_hint="面向中小企业采购金额应与最高限价、预算金额保持口径清晰，不宜直接混填。",
     ),
+    ReviewPointDefinition(
+        catalog_id="RP-PRUD-001",
+        title="需求调查结论与项目复杂度匹配性复核",
+        dimension="程序审慎性复核",
+        default_severity=Severity.high,
+        task_type="generic",
+        scenario_tags=["prudential"],
+        required_conditions=[
+            ReviewPointCondition("存在需求调查结论", clause_fields=["需求调查结论"]),
+            ReviewPointCondition("项目存在复杂度信号", clause_fields=["采购内容构成", "合同履行期限"], signal_groups=[["长期", "多项内容", "连续", "复杂"]]),
+        ],
+        exclusion_conditions=[
+            ReviewPointCondition("已开展需求调查", clause_fields=["需求调查结论"], signal_groups=[["需要", "已开展"]]),
+        ],
+        basis_hint="项目复杂度较高但未开展需求调查时，宜进入程序审慎性复核。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-PRUD-002",
+        title="专家论证必要性建议复核",
+        dimension="程序审慎性复核",
+        default_severity=Severity.high,
+        task_type="generic",
+        scenario_tags=["prudential"],
+        required_conditions=[
+            ReviewPointCondition("存在专家论证结论", clause_fields=["专家论证结论"]),
+            ReviewPointCondition("项目存在复杂度信号", clause_fields=["采购内容构成", "合同履行期限"], signal_groups=[["长期", "多项内容", "连续", "复杂"]]),
+        ],
+        exclusion_conditions=[
+            ReviewPointCondition("已组织专家论证", clause_fields=["专家论证结论"], signal_groups=[["需要", "已开展"]]),
+        ],
+        basis_hint="项目复杂度较高但未组织专家论证时，宜进入程序审慎性复核。",
+    ),
 ]
 
 
@@ -814,6 +846,7 @@ def _build_active_task_tags(text: str, extracted_clauses: list[ExtractedClause])
         "consistency",
         "structure",
         "scoring",
+        "prudential",
     }
     project_type = _first_clause_value(extracted_clauses, "项目属性")
     procurement_target = " ".join(

@@ -63,6 +63,22 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         )
     ],
+    "需求调查结论与项目复杂度匹配性复核": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求调查相关要求",
+            summary="项目复杂度较高时，宜充分论证需求调查是否确有必要，避免程序性判断过于简化。",
+            basis_type="部门规范性文件",
+        )
+    ],
+    "专家论证必要性建议复核": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理与专家论证相关要求",
+            summary="对复杂项目、长期履约项目或多要素采购项目，宜复核是否需要更充分的专家论证支撑。",
+            basis_type="部门规范性文件",
+        )
+    ],
     "主观评分表述": [
         LegalBasis(
             source_name="政府采购货物和服务招标投标管理办法",

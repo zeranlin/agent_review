@@ -700,18 +700,27 @@ def _apply_review_point_second_reviews(
             updated.append(adjudication)
             continue
         intensity_note = f"；强度判断：{review.intensity_judgment}" if review.intensity_judgment else ""
+        primary_note = f"；主证据判断：{review.primary_evidence_judgment}" if review.primary_evidence_judgment else ""
+        supporting_note = (
+            f"；辅助证据判断：{review.supporting_evidence_judgment}"
+            if review.supporting_evidence_judgment
+            else ""
+        )
         recommended_for_review = adjudication.recommended_for_review
         review_reason = adjudication.review_reason
         if suggested == FormalDisposition.manual_confirmation and review.intensity_judgment in {"证据不足", "一般要求"}:
             recommended_for_review = True
             review_reason = review_reason or "LLM二审认为当前更适合作为建议复核，不宜直接进入正式高风险。"
+        if "应降为辅助证据" in review.primary_evidence_judgment or "需重新选择主证据" in review.primary_evidence_judgment:
+            recommended_for_review = True
+            review_reason = review_reason or "LLM二审认为当前主证据代表性不足，建议转入复核清单并重新核定主证据。"
         updated.append(
             FormalAdjudication(
                 point_id=adjudication.point_id,
                 catalog_id=adjudication.catalog_id,
                 title=adjudication.title,
                 disposition=suggested,
-                rationale=f"{adjudication.rationale}；LLM二审：{review.rationale}{intensity_note}",
+                rationale=f"{adjudication.rationale}；LLM二审：{review.rationale}{intensity_note}{primary_note}{supporting_note}",
                 included_in_formal=suggested == FormalDisposition.include,
                 section_hint=adjudication.section_hint,
                 primary_quote=adjudication.primary_quote,
@@ -789,6 +798,8 @@ def _parse_review_point_second_reviews(raw_items: object) -> list[ReviewPointSec
                 title=title,
                 role_judgment=str(item.get("role_judgment", "")).strip(),
                 evidence_judgment=str(item.get("evidence_judgment", "")).strip(),
+                primary_evidence_judgment=str(item.get("primary_evidence_judgment", "")).strip(),
+                supporting_evidence_judgment=str(item.get("supporting_evidence_judgment", "")).strip(),
                 applicability_judgment=str(item.get("applicability_judgment", "")).strip(),
                 intensity_judgment=str(item.get("intensity_judgment", "")).strip(),
                 suggested_disposition=str(item.get("suggested_disposition", "")).strip(),

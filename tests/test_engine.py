@@ -20,6 +20,8 @@ from agent_review.models import (
     EvidenceBundle,
     FileType,
     FindingType,
+    FormalAdjudication,
+    FormalDisposition,
     Recommendation,
     ReviewMode,
     ReviewPoint,
@@ -944,6 +946,8 @@ def test_review_point_second_review_prompt_includes_intensity_judgment_guidance(
     report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
     prompt = build_review_point_second_review_prompt(report)
     assert "intensity_judgment" in prompt
+    assert "primary_evidence_judgment" in prompt
+    assert "supporting_evidence_judgment" in prompt
     assert "偏重要求" in prompt
     assert "刚性门槛" in prompt
     assert "裁量过大" in prompt
@@ -1624,6 +1628,72 @@ def test_formal_review_opinion_can_render_review_layer_for_manual_confirmation()
     formal = render_formal_review_opinion(report)
 
     assert "## 建议复核问题" in formal
+
+
+def test_formal_review_opinion_suppresses_review_mirror_items() -> None:
+    text = """
+    项目属性：货物
+    评分方法：综合评分法
+    项目整体实施方案：完全满足且优于/完全满足/不完全满足。
+    售后服务方案：完全满足且优于/完全满足/不完全满足。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    report.review_points.append(
+        ReviewPoint(
+            point_id="RP-MANUAL-001",
+            catalog_id="RP-SCORE-007",
+            title="评分分档主观性与量化充分性复核",
+            dimension="评审标准明确性",
+            severity=Severity.high,
+            status=ReviewPointStatus.manual_confirmation,
+            rationale="当前评分分档与 formal 已覆盖问题存在镜像关系。",
+            evidence_bundle=EvidenceBundle(
+                supporting_evidence=[Evidence(quote="完全满足/不完全满足", section_hint="line:4")],
+                sufficiency_summary="主证据仍需压缩。",
+            ),
+            source_findings=["task_library:RP-SCORE-007"],
+        )
+    )
+    report.formal_adjudication.append(
+        FormalAdjudication(
+            point_id="RP-MANUAL-001",
+            catalog_id="RP-SCORE-007",
+            title="评分分档主观性与量化充分性复核",
+            disposition=FormalDisposition.manual_confirmation,
+            rationale="当前与 formal 已有评分量化不足存在镜像重复。",
+            included_in_formal=False,
+            section_hint="line:4",
+            primary_quote="当前自动抽取未定位到可直接引用的原文。",
+            evidence_sufficient=False,
+            legal_basis_applicable=False,
+            applicability_summary="要件链未闭合。",
+            quality_gate_status=QualityGateStatus.manual_confirmation,
+            recommended_for_review=True,
+            review_reason="镜像重复，且主证据代表性不足。",
+        )
+    )
+
+    formal = render_formal_review_opinion(report)
+
+    assert "方案评分量化不足" in formal
+    assert "评分分档主观性与量化充分性复核" not in formal
+
+
+def test_prudential_review_points_can_enter_review_layer() -> None:
+    text = """
+    项目属性：货物
+    采购标的：苗木、肥料、防治药剂、标识牌及三年管护
+    合同履行期限：1095日
+    本项目不需要需求调查。
+    不组织专家论证。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    formal = render_formal_review_opinion(report)
+
+    titles = {item.title for item in report.review_points}
+    assert "需求调查结论与项目复杂度匹配性复核" in titles
+    assert "专家论证必要性建议复核" in titles
+    assert "需求调查结论与项目复杂度匹配性复核" in formal or "专家论证必要性建议复核" in formal
 
 
 def test_report_contains_specialist_tables() -> None:

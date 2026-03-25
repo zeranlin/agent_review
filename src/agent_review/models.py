@@ -570,6 +570,8 @@ class ReviewPointSecondReview:
     title: str
     role_judgment: str = ""
     evidence_judgment: str = ""
+    primary_evidence_judgment: str = ""
+    supporting_evidence_judgment: str = ""
     applicability_judgment: str = ""
     intensity_judgment: str = ""
     suggested_disposition: str = ""
@@ -582,6 +584,8 @@ class ReviewPointSecondReview:
             "title": self.title,
             "role_judgment": self.role_judgment,
             "evidence_judgment": self.evidence_judgment,
+            "primary_evidence_judgment": self.primary_evidence_judgment,
+            "supporting_evidence_judgment": self.supporting_evidence_judgment,
             "applicability_judgment": self.applicability_judgment,
             "intensity_judgment": self.intensity_judgment,
             "suggested_disposition": self.suggested_disposition,

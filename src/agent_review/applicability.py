@@ -505,6 +505,49 @@ def _acceptance_flexible_evaluator(clause_mapping: dict[str, list[ExtractedClaus
     return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到验收弹性条款。"]
 
 
+def _complexity_signal_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    procurement_content = _first_value(clause_mapping, "采购内容构成")
+    duration_raw = _first_value(clause_mapping, "合同履行期限")
+    service_flag = _first_normalized_or_content(clause_mapping, "是否含持续性服务")
+    duration = _parse_amount(duration_raw)
+    complexity_reasons: list[str] = []
+    if procurement_content and any(token in procurement_content for token in ["、", "及", "含", "人工", "管护", "维保", "运维", "药剂", "标识牌"]):
+        complexity_reasons.append(f"采购内容构成={procurement_content}")
+    if service_flag == "是":
+        complexity_reasons.append("存在持续性服务")
+    if duration is not None and duration >= 365:
+        complexity_reasons.append(f"合同履行期限={duration_raw}")
+    if complexity_reasons:
+        return ApplicabilityStatus.satisfied, [f"已识别项目复杂度信号：{'；'.join(complexity_reasons)}。"]
+    if procurement_content or duration_raw:
+        return ApplicabilityStatus.unsatisfied, [f"已识别采购内容或履约周期，但复杂度信号不足：采购内容构成={procurement_content or '未识别'}，合同履行期限={duration_raw or '未识别'}。"]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到采购内容构成或合同履行期限。"]
+
+
+def _demand_survey_review_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    demand = _first_normalized_or_content(clause_mapping, "需求调查结论")
+    complexity_status, complexity_detail = _complexity_signal_evaluator(clause_mapping)
+    if not demand:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到需求调查结论。"]
+    if demand == "不需要" and complexity_status == ApplicabilityStatus.satisfied:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：需求调查结论={demand}，且{complexity_detail[0]}"]
+    if demand in {"需要", "已开展"}:
+        return ApplicabilityStatus.unsatisfied, [f"已识别需求调查结论={demand}，当前不构成程序审慎性复核重点。"]
+    return ApplicabilityStatus.unsatisfied, [f"需求调查结论={demand}，但当前复杂度信号不足。"]
+
+
+def _expert_review_recommendation_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    expert = _first_normalized_or_content(clause_mapping, "专家论证结论")
+    complexity_status, complexity_detail = _complexity_signal_evaluator(clause_mapping)
+    if not expert:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到专家论证结论。"]
+    if expert == "不需要" and complexity_status == ApplicabilityStatus.satisfied:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：专家论证结论={expert}，且{complexity_detail[0]}"]
+    if expert in {"需要", "已开展"}:
+        return ApplicabilityStatus.unsatisfied, [f"已识别专家论证结论={expert}，当前不构成程序审慎性复核重点。"]
+    return ApplicabilityStatus.unsatisfied, [f"专家论证结论={expert}，但当前复杂度信号不足。"]
+
+
 def _parse_amount(value: str) -> float | None:
     if not value:
         return None
@@ -604,6 +647,12 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-TPL-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
     ("RP-TPL-003", "保留价格扣除模板"): _equals_relation("是否仍保留价格扣除条款", "是", "保留价格扣除模板"),
     ("RP-TPL-007", "存在合同模板残留"): _contract_template_residue_evaluator,
+    ("RP-PRUD-001", "存在需求调查结论"): _demand_survey_review_evaluator,
+    ("RP-PRUD-001", "项目存在复杂度信号"): _demand_survey_review_evaluator,
+    ("RP-PRUD-001", "已开展需求调查"): _equals_relation("需求调查结论", "需要", "已开展需求调查"),
+    ("RP-PRUD-002", "存在专家论证结论"): _expert_review_recommendation_evaluator,
+    ("RP-PRUD-002", "项目存在复杂度信号"): _expert_review_recommendation_evaluator,
+    ("RP-PRUD-002", "已组织专家论证"): _equals_relation("专家论证结论", "需要", "已组织专家论证"),
     ("RP-CONS-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
     ("RP-CONS-003", "存在价格扣除"): _equals_relation("是否仍保留价格扣除条款", "是", "存在价格扣除"),
     ("RP-CONS-004", "存在验收标准"): _contains_relation("验收标准", "存在", "存在验收标准"),
