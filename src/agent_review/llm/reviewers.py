@@ -248,6 +248,12 @@ class QwenReviewEnhancer:
             working_report,
             formal_adjudication,
         )
+        summary = _build_enhanced_summary(
+            working_report,
+            merged_findings=None,
+            overall_conclusion=overall_conclusion,
+            formal_adjudication=formal_adjudication,
+        )
 
         specialist_skip = not any(
             getattr(report.specialist_tables, table_name)
@@ -320,6 +326,13 @@ class QwenReviewEnhancer:
             + semantic_review.specialist_findings
             + semantic_review.consistency_findings
         )
+        if not (verdict_payload and str(verdict_payload.get("summary", "")).strip()):
+            summary = _build_enhanced_summary(
+                working_report,
+                merged_findings=merged_findings,
+                overall_conclusion=overall_conclusion,
+                formal_adjudication=formal_adjudication,
+            )
         stage_records = list(working_report.stage_records) + [
             RunStageRecord(
                 stage_name="llm_semantic_review",
@@ -836,6 +849,38 @@ def _derive_conclusion_from_formal(
     if manual:
         return ConclusionLevel.optimize
     return report.overall_conclusion
+
+
+def _build_enhanced_summary(
+    report: ReviewReport,
+    merged_findings: list[Finding] | None,
+    overall_conclusion: ConclusionLevel,
+    formal_adjudication: list[FormalAdjudication],
+) -> str:
+    findings = merged_findings if merged_findings is not None else report.findings
+    issue_count = sum(
+        1
+        for item in findings
+        if item.finding_type
+        in {
+            FindingType.confirmed_issue,
+            FindingType.warning,
+            FindingType.manual_review_required,
+            FindingType.missing_evidence,
+        }
+    )
+    manual_count = sum(
+        1 for item in formal_adjudication if item.disposition == FormalDisposition.manual_confirmation
+    )
+    if manual_count:
+        return (
+            f"审查结论为“{overall_conclusion.value}”。共生成 {len(findings)} 条审查结果，"
+            f"其中 {issue_count} 条需要重点关注，{manual_count} 条建议进一步复核。"
+        )
+    return (
+        f"审查结论为“{overall_conclusion.value}”。共生成 {len(findings)} 条审查结果，"
+        f"其中 {issue_count} 条需要关注。"
+    )
 
 
 def _parse_review_point_second_reviews(raw_items: object) -> list[ReviewPointSecondReview]:

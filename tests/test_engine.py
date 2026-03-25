@@ -919,6 +919,21 @@ def test_llm_second_review_can_downgrade_formal_adjudication() -> None:
     assert "LLM二审" in target.rationale
 
 
+def test_qwen_enhancer_rebuilds_summary_after_formal_conclusion_changes() -> None:
+    text = """
+    项目属性：服务
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+    enhancer = QwenReviewEnhancer(client=FakeSecondReviewOverrideClient())
+    enhanced_report = enhancer.enhance(base_report)
+
+    assert enhanced_report.overall_conclusion.value in enhanced_report.summary
+    assert enhanced_report.summary.startswith("审查结论为“")
+
+
 def test_default_enhanced_mode_prefers_high_value_llm_tasks() -> None:
     text = """
     项目属性：服务
