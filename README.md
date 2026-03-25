@@ -48,6 +48,7 @@ docs/
   dimension_design.md       # 审查维度与风险分类
   harness_architecture.md   # 审查系统架构与控制回路
   review_workflow.md        # 审查流程与升级规则
+  review_point_catalog.md   # 75个标准审查点清单、成熟度与优先级
 src/agent_review/
   checklist.py              # 审查维度配置
   engine.py                 # 审查编排入口
