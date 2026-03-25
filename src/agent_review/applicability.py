@@ -382,6 +382,17 @@ def _subjective_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause
 def _certificate_weight_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     suspicious = _first_value(clause_mapping, "行业相关性存疑评分项")
     finance = _first_value(clause_mapping, "财务指标加分")
+    cert_stage = _first_value(clause_mapping, "证书材料适用阶段")
+    report_stage = _first_value(clause_mapping, "检测报告适用阶段")
+    stage_values = {value for value in [cert_stage, report_stage] if value}
+    if "投标阶段" in stage_values and suspicious and finance:
+        return ApplicabilityStatus.satisfied, [
+            f"结构化字段关系成立：已识别行业相关性存疑评分项={suspicious}、财务指标评分={finance}，且证书/报告材料处于投标阶段提交，负担和权重疑似偏重。"
+        ]
+    if "投标阶段" in stage_values and suspicious:
+        return ApplicabilityStatus.satisfied, [
+            f"结构化字段关系成立：已识别行业相关性存疑评分项={suspicious}，且证书/报告材料处于投标阶段提交，需重点复核投标门槛和评分权重。"
+        ]
     if suspicious and finance:
         return ApplicabilityStatus.satisfied, [
             f"结构化字段关系成立：已识别行业相关性存疑评分项={suspicious}，且存在财务指标评分={finance}，证书/检测报告/财务指标权重疑似偏重。"
@@ -393,6 +404,19 @@ def _certificate_weight_scoring_evaluator(clause_mapping: dict[str, list[Extract
     if finance:
         return ApplicabilityStatus.unsatisfied, [f"已识别财务指标评分={finance}，但尚未抽取到证书/检测报告类评分信号。"]
     return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到行业相关性存疑评分项或财务指标评分。"]
+
+
+def _scoring_material_stage_exclusion_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    cert_stage = _first_value(clause_mapping, "证书材料适用阶段")
+    report_stage = _first_value(clause_mapping, "检测报告适用阶段")
+    stage_values = {value for value in [cert_stage, report_stage] if value}
+    if not stage_values:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到证书或检测报告的材料适用阶段。"]
+    if "投标阶段" in stage_values:
+        return ApplicabilityStatus.not_applicable, [f"已识别材料适用阶段={sorted(stage_values)}，不属于仅履约/验收阶段提交。"]
+    if "履约/验收阶段" in stage_values:
+        return ApplicabilityStatus.satisfied, ["结构化字段关系成立：证书/检测报告当前更像履约或验收阶段材料，不直接支撑投标阶段负担偏重。"]
+    return ApplicabilityStatus.not_applicable, [f"已识别材料适用阶段={sorted(stage_values)}，仍需结合上下文判断。"]
 
 
 def _contract_template_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
@@ -493,6 +517,7 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SCORE-006", "存在方案评分扣分模式"): _plan_scoring_quant_evaluator,
     ("RP-SCORE-007", "存在评分分档或方案扣分模式"): _subjective_scoring_evaluator,
     ("RP-SCORE-008", "存在证书报告或财务指标评分信号"): _certificate_weight_scoring_evaluator,
+    ("RP-SCORE-008", "证书检测报告仅在履约或验收阶段提交"): _scoring_material_stage_exclusion_evaluator,
     ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,

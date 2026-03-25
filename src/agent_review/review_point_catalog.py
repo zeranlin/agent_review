@@ -219,6 +219,12 @@ CATALOG: list[ReviewPointDefinition] = [
                 signal_groups=[["证书", "检测报告"], ["财务", "利润率", "营业收入", "分值"]],
             ),
         ],
+        exclusion_conditions=[
+            ReviewPointCondition(
+                "证书检测报告仅在履约或验收阶段提交",
+                clause_fields=["证书材料适用阶段", "检测报告适用阶段"],
+            ),
+        ],
         basis_hint="证书、检测报告和财务指标评分应与项目履约能力直接相关，且权重、提交负担不得明显超过必要限度。",
     ),
     ReviewPointDefinition(

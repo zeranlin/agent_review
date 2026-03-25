@@ -11,6 +11,7 @@ from agent_review.extractors.clauses import extract_clauses
 from agent_review.llm import QwenReviewEnhancer
 from agent_review.models import (
     AdoptionStatus,
+    ApplicabilityStatus,
     ClauseRole,
     ConclusionLevel,
     EvidenceBundle,
@@ -1047,6 +1048,59 @@ def test_scoring_review_prompt_and_dynamic_tasks_can_flow_into_main_chain() -> N
     assert applicability_by_title["证书检测报告及财务指标权重合理性复核"] == "RP-SCORE-008"
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
     assert llm_tasks["llm_scoring_review"] == "completed"
+
+
+def test_scoring_weight_point_can_distinguish_bid_stage_submission() -> None:
+    text = """
+    项目属性：货物
+    采购标的：家具
+    评分方法：综合评分法
+    软件企业认定证书5分，财务报告2分。
+    投标文件中提供认证证书和检测报告，作为评分依据。
+    """
+    clauses = extract_clauses(text)
+    point = ReviewPoint(
+        point_id="RP-T-001",
+        catalog_id="RP-SCORE-008",
+        title="证书检测报告及财务指标权重合理性复核",
+        dimension="评审标准明确性",
+        severity=Severity.high,
+        status=ReviewPointStatus.identified,
+        rationale="测试评分材料适用阶段。",
+        evidence_bundle=EvidenceBundle(),
+        source_findings=["task_library:RP-SCORE-008"],
+    )
+    check = build_applicability_checks([point], clauses)[0]
+    assert check.applicable is True
+    assert "存在证书报告或财务指标评分信号" in check.satisfied_conditions
+    assert "投标阶段" in check.summary or any("投标阶段" in item.detail for item in check.requirement_results)
+
+
+def test_scoring_weight_point_can_exclude_delivery_stage_materials() -> None:
+    text = """
+    项目属性：货物
+    采购标的：家具
+    评分方法：综合评分法
+    软件企业认定证书5分。
+    中标后供货验收时提供认证证书和检测报告。
+    """
+    clauses = extract_clauses(text)
+    point = ReviewPoint(
+        point_id="RP-T-002",
+        catalog_id="RP-SCORE-008",
+        title="证书检测报告及财务指标权重合理性复核",
+        dimension="评审标准明确性",
+        severity=Severity.high,
+        status=ReviewPointStatus.identified,
+        rationale="测试履约阶段材料排除。",
+        evidence_bundle=EvidenceBundle(),
+        source_findings=["task_library:RP-SCORE-008"],
+    )
+    check = build_applicability_checks([point], clauses)[0]
+    excluded = next(item for item in check.exclusion_results if item.name == "证书检测报告仅在履约或验收阶段提交")
+    assert excluded.status == ApplicabilityStatus.excluded
+    assert check.applicable is False
+    assert "要件链被阻断" in check.summary
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:

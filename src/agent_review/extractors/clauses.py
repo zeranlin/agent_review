@@ -204,6 +204,28 @@ def _payment_extractor(lines: list[str]) -> ExtractedClause | None:
     return None
 
 
+def _material_stage_extractor(keywords: list[str]) -> ClauseExtractor:
+    def extractor(lines: list[str]) -> ExtractedClause | None:
+        for line_no, line in enumerate(lines, start=1):
+            if not any(keyword in line for keyword in keywords):
+                continue
+            relation_tags: list[str] = []
+            normalized_value = ""
+            if any(token in line for token in ["投标文件", "响应文件", "评审", "评分", "加分", "资格审查", "投标阶段"]):
+                normalized_value = "投标阶段"
+                relation_tags.append("投标阶段")
+            elif any(token in line for token in ["中标后", "供货时", "交货时", "履约", "验收", "验收时", "签约后"]):
+                normalized_value = "履约/验收阶段"
+                relation_tags.append("履约/验收阶段")
+            else:
+                normalized_value = "未明确"
+                relation_tags.append("未明确阶段")
+            return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags)
+        return None
+
+    return extractor
+
+
 def _amount_extractor(keywords: list[str]) -> ClauseExtractor:
     def extractor(lines: list[str]) -> ExtractedClause | None:
         for line_no, line in enumerate(lines, start=1):
@@ -455,6 +477,8 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("技术条款", "是否要求专利", _patent_requirement_extractor),
     ("技术条款", "是否要求检测报告", _simple_keyword_extractor(["检测报告"])),
     ("技术条款", "是否要求认证证书", _simple_keyword_extractor(["认证证书", "证书"])),
+    ("技术条款", "检测报告适用阶段", _material_stage_extractor(["检测报告"])),
+    ("技术条款", "证书材料适用阶段", _material_stage_extractor(["认证证书", "证书"])),
     ("技术条款", "是否设置★实质性条款", _simple_keyword_extractor(["★"])),
     ("技术条款", "是否有限制产地厂家商标", _origin_brand_restriction_extractor),
     ("评分条款", "评分方法", _simple_keyword_extractor(["评分方法", "综合评分", "评标办法"])),
