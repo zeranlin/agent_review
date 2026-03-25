@@ -1037,6 +1037,14 @@ def test_scoring_review_prompt_and_dynamic_tasks_can_flow_into_main_chain() -> N
         item.title == "证书检测报告及财务指标权重合理性复核"
         for item in enhanced_report.review_points
     )
+    applicability_by_title = {
+        point.title: check.catalog_id
+        for point in enhanced_report.review_points
+        for check in enhanced_report.applicability_checks
+        if check.point_id == point.point_id
+    }
+    assert applicability_by_title["评分分档主观性与量化充分性复核"] == "RP-SCORE-007"
+    assert applicability_by_title["证书检测报告及财务指标权重合理性复核"] == "RP-SCORE-008"
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
     assert llm_tasks["llm_scoring_review"] == "completed"
 

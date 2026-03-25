@@ -367,6 +367,34 @@ def _plan_scoring_quant_evaluator(clause_mapping: dict[str, list[ExtractedClause
     return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到方案评分扣分模式。"]
 
 
+def _subjective_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    pattern = _first_value(clause_mapping, "方案评分扣分模式")
+    scoring_method = _first_value(clause_mapping, "评分方法")
+    if pattern:
+        return ApplicabilityStatus.satisfied, [
+            f"结构化字段关系成立：评分方法={scoring_method or '未单列'}，已识别评分分档/扣分模式={pattern}，存在主观分档和量化不足疑点。"
+        ]
+    if scoring_method:
+        return ApplicabilityStatus.unsatisfied, [f"已识别评分方法={scoring_method}，但尚未抽取到足以支撑主观分档判断的方案评分扣分模式。"]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：需至少抽取评分方法或方案评分扣分模式。"]
+
+
+def _certificate_weight_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    suspicious = _first_value(clause_mapping, "行业相关性存疑评分项")
+    finance = _first_value(clause_mapping, "财务指标加分")
+    if suspicious and finance:
+        return ApplicabilityStatus.satisfied, [
+            f"结构化字段关系成立：已识别行业相关性存疑评分项={suspicious}，且存在财务指标评分={finance}，证书/检测报告/财务指标权重疑似偏重。"
+        ]
+    if suspicious:
+        return ApplicabilityStatus.satisfied, [
+            f"结构化字段关系成立：已识别行业相关性存疑评分项={suspicious}，需重点复核证书、检测报告或报告类评分权重。"
+        ]
+    if finance:
+        return ApplicabilityStatus.unsatisfied, [f"已识别财务指标评分={finance}，但尚未抽取到证书/检测报告类评分信号。"]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到行业相关性存疑评分项或财务指标评分。"]
+
+
 def _contract_template_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     template_terms = _first_value(clause_mapping, "合同成果模板术语")
     project_subject = _first_value(clause_mapping, "采购标的") or _first_value(clause_mapping, "项目属性")
@@ -463,6 +491,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-STRUCT-008", "存在持续性作业服务"): _continuous_service_in_goods_evaluator,
     ("RP-SCORE-005", "评分项存在行业相关性疑点"): _industry_mismatch_scoring_evaluator,
     ("RP-SCORE-006", "存在方案评分扣分模式"): _plan_scoring_quant_evaluator,
+    ("RP-SCORE-007", "存在评分分档或方案扣分模式"): _subjective_scoring_evaluator,
+    ("RP-SCORE-008", "存在证书报告或财务指标评分信号"): _certificate_weight_scoring_evaluator,
     ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,

@@ -294,6 +294,34 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         )
     ],
+    "评分分档主观性与量化充分性复核": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="技术、商务要求客观量化要求",
+            summary="评分分档和方案评审应尽可能明确客观、量化指标，避免仅以宽泛优劣分档或缺陷概念承载过大裁量空间。",
+            basis_type="部门规范性文件",
+        ),
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="评审因素和标准相关条款",
+            summary="评审标准应细化量化，减少仅凭主观比较或宽泛分档进行打分的空间。",
+            basis_type="部门规章",
+        ),
+    ],
+    "证书检测报告及财务指标权重合理性复核": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="评分材料、检测报告和认证证书要求应与项目实际需要相适应，不得超出必要限度增加投标负担。",
+            basis_type="部门规范性文件",
+        ),
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="评审因素设置相关条款",
+            summary="评审因素和分值设置应与采购需求和履约能力直接相关，不宜以证书、检测报告或财务偏好形成变相门槛。",
+            basis_type="部门规章",
+        ),
+    ],
     "预算金额 vs 最高限价": [
         LegalBasis(
             source_name="政府采购需求管理办法",

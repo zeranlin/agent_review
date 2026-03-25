@@ -192,6 +192,36 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="方案评分应尽可能客观量化，避免用宽泛缺陷定义承载过大裁量空间。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-SCORE-007",
+        title="评分分档主观性与量化充分性复核",
+        dimension="评审标准明确性",
+        default_severity=Severity.high,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在评分分档或方案扣分模式",
+                clause_fields=["方案评分扣分模式"],
+                signal_groups=[["完全满足", "不完全满足"], ["优于", "缺陷", "扣分"]],
+            ),
+        ],
+        basis_hint="评分分档和扣分规则应尽量客观量化，避免给评委留下过大自由裁量空间。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-SCORE-008",
+        title="证书检测报告及财务指标权重合理性复核",
+        dimension="评审标准明确性",
+        default_severity=Severity.high,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在证书报告或财务指标评分信号",
+                clause_fields=["行业相关性存疑评分项", "财务指标加分"],
+                signal_groups=[["证书", "检测报告"], ["财务", "利润率", "营业收入", "分值"]],
+            ),
+        ],
+        basis_hint="证书、检测报告和财务指标评分应与项目履约能力直接相关，且权重、提交负担不得明显超过必要限度。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-PER-001",
         title="性别限制",
         dimension="人员条件与用工边界风险",
