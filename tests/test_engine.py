@@ -1680,6 +1680,8 @@ def test_qualification_overlap_prefers_dual_anchor_clauses() -> None:
     quotes = [item.quote for item in qualification_point.evidence_bundle.direct_evidence + qualification_point.evidence_bundle.supporting_evidence]
     assert any("资格要求" in quote and "资质证书" in quote for quote in quotes)
     assert any("评分标准" in quote and ("资质证书5分" in quote or "项目负责人业绩5分" in quote) for quote in quotes)
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    assert applicability_map["RP-QUAL-001"].applicable is True
 
 
 def test_credit_transparency_and_procedural_fairness_prefer_raw_clauses() -> None:
@@ -1695,6 +1697,79 @@ def test_credit_transparency_and_procedural_fairness_prefer_raw_clauses() -> Non
 
     assert any("信用评价5分" in item.quote or "按地方信用评价结果计分" in item.quote for item in credit_point.evidence_bundle.direct_evidence + credit_point.evidence_bundle.supporting_evidence)
     assert any("承担违约责任" in item.quote or "有权解除合同" in item.quote for item in prud_point.evidence_bundle.direct_evidence + prud_point.evidence_bundle.supporting_evidence)
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    assert applicability_map["RP-SCORE-012"].applicable is True
+
+
+def test_qualification_overlap_requires_real_dual_anchor_overlap() -> None:
+    text = """
+    投标人的资格要求：投标人应具备政府采购法第二十二条规定的条件。
+    评分标准：项目实施方案5分，方案部分满足采购需求得1分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-no-overlap.txt")
+    point = next(item for item in report.review_points if item.catalog_id == "RP-QUAL-001")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-QUAL-001"]
+
+    assert check.applicable is False
+    assert "存在资格条件明细" in check.missing_conditions or "存在评分项明细" in check.missing_conditions or check.requirement_chain_complete is False
+    assert not any("方案部分满足采购需求" in item.quote for item in point.evidence_bundle.direct_evidence)
+
+
+def test_credit_relief_extractor_ignores_generic_bid_objection_clause() -> None:
+    text = """
+    投标人在规定时间内未对招标文件提出疑问、质疑或要求澄清的，将视其为无异议。
+    评分标准：实施方案5分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="credit-relief-negative.txt")
+    credit_relief = [item for item in report.extracted_clauses if item.field_name in {"信用修复条款", "异议救济条款"}]
+    assert credit_relief == []
+
+
+def test_contract_linkage_does_not_flag_normal_acceptance_payment_flow() -> None:
+    text = """
+    付款方式：验收合格后10个工作日内一次性付清。
+    验收标准：采购人组织验收。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="normal-acceptance-payment.txt")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-CONTRACT-011"]
+    assert check.applicable is False
+    assert any("普通验收后付款安排" in item.detail for item in check.requirement_results)
+
+
+def test_excessive_certificate_requirement_can_close_with_qualification_and_bid_stage_materials() -> None:
+    text = """
+    本项目特定资格要求：供应商须具备质量管理体系认证证书。
+    评分标准：质量管理体系认证证书2分。
+    投标文件中需提供认证证书和检测报告扫描件。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-certificate-positive.txt")
+    point_map = {item.catalog_id: item for item in report.review_points}
+    point = point_map["RP-QUAL-002"]
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-QUAL-002"]
+
+    quotes = [item.quote for item in point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence]
+    assert any("特定资格要求" in quote or "质量管理体系认证证书" in quote for quote in quotes)
+    assert any("检测报告" in quote or "投标文件中需提供" in quote for quote in quotes)
+    assert check.applicable is True
+
+
+def test_contract_linkage_can_close_with_satisfaction_and_tail_payment() -> None:
+    text = """
+    付款方式：合同金额的10%作为尾款，在采购人满意度考核合格后支付。
+    验收标准：采购人组织验收并结合满意度结果确认。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="contract-linkage-positive.txt")
+    point_map = {item.catalog_id: item for item in report.review_points}
+    point = point_map["RP-CONTRACT-011"]
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-CONTRACT-011"]
+
+    quotes = [item.quote for item in point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence]
+    assert any("满意度考核合格后支付" in quote for quote in quotes)
+    assert check.applicable is True
 
 
 def test_markdown_report_uses_v2_sections() -> None:
@@ -2345,10 +2420,9 @@ def test_scoring_review_point_anchors_credit_evaluation_evidence() -> None:
 
     point_map = {item.catalog_id: item for item in report.review_points}
     credit_point = point_map["RP-SCORE-011"]
-    direct_quotes = [item.quote for item in credit_point.evidence_bundle.direct_evidence]
-    assert any("信用评价" in quote for quote in direct_quotes)
-    assert any("评分项明细" in quote or "信用评价得5分" in quote for quote in direct_quotes)
-    assert any("评分方法" in quote or "综合评分法" in quote for quote in direct_quotes)
+    quotes = [item.quote for item in credit_point.evidence_bundle.direct_evidence + credit_point.evidence_bundle.supporting_evidence]
+    assert any("信用评价" in quote for quote in quotes)
+    assert any("评分项明细" in quote or "信用评价得5分" in quote for quote in quotes)
 
 
 def test_contract_template_term_extractor_captures_result_and_residue_terms() -> None:

@@ -268,6 +268,20 @@ def _collect_tags(clause_mapping: dict[str, list[ExtractedClause]], field_name: 
     return tags
 
 
+def _texts_for_fields(clause_mapping: dict[str, list[ExtractedClause]], field_names: list[str]) -> list[str]:
+    texts: list[str] = []
+    for field_name in field_names:
+        for clause in clause_mapping.get(field_name, []):
+            text = clause.content or clause.normalized_value
+            if text:
+                texts.append(text)
+    return texts
+
+
+def _contains_any(text: str, tokens: list[str]) -> bool:
+    return any(token in text for token in tokens)
+
+
 def _equals_relation(field_name: str, expected_value: str, label: str) -> RelationEvaluator:
     def evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
         actual = _first_value(clause_mapping, field_name)
@@ -527,37 +541,47 @@ def _package_split_reason_presence_evaluator(clause_mapping: dict[str, list[Extr
 
 
 def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
-    qualification = _first_normalized_or_content(clause_mapping, "资格条件明细")
-    scoring = _first_normalized_or_content(clause_mapping, "评分项明细")
-    if not qualification or not scoring:
-        return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取资格条件明细和评分项明细。"]
-    overlap_tokens = [
-        token
-        for token in ["资质", "证书", "业绩", "项目负责人", "人员", "社保", "信用"]
-        if token in qualification and token in scoring
+    qualification_texts = _texts_for_fields(
+        clause_mapping,
+        ["资格条件明细", "一般资格要求", "特定资格要求"],
+    )
+    scoring_texts = _texts_for_fields(
+        clause_mapping,
+        ["评分项明细", "信用评价要求", "行业相关性存疑评分项", "证书检测报告负担特征"],
+    )
+    if not qualification_texts or not scoring_texts:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取资格条款和评分条款。"]
+    overlap_groups = [
+        ("资质证书", ["资质", "证书", "认证"]),
+        ("项目业绩/项目负责人", ["项目负责人", "业绩"]),
+        ("人员要求", ["人员", "社保", "职称", "学历"]),
+        ("信用要求", ["信用"]),
     ]
-    if overlap_tokens:
-        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：资格条件与评分项在 {', '.join(overlap_tokens)} 上存在重复门槛。"]
-    return ApplicabilityStatus.unsatisfied, [f"已抽取资格条件与评分项，但当前未识别重复门槛：资格条件={qualification}；评分项={scoring}。"]
+    matched_labels: list[str] = []
+    for label, tokens in overlap_groups:
+        if any(_contains_any(text, tokens) for text in qualification_texts) and any(_contains_any(text, tokens) for text in scoring_texts):
+            matched_labels.append(label)
+    if matched_labels:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：资格条款与评分条款在 {', '.join(matched_labels)} 上存在重复门槛。"]
+    return ApplicabilityStatus.unsatisfied, ["已识别资格条款与评分条款，但当前未发现同一资质、业绩、人员或信用要求被重复放大。"]
 
 
 def _excessive_certificate_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
-    qualification = _first_normalized_or_content(clause_mapping, "特定资格要求")
-    burden = _first_normalized_or_content(clause_mapping, "证书检测报告负担特征")
-    suspicious = _first_normalized_or_content(clause_mapping, "行业相关性存疑评分项")
+    qualification_texts = _texts_for_fields(clause_mapping, ["特定资格要求", "一般资格要求", "资格条件明细"])
+    burden_texts = _texts_for_fields(clause_mapping, ["证书检测报告负担特征", "行业相关性存疑评分项", "评分项明细"])
     cert_stage = _first_normalized_or_content(clause_mapping, "证书材料适用阶段")
-    if not qualification and not burden and not suspicious:
+    qual_has_cert = any(_contains_any(text, ["资质", "证书", "认证", "检测报告"]) for text in qualification_texts)
+    burden_has_cert = any(_contains_any(text, ["资质", "证书", "认证", "检测报告", "管理体系"]) for text in burden_texts)
+    if not qualification_texts and not burden_texts:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到特定资质、证书或检测报告负担信号。"]
-    if qualification and (burden or suspicious):
-        detail = f"特定资格要求={qualification}"
-        if burden:
-            detail += f"，材料负担={burden}"
-        if suspicious:
-            detail += f"，评分疑点={suspicious}"
+    if qual_has_cert and burden_has_cert:
+        detail = "已同时识别资格/资质要求与证书材料或评分负担"
         if cert_stage:
             detail += f"，材料阶段={cert_stage}"
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：{detail}。"]
-    return ApplicabilityStatus.unsatisfied, [f"已识别部分资质/证书要求，但尚未形成超必要限度链：特定资格要求={qualification or '未识别'}，材料负担={burden or '未识别'}，评分疑点={suspicious or '未识别'}。"]
+    if burden_has_cert and cert_stage == "投标阶段":
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别投标阶段证书或检测报告前置要求，材料阶段={cert_stage}。"]
+    return ApplicabilityStatus.unsatisfied, ["已识别部分资质/证书或材料要求，但当前仍不足以判断其已超出必要限度。"]
 
 
 def _technical_service_verifiability_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
@@ -571,24 +595,34 @@ def _technical_service_verifiability_evaluator(clause_mapping: dict[str, list[Ex
 
 
 def _acceptance_payment_linkage_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
-    payment = _first_normalized_or_content(clause_mapping, "付款节点")
-    acceptance = _first_normalized_or_content(clause_mapping, "验收标准")
-    assessment = _first_normalized_or_content(clause_mapping, "考核条款")
-    satisfaction = _first_normalized_or_content(clause_mapping, "满意度条款")
+    payment_texts = _texts_for_fields(clause_mapping, ["付款节点"])
+    acceptance_texts = _texts_for_fields(clause_mapping, ["验收标准"])
+    assessment_texts = _texts_for_fields(clause_mapping, ["考核条款"])
+    satisfaction_texts = _texts_for_fields(clause_mapping, ["满意度条款"])
+    payment = payment_texts[0] if payment_texts else ""
+    acceptance = acceptance_texts[0] if acceptance_texts else ""
+    assessment = assessment_texts[0] if assessment_texts else ""
+    satisfaction = satisfaction_texts[0] if satisfaction_texts else ""
     pay_tags = _collect_tags(clause_mapping, "付款节点")
     assessment_tags = _collect_tags(clause_mapping, "考核条款")
     satisfaction_tags = _collect_tags(clause_mapping, "满意度条款")
     if not payment:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到付款节点。"]
+    payment_has_subjective_link = _contains_any(payment, ["考核", "满意度", "评价"])
+    acceptance_has_subjective_link = _contains_any(acceptance, ["采购人确认", "满意度", "考核"]) if acceptance else False
     linked = (
         "考核联动" in pay_tags
         or "关联付款" in assessment_tags
         or "关联付款" in satisfaction_tags
         or ("尾款" in pay_tags and (assessment or satisfaction))
+        or payment_has_subjective_link
+        or acceptance_has_subjective_link
     )
     if linked and (acceptance or assessment or satisfaction):
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：付款节点={payment}，验收/考核/满意度条款存在联动。"]
     if acceptance or assessment or satisfaction:
+        if _contains_any(payment, ["验收合格后", "验收后"]) and not assessment and not satisfaction and not acceptance_has_subjective_link:
+            return ApplicabilityStatus.unsatisfied, [f"当前仅识别普通验收后付款安排：付款={payment}，尚不足以认定存在不当联动。"]
         return ApplicabilityStatus.unsatisfied, [f"已抽取付款节点与验收/考核/满意度条款，但尚未识别明确联动：付款={payment}，验收={acceptance or '未识别'}，考核={assessment or '未识别'}，满意度={satisfaction or '未识别'}。"]
     return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到验收、考核或满意度条款。"]
 
@@ -604,7 +638,8 @@ def _transfer_outsource_evaluator(clause_mapping: dict[str, list[ExtractedClause
 
 
 def _credit_transparency_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
-    credit = _first_normalized_or_content(clause_mapping, "信用评价要求")
+    credit_texts = _texts_for_fields(clause_mapping, ["信用评价要求", "评分项明细"])
+    credit = next((text for text in credit_texts if _contains_any(text, ["信用评价", "信用分", "信用等级", "信用评分", "征信"])), "")
     repair = _first_normalized_or_content(clause_mapping, "信用修复条款")
     relief = _first_normalized_or_content(clause_mapping, "异议救济条款")
     if not credit:
@@ -612,6 +647,14 @@ def _credit_transparency_evaluator(clause_mapping: dict[str, list[ExtractedClaus
     if not repair and not relief:
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别信用评价要求={credit}，但未抽取到信用修复或异议机制。"]
     return ApplicabilityStatus.unsatisfied, [f"已识别信用评价要求={credit}，且存在修复/异议机制。"]
+
+
+def _credit_relief_presence_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    repair = _first_normalized_or_content(clause_mapping, "信用修复条款")
+    relief = _first_normalized_or_content(clause_mapping, "异议救济条款")
+    if repair or relief:
+        return ApplicabilityStatus.satisfied, [f"已识别信用修复或异议机制：信用修复={repair or '未识别'}，异议救济={relief or '未识别'}。"]
+    return ApplicabilityStatus.unsatisfied, ["当前未识别信用修复或异议机制。"]
 
 
 def _procedural_fairness_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
@@ -863,7 +906,7 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SCORE-011", "存在信用评价评分信号"): _credit_evaluation_scoring_evaluator,
     ("RP-SCORE-011", "存在评分项明细"): _credit_evaluation_scoring_evaluator,
     ("RP-SCORE-012", "存在信用评价评分信号"): _credit_transparency_evaluator,
-    ("RP-SCORE-012", "已说明信用修复或异议机制"): _credit_transparency_evaluator,
+    ("RP-SCORE-012", "已说明信用修复或异议机制"): _credit_relief_presence_evaluator,
     ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,

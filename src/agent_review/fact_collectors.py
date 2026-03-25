@@ -126,6 +126,7 @@ def _assemble_contract_linkage_evidence(
         [
             "付款节点",
             "考核条款",
+            "满意度条款",
             "验收标准",
             "扣款条款",
             "解约条款",
@@ -134,7 +135,50 @@ def _assemble_contract_linkage_evidence(
             "验收弹性条款",
         ],
     )
-    return _assemble_bundle_for_definition(definition, relevant)
+    if definition.catalog_id != "RP-CONTRACT-011":
+        return _assemble_bundle_for_definition(definition, relevant)
+
+    payment_clauses = [clause for clause in relevant if clause.field_name == "付款节点"]
+    acceptance_clauses = [clause for clause in relevant if clause.field_name == "验收标准"]
+    assessment_clauses = [clause for clause in relevant if clause.field_name == "考核条款"]
+    satisfaction_clauses = [clause for clause in relevant if clause.field_name == "满意度条款"]
+    subjective_acceptance = [
+        clause
+        for clause in relevant
+        if clause.field_name in {"验收标准", "考核条款", "满意度条款"}
+        and any(token in clause.content for token in ["考核", "满意度", "采购人确认", "评价"])
+    ]
+    direct_clauses = _dedupe_clauses(
+        [
+            *[
+                clause
+                for clause in payment_clauses
+                if any(token in clause.content for token in ["考核", "满意度", "尾款", "评价"])
+            ][:1],
+            *subjective_acceptance[:1],
+        ]
+    )
+    supporting_clauses = [clause for clause in relevant if clause not in direct_clauses]
+    supporting_clauses = _dedupe_clauses(
+        [
+            *payment_clauses[:1],
+            *acceptance_clauses[:1],
+            *assessment_clauses[:1],
+            *satisfaction_clauses[:1],
+        ]
+    )
+    supporting_clauses = [clause for clause in supporting_clauses if clause not in direct_clauses]
+    missing_fields: list[str] = []
+    if not payment_clauses:
+        missing_fields.append("付款节点")
+    if not any(clause.field_name in {"验收标准", "考核条款", "满意度条款"} for clause in relevant):
+        missing_fields.append("验收或考核条款")
+    return _assemble_custom_bundle(
+        definition,
+        direct_clauses=direct_clauses,
+        supporting_clauses=supporting_clauses,
+        missing_fields=missing_fields,
+    )
 
 
 def _assemble_personnel_boundary_evidence(
@@ -218,15 +262,22 @@ def _assemble_credit_evaluation_scoring_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    prioritized = _collect_text_anchor_clauses(
-        extracted_clauses,
-        ["信用评价要求", "信用修复条款", "异议救济条款", "评分项明细"],
-        ["信用评价", "信用分", "信用等级", "修复", "异议", "救济"],
-    )
+    credit_tokens = ["信用评价", "信用分", "信用等级", "信用评分", "征信"]
+    prioritized = [
+        clause
+        for clause in _collect_text_anchor_clauses(
+            extracted_clauses,
+            ["信用评价要求", "信用修复条款", "异议救济条款", "评分项明细"],
+            [*credit_tokens, "修复", "异议", "救济"],
+        )
+        if any(token in clause.content for token in credit_tokens)
+    ]
     relevant = _dedupe_clauses(
         [
             *prioritized,
-            *_collect_by_fields_in_order(
+            *[
+                clause
+                for clause in _collect_by_fields_in_order(
                 extracted_clauses,
                 [
                     "信用评价要求",
@@ -238,7 +289,9 @@ def _assemble_credit_evaluation_scoring_evidence(
                     "采购标的",
                     "预算金额",
                 ],
-            ),
+                )
+                if any(token in clause.content for token in credit_tokens)
+            ],
         ]
     )
     return _assemble_bundle_for_definition(definition, relevant)
@@ -420,41 +473,93 @@ def _assemble_qualification_boundary_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    overlap_tokens = ["资质", "证书", "认证", "业绩", "项目负责人", "人员", "社保", "信用"]
-    prioritized = _collect_text_anchor_clauses(
-        extracted_clauses,
-        [
-            "一般资格要求",
-            "特定资格要求",
-            "资格条件明细",
-            "评分项明细",
-            "行业相关性存疑评分项",
-            "证书检测报告负担特征",
-            "证书类评分总分",
-            "信用评价要求",
-        ],
-        overlap_tokens,
-    )
-    relevant = _dedupe_clauses(
-        [
-            *prioritized,
-            *_collect_by_fields_in_order(
-                extracted_clauses,
-                [
-                    "一般资格要求",
-                    "特定资格要求",
-                    "资格条件明细",
-                    "评分项明细",
-                    "行业相关性存疑评分项",
-                    "证书检测报告负担特征",
-                    "证书类评分总分",
-                    "信用评价要求",
-                    "采购标的",
-                    "项目属性",
-                ],
-            ),
+    overlap_groups = [
+        ["资质", "证书", "认证"],
+        ["项目负责人", "业绩"],
+        ["人员", "社保", "职称", "学历"],
+        ["信用"],
+    ]
+    overlap_tokens = [token for group in overlap_groups for token in group]
+    cert_tokens = ["资质", "证书", "认证", "检测报告", "管理体系"]
+    qualification_fields = ["一般资格要求", "特定资格要求", "资格条件明细"]
+    scoring_fields = ["评分项明细", "行业相关性存疑评分项", "证书检测报告负担特征", "证书类评分总分", "信用评价要求"]
+    qualification_pool = [
+        clause
+        for clause in _collect_text_anchor_clauses(extracted_clauses, qualification_fields, overlap_tokens)
+        if any(token in clause.content for token in overlap_tokens)
+    ]
+    scoring_pool = [
+        clause
+        for clause in _collect_text_anchor_clauses(extracted_clauses, scoring_fields, overlap_tokens)
+        if any(token in clause.content for token in overlap_tokens) and any(token in clause.content for token in ["评分", "得分", "分", "不得分"])
+    ]
+    if definition.catalog_id == "RP-QUAL-001":
+        matched_tokens = [
+            token
+            for group in overlap_groups
+            if any(any(token in clause.content for token in group) for clause in qualification_pool)
+            and any(any(token in clause.content for token in group) for clause in scoring_pool)
+            for token in group
         ]
-    )
+        direct_qualification = [
+            clause for clause in qualification_pool if any(token in clause.content for token in matched_tokens)
+        ][:1]
+        direct_scoring = [
+            clause for clause in scoring_pool if any(token in clause.content for token in matched_tokens)
+        ][:1]
+        direct_clauses = _dedupe_clauses([*direct_qualification, *direct_scoring])
+        supporting_clauses = _dedupe_clauses([*qualification_pool[:1], *scoring_pool[:1]])
+        if not qualification_pool or not scoring_pool:
+            supporting_clauses = []
+        supporting_clauses = [clause for clause in supporting_clauses if clause not in direct_clauses]
+        missing_fields: list[str] = []
+        if not qualification_pool:
+            missing_fields.append("资格条件明细")
+        if not scoring_pool:
+            missing_fields.append("评分项明细")
+        if qualification_pool and scoring_pool and not matched_tokens:
+            missing_fields.append("资格条款与评分条款重复锚点")
+        return _assemble_custom_bundle(
+            definition,
+            direct_clauses=direct_clauses,
+            supporting_clauses=supporting_clauses,
+            missing_fields=missing_fields,
+        )
+
+    if definition.catalog_id == "RP-QUAL-002":
+        burden_fields = ["证书检测报告负担特征", "行业相关性存疑评分项", "评分项明细", "证书材料适用阶段"]
+        qualification_clauses = [
+            clause for clause in qualification_pool if any(token in clause.content for token in cert_tokens)
+        ]
+        burden_clauses = [
+            clause
+            for clause in _collect_text_anchor_clauses(extracted_clauses, burden_fields, cert_tokens)
+            if any(token in clause.content for token in cert_tokens)
+        ]
+        stage_clauses = _collect_by_fields_in_order(extracted_clauses, ["证书材料适用阶段", "检测报告适用阶段"])
+        stage_is_bid = any("投标阶段" in (clause.normalized_value or clause.content) for clause in stage_clauses)
+        direct_clauses = []
+        if qualification_clauses and burden_clauses:
+            direct_clauses = _dedupe_clauses([qualification_clauses[0], burden_clauses[0]])
+        elif burden_clauses and stage_is_bid:
+            direct_clauses = _dedupe_clauses([burden_clauses[0], *stage_clauses[:1]])
+        supporting_clauses = _dedupe_clauses([*qualification_clauses[:1], *burden_clauses[:1], *stage_clauses[:1]])
+        if not qualification_clauses and not stage_is_bid:
+            supporting_clauses = []
+        supporting_clauses = [clause for clause in supporting_clauses if clause not in direct_clauses]
+        missing_fields = []
+        if not qualification_clauses:
+            missing_fields.append("特定资格要求")
+        if not burden_clauses:
+            missing_fields.append("资质证书或材料负担信号")
+        return _assemble_custom_bundle(
+            definition,
+            direct_clauses=direct_clauses,
+            supporting_clauses=supporting_clauses,
+            missing_fields=missing_fields,
+        )
+
+    relevant = _dedupe_clauses([*qualification_pool, *scoring_pool, *_collect_by_fields_in_order(extracted_clauses, ["采购标的", "项目属性"])])
     return _assemble_bundle_for_definition(definition, relevant)
 
 
@@ -602,6 +707,48 @@ def _assemble_bundle_for_definition(
         rebuttal_evidence=rebuttal,
         missing_evidence_notes=missing_notes,
         clause_roles=_dedupe_roles(relevant),
+        sufficiency_summary=summary,
+        evidence_level=evidence_level,
+        evidence_score=evidence_score,
+    )
+    return bundle, status, rationale
+
+
+def _assemble_custom_bundle(
+    definition: ReviewPointDefinition,
+    direct_clauses: list[ExtractedClause],
+    supporting_clauses: list[ExtractedClause],
+    conflicting_clauses: list[ExtractedClause] | None = None,
+    rebuttal_clauses: list[ExtractedClause] | None = None,
+    missing_fields: list[str] | None = None,
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    conflicting_clauses = conflicting_clauses or []
+    rebuttal_clauses = rebuttal_clauses or []
+    missing_fields = missing_fields or []
+    direct = [_to_evidence(clause) for clause in _dedupe_clauses(direct_clauses)[:3]]
+    supporting = [_to_evidence(clause) for clause in _dedupe_clauses(supporting_clauses)[:4]]
+    conflicting = [_to_evidence(clause) for clause in _dedupe_clauses(conflicting_clauses)[:3]]
+    rebuttal = [_to_evidence(clause) for clause in _dedupe_clauses(rebuttal_clauses)[:3]]
+    missing_notes: list[str] = []
+    if missing_fields:
+        missing_notes.append(f"当前任务尚未采集到关键字段：{', '.join(sorted(dict.fromkeys(missing_fields)))}。")
+    if not direct and not supporting:
+        missing_notes.append("当前任务尚未采集到有效候选事实，需依赖后续规则、一致性或人工补证。")
+    if conflicting:
+        missing_notes.append("当前任务存在冲突或弱来源证据，formal 前需结合适法性与质量关卡复核。")
+    if rebuttal:
+        missing_notes.append("当前任务已识别到反证或否定性事实，需防止过度定性。")
+    evidence_level, evidence_score = _derive_bundle_strength(direct, supporting, conflicting, rebuttal)
+    status = _derive_task_status(direct, supporting, conflicting, rebuttal)
+    summary = _build_bundle_summary(direct, supporting, conflicting, rebuttal, missing_fields)
+    rationale = _build_task_rationale(definition, direct, supporting, conflicting, rebuttal)
+    bundle = EvidenceBundle(
+        direct_evidence=direct,
+        supporting_evidence=supporting,
+        conflicting_evidence=conflicting,
+        rebuttal_evidence=rebuttal,
+        missing_evidence_notes=missing_notes,
+        clause_roles=_dedupe_roles([*direct_clauses, *supporting_clauses, *conflicting_clauses, *rebuttal_clauses]),
         sufficiency_summary=summary,
         evidence_level=evidence_level,
         evidence_score=evidence_score,

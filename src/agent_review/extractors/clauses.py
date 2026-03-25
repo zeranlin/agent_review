@@ -337,14 +337,23 @@ def _payment_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if not any(token in line for token in ["付款方式", "付款节点", "支付"]):
             continue
+        window = _build_window_clause(lines, line_no, after=4)
+        window_text = window.content
         relation_tags: list[str] = []
-        if "尾款" in line:
+        if "尾款" in window_text:
             relation_tags.append("尾款")
-        if any(token in line for token in ["验收后", "验收合格后"]):
+        if any(token in window_text for token in ["验收后", "验收合格后"]):
             relation_tags.append("验收触发")
-        if any(token in line for token in ["考核", "满意度", "评价"]):
+        if any(token in window_text for token in ["考核", "满意度", "评价"]):
             relation_tags.append("考核联动")
-        return _build_window_clause(lines, line_no, after=3, normalized_value="存在", relation_tags=relation_tags)
+        return ExtractedClause(
+            category="",
+            field_name="",
+            content=window.content,
+            source_anchor=window.source_anchor,
+            normalized_value="存在",
+            relation_tags=relation_tags,
+        )
     return None
 
 
@@ -552,7 +561,8 @@ def _qualification_detail_extractor(lines: list[str]) -> ExtractedClause | None:
         if not any(token in line for token in ["资格要求", "供应商资格", "特定资格要求", "资质证书", "业绩要求", "项目负责人"]):
             continue
         anchors.append(line_no)
-        window = _build_window_clause(lines, line_no, after=3, normalized_value="存在", relation_tags=["资格条件明细"])
+        after = 12 if any(token in line for token in ["本项目特定的资格要求", "投标人的资格要求", "特定资格要求"]) else 4
+        window = _build_window_clause(lines, line_no, after=after, normalized_value="存在", relation_tags=["资格条件明细"])
         matched_lines.append(window.content)
         if len(matched_lines) >= 3:
             break
@@ -723,11 +733,19 @@ def _credit_evaluation_scoring_extractor(lines: list[str]) -> ExtractedClause | 
 
 
 def _credit_relief_extractor(lines: list[str]) -> ExtractedClause | None:
-    return _multi_line_keyword_extractor(
-        ["信用修复", "异议", "申诉", "救济", "复核"],
-        require_tokens=["信用", "异议", "申诉", "修复", "救济"],
-        relation_tags=["信用修复或异议机制"],
-    )(lines)
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in ["信用", "失信", "信用中国", "征信"]):
+            continue
+        if not any(token in line for token in ["修复", "异议", "申诉", "救济", "复核"]):
+            continue
+        return _build_window_clause(
+            lines,
+            line_no,
+            after=2,
+            normalized_value="存在",
+            relation_tags=["信用修复或异议机制"],
+        )
+    return None
 
 
 def _service_content_extractor(lines: list[str]) -> ExtractedClause | None:
@@ -954,12 +972,21 @@ def _assessment_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if not any(token in line for token in ["考核", "绩效考核", "满意度"]):
             continue
+        window = _build_window_clause(lines, line_no, after=2)
+        window_text = window.content
         relation_tags = ["存在"]
-        if any(token in line for token in ["付款", "支付", "尾款"]):
+        if any(token in window_text for token in ["付款", "支付", "尾款"]):
             relation_tags.append("关联付款")
-        if "满意度" in line:
+        if "满意度" in window_text:
             relation_tags.append("满意度")
-        return _build_clause(line, line_no, normalized_value="存在", relation_tags=relation_tags)
+        return ExtractedClause(
+            category="",
+            field_name="",
+            content=window.content,
+            source_anchor=window.source_anchor,
+            normalized_value="存在",
+            relation_tags=relation_tags,
+        )
     return None
 
 
@@ -967,12 +994,21 @@ def _satisfaction_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if "满意度" not in line:
             continue
+        window = _build_window_clause(lines, line_no, after=2)
+        window_text = window.content
         tags = ["满意度条款"]
-        if any(token in line for token in ["付款", "支付", "尾款"]):
+        if any(token in window_text for token in ["付款", "支付", "尾款"]):
             tags.append("关联付款")
-        if "验收" in line:
+        if "验收" in window_text:
             tags.append("关联验收")
-        return _build_clause(line, line_no, normalized_value="存在", relation_tags=tags)
+        return ExtractedClause(
+            category="",
+            field_name="",
+            content=window.content,
+            source_anchor=window.source_anchor,
+            normalized_value="存在",
+            relation_tags=tags,
+        )
     return None
 
 
@@ -1110,8 +1146,8 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("项目基本信息", "采购包划分说明", _package_split_extractor),
     ("项目基本信息", "需求调查结论", _demand_survey_extractor),
     ("项目基本信息", "专家论证结论", _expert_review_extractor),
-    ("资格条款", "一般资格要求", _window_keyword_extractor(["资格要求", "供应商资格"], after=2)),
-    ("资格条款", "特定资格要求", _window_keyword_extractor(["特定资格要求", "资质要求"], after=2)),
+    ("资格条款", "一般资格要求", _window_keyword_extractor(["资格要求", "供应商资格"], after=8)),
+    ("资格条款", "特定资格要求", _window_keyword_extractor(["特定资格要求", "资质要求"], after=12)),
     ("资格条款", "资格条件明细", _qualification_detail_extractor),
     ("资格条款", "信用要求", _simple_keyword_extractor(["信用要求"])),
     ("资格条款", "是否允许联合体", _allowance_extractor(["联合体"], ["不接受联合体", "不允许联合体"], ["允许联合体", "接受联合体"])),

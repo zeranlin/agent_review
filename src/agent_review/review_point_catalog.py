@@ -860,8 +860,8 @@ CATALOG: list[ReviewPointDefinition] = [
         default_severity=Severity.high,
         scenario_tags=["scoring"],
         required_conditions=[
-            ReviewPointCondition("存在资格条件明细", clause_fields=["资格条件明细"]),
-            ReviewPointCondition("存在评分项明细", clause_fields=["评分项明细"]),
+            ReviewPointCondition("存在资格条件明细", clause_fields=["资格条件明细", "一般资格要求", "特定资格要求"]),
+            ReviewPointCondition("存在评分项明细", clause_fields=["评分项明细", "信用评价要求", "行业相关性存疑评分项"]),
         ],
         basis_hint="已作为资格条件的资质、业绩、人员或证书不宜再次通过评分重复放大门槛。",
     ),
@@ -872,10 +872,10 @@ CATALOG: list[ReviewPointDefinition] = [
         default_severity=Severity.high,
         scenario_tags=["scoring", "policy"],
         required_conditions=[
-            ReviewPointCondition("存在特定资格要求", clause_fields=["特定资格要求"]),
+            ReviewPointCondition("存在特定资格要求", clause_fields=["特定资格要求", "一般资格要求", "资格条件明细"]),
             ReviewPointCondition(
                 "存在资质证书或材料负担信号",
-                clause_fields=["证书检测报告负担特征", "行业相关性存疑评分项"],
+                clause_fields=["证书检测报告负担特征", "行业相关性存疑评分项", "评分项明细", "证书材料适用阶段"],
                 signal_groups=[["资质", "证书", "认证", "检测报告"]],
             ),
         ],
