@@ -36,7 +36,7 @@ from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
 from agent_review.parsers.vision_ocr import VisionOcrResult
-from agent_review.quality import clause_window_from_anchor
+from agent_review.quality import clause_window_from_anchor, evidence_supports_title
 from agent_review.rules.risk_rules import match_risk_rules
 from agent_review.reporting import (
     render_formal_review_opinion,
@@ -1103,6 +1103,7 @@ def test_dynamic_task_parser_can_enrich_defaults_for_unknown_task_shape() -> Non
     assert "需求调查结论" in [field for condition in task.required_conditions for field in condition.clause_fields]
     assert task.evidence_hints
     assert task.enhancement_fields
+    assert task.exclusion_conditions
 
 
 def test_extractors_can_capture_demand_survey_and_scoring_item_details() -> None:
@@ -1717,7 +1718,7 @@ def test_reviewer_report_prefers_scoring_relevance_and_amount_clusters() -> None
     assert "实施方案" not in reviewer.split("**1. 评分项与采购标的不相关**", 1)[1].split("**2.", 1)[0]
 
 
-def test_reviewer_report_formats_location_ranges_and_generates_issue_recommendations() -> None:
+def test_reviewer_report_formats_location_ranges_without_process_sections() -> None:
     text = """
     （三）项目所属分类：货物
     人工管护：管护期3年，包含清林整地、连续施肥、幼林抚育、成林管护、机械运水。
@@ -1728,8 +1729,8 @@ def test_reviewer_report_formats_location_ranges_and_generates_issue_recommendat
     reviewer = render_reviewer_report(report)
 
     assert "原文位置：第" in reviewer
-    assert "**三、审查意见**" in reviewer
-    assert "建议重新核定项目属性、采购内容和合同类型的一致性" in reviewer
+    assert "**三、审查意见**" not in reviewer
+    assert "补充摘录：" not in reviewer
 
 
 def test_reviewer_report_refines_contract_and_warranty_quotes() -> None:
@@ -1748,6 +1749,44 @@ def test_reviewer_report_refines_contract_and_warranty_quotes() -> None:
     assert "比较优胜的原则" in reviewer
     assert "货物质保期3年" in reviewer
     assert "1095日" in reviewer
+
+
+def test_reviewer_report_only_keeps_formal_risk_points() -> None:
+    text = """
+    本项目属于专门面向中小企业采购的项目。
+    评分章节仍保留小型、微型企业价格扣除。
+    本项目不需要需求调查。
+    合同履行期限：1095日。
+    采购内容包含人工管护、运水。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "建议复核" not in reviewer
+    assert "需求调查结论与项目复杂度匹配性复核" not in reviewer
+
+
+def test_personnel_titles_require_real_personnel_evidence() -> None:
+    assert evidence_supports_title("团队稳定性要求过强", "项目名称：某项目；预算金额：100000元") is False
+    assert evidence_supports_title("人员更换限制较强", "项目概况：本项目不分包采购") is False
+    assert evidence_supports_title("团队稳定性要求过强", "核心团队成员在服务期内应保持稳定，未经采购人同意不得更换。") is True
+
+
+def test_reviewer_report_suppresses_personnel_false_positive_without_real_quote() -> None:
+    text = """
+    项目名称：某采购项目
+    预算金额：100000元
+    以联合体形式参加政府采购活动的，其质疑应当由联合体成员委托主体提出。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "容貌体形要求" not in reviewer
+
+
+def test_extractors_do_not_misread_lianheti_xingshi_as_body_shape_requirement() -> None:
+    clauses = extract_clauses("以联合体形式参加政府采购活动的，其质疑应当由联合体成员委托主体提出。")
+    assert not any(item.field_name == "容貌体形要求" for item in clauses)
 
 
 def test_warranty_scope_mismatch_review_point_can_formalize() -> None:

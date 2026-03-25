@@ -49,23 +49,13 @@ def parse_dynamic_review_tasks(raw_items: object) -> list[ReviewPointDefinition]
             group for group in defaults["rebuttal_templates"] if group not in rebuttal_templates
         )
 
-        required_conditions: list[ReviewPointCondition] = []
-        if focus_fields:
-            required_conditions.append(
-                ReviewPointCondition(
-                    name="存在关键结构化字段",
-                    clause_fields=focus_fields,
-                    signal_groups=[],
-                )
-            )
-        for signal_index, group in enumerate(signal_groups, start=1):
-            required_conditions.append(
-                ReviewPointCondition(
-                    name=f"命中场景信号{signal_index}",
-                    clause_fields=[],
-                    signal_groups=[group],
-                )
-            )
+        required_conditions, exclusion_conditions = _build_dynamic_task_conditions(
+            task_type=task_type,
+            title=title,
+            focus_fields=focus_fields,
+            signal_groups=signal_groups,
+            rebuttal_templates=rebuttal_templates,
+        )
         if not required_conditions:
             continue
 
@@ -82,7 +72,7 @@ def parse_dynamic_review_tasks(raw_items: object) -> list[ReviewPointDefinition]
                     if str(value).strip()
                 ] or defaults["scenario_tags"],
                 required_conditions=required_conditions,
-                exclusion_conditions=[],
+                exclusion_conditions=exclusion_conditions,
                 evidence_hints=list(
                     dict.fromkeys(
                         [
@@ -112,6 +102,87 @@ def parse_dynamic_review_tasks(raw_items: object) -> list[ReviewPointDefinition]
             )
         )
     return results
+
+
+def _build_dynamic_task_conditions(
+    task_type: str,
+    title: str,
+    focus_fields: list[str],
+    signal_groups: list[list[str]],
+    rebuttal_templates: list[list[str]],
+) -> tuple[list[ReviewPointCondition], list[ReviewPointCondition]]:
+    required_conditions: list[ReviewPointCondition] = []
+    exclusion_conditions: list[ReviewPointCondition] = []
+
+    def add_required(name: str, clause_fields: list[str] | None = None, signal_groups_: list[list[str]] | None = None) -> None:
+        if not clause_fields and not signal_groups_:
+            return
+        required_conditions.append(
+            ReviewPointCondition(
+                name=name,
+                clause_fields=list(dict.fromkeys(clause_fields or [])),
+                signal_groups=signal_groups_ or [],
+            )
+        )
+
+    def add_exclusion(name: str, clause_fields: list[str] | None = None, signal_groups_: list[list[str]] | None = None) -> None:
+        if not clause_fields and not signal_groups_:
+            return
+        exclusion_conditions.append(
+            ReviewPointCondition(
+                name=name,
+                clause_fields=list(dict.fromkeys(clause_fields or [])),
+                signal_groups=signal_groups_ or [],
+            )
+        )
+
+    if task_type == "structure":
+        add_required("存在项目属性或项目所属分类", ["项目属性", "项目所属分类"])
+        add_required("存在采购内容或持续性服务信号", ["采购内容构成", "是否含持续性服务"], signal_groups[:1])
+        add_required("存在合同类型或履约周期", ["合同类型", "合同履行期限"])
+        add_exclusion("整体货物主线清楚", ["项目属性", "采购标的", "合同类型", "是否含持续性服务"], [["仅供货", "不含服务"]])
+    elif task_type == "scoring":
+        add_required("存在评分结构化字段", ["评分方法", "评分项明细"])
+        add_required("存在评分风险信号", signal_groups_=signal_groups[:1])
+        add_required("存在评分材料或权重字段", ["证书类评分总分", "证书检测报告负担特征", "预算金额"], signal_groups_=signal_groups[1:2])
+        add_exclusion("仅履约或验收阶段材料", ["证书材料适用阶段", "检测报告适用阶段"], rebuttal_templates[:1])
+        add_exclusion("仅辅助说明不计分", signal_groups_=rebuttal_templates[1:2])
+    elif task_type == "contract":
+        add_required("存在合同结构化字段", ["合同类型", "付款节点", "验收标准"])
+        add_required("存在争议或验收风险信号", signal_groups_=signal_groups)
+        add_exclusion("合同已设置中性争议解决机制", ["争议解决方式"], rebuttal_templates[:1])
+    elif task_type == "personnel":
+        add_required("存在团队稳定或人员更换字段", ["团队稳定性要求", "人员更换限制", "采购人批准更换"])
+        add_required("存在人员限制信号", signal_groups_=signal_groups)
+        add_exclusion("仅关键岗位或协商更换", signal_groups_=rebuttal_templates)
+    elif task_type == "policy":
+        add_required("存在专门面向中小企业路径", ["是否专门面向中小企业"], [signal_groups[0]] if signal_groups else [])
+        add_required("存在价格扣除或声明函金额信号", ["是否仍保留价格扣除条款", "中小企业声明函类型", "面向中小企业采购金额", "最高限价"], [signal_groups[1]] if len(signal_groups) > 1 else [])
+        add_exclusion("并非专门面向中小企业或仅资格说明", ["是否为预留份额采购"], rebuttal_templates)
+    elif task_type == "template":
+        add_required("存在模板残留字段", ["合同模板残留", "合同成果模板术语"])
+        add_required("存在模板残留信号", signal_groups_=signal_groups)
+        add_exclusion("模板已澄清或仅示例", signal_groups_=rebuttal_templates)
+    elif task_type == "consistency":
+        add_required("存在一致性核心字段", ["项目属性", "合同类型", "预算金额", "最高限价", "面向中小企业采购金额"])
+        for index, group in enumerate(signal_groups[:2], start=1):
+            add_required(f"命中一致性信号{index}", signal_groups_=[group])
+        add_exclusion("上下文已澄清或补充说明", signal_groups_=rebuttal_templates)
+    else:
+        add_required("存在程序性或复杂度字段", ["需求调查结论", "专家论证结论", "采购内容构成", "合同履行期限", "预算金额"])
+        for index, group in enumerate(signal_groups[:2], start=1):
+            add_required(f"命中程序审慎性信号{index}", signal_groups_=[group])
+        add_exclusion("程序已完成或项目简单", signal_groups_=rebuttal_templates)
+
+    if not required_conditions:
+        if focus_fields:
+            add_required("存在关键结构化字段", focus_fields)
+        for signal_index, group in enumerate(signal_groups, start=1):
+            add_required(f"命中场景信号{signal_index}", signal_groups_=[group])
+    if not exclusion_conditions:
+        for signal_index, group in enumerate(rebuttal_templates, start=1):
+            add_exclusion(f"命中反证模板{signal_index}", signal_groups_=[group])
+    return required_conditions, exclusion_conditions
 
 
 def _default_dynamic_task_config(task_type: str, title: str) -> dict[str, object]:

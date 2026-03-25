@@ -749,7 +749,12 @@ def _personnel_line_extractor(keywords: list[str], normalized_value: str, relati
             if normalized_value == "存在" and relation_tags:
                 if "采购人审批录用" in relation_tags and not any(token in line for token in ["录用", "聘用", "上岗", "应聘"]):
                     continue
-                if "容貌体形要求" in relation_tags and not any(token in line for token in ["容貌", "体形", "五官", "仪容", "端庄"]):
+                if "容貌体形要求" in relation_tags:
+                    if "联合体形式" in line or "联合体" in line:
+                        continue
+                    if not any(token in line for token in ["容貌", "体形", "五官", "仪容", "端庄"]):
+                        continue
+                if "采购人批准更换" in relation_tags and not any(token in line for token in ["更换", "替换", "变更", "调整"]):
                     continue
                 return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags or [])
         return None

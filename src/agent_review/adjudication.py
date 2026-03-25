@@ -705,6 +705,13 @@ def _resolve_review_point_evidence(
         if scoring_row and evidence_supports_title(point.title, scoring_row):
             return section_hint, scoring_row
 
+    if family_key == "personnel":
+        if quote_cluster and evidence_supports_title(point.title, quote_cluster):
+            return section_hint, quote_cluster
+        if line_quote and evidence_supports_title(point.title, line_quote):
+            return section_hint, line_quote
+        return section_hint, "当前自动抽取未定位到可直接引用的原文。"
+
     if quote_cluster:
         return section_hint, quote_cluster
 
@@ -775,6 +782,47 @@ def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text:
                 title_score += 3
             if "分" in text or "评分总分=" in text:
                 title_score += 2
+        elif title in {"评分项与采购标的不相关", "行业无关证书或财务指标被纳入评分"}:
+            if any(token in text for token in ["利润率", "软件企业认定证书", "ITSS", "财务报告", "信用评价"]):
+                title_score += 4
+            if any(token in text for token in ["评分", "详细评审", "履约能力", "分"]):
+                title_score += 2
+        elif title in {"专门面向中小企业却仍保留价格扣除", "专门面向中小企业却保留价格扣除模板"}:
+            if "专门面向中小企业" in text:
+                title_score += 3
+            if "价格扣除" in text:
+                title_score += 3
+            if "中小企业声明函" in text:
+                title_score += 1
+        elif title == "中小企业采购金额口径不一致":
+            if any(token in text for token in ["预算金额", "最高限价", "面向中小企业采购金额"]):
+                title_score += 3
+            if any(token in text for token in ["元", "金额"]):
+                title_score += 1
+        elif title in {"项目属性与采购内容、合同类型不一致", "项目属性与合同类型口径疑似不一致", "货物采购混入持续性作业服务"}:
+            if any(token in text for token in ["项目所属分类", "项目属性", "货物", "服务"]):
+                title_score += 2
+            if any(token in text for token in ["人工管护", "清林整地", "抚育", "运水", "持续性作业"]):
+                title_score += 3
+            if any(token in text for token in ["合同类型", "承揽合同"]):
+                title_score += 3
+        elif title in {"合同条款出现非本行业成果模板表述", "合同文本存在明显模板残留", "验收标准存在优胜原则或单方弹性判断", "货物保修表述与项目实际履约内容不匹配"}:
+            if any(token in text for token in ["项目成果", "移作他用", "泄露本项目成果", "研究成果", "技术文档"]):
+                title_score += 4
+            if any(token in text for token in ["比较优胜", "优胜的原则", "确定该项的约定标准", "验收"]):
+                title_score += 3
+            if any(token in text for token in ["货物质保期", "质量保修范围和保修期", "1095日", "人工管护"]):
+                title_score += 3
+        elif title == "团队稳定性要求过强":
+            if any(token in text for token in ["团队稳定", "核心团队", "人员稳定", "团队成员"]):
+                title_score += 3
+            if any(token in text for token in ["保持稳定", "不得更换", "未经采购人同意", "服务期内"]):
+                title_score += 3
+        elif title == "人员更换限制较强":
+            if any(token in text for token in ["人员更换", "更换", "替换", "变更", "调整"]):
+                title_score += 3
+            if any(token in text for token in ["采购人同意", "采购人批准", "须经", "不得更换", "未经采购人同意"]):
+                title_score += 3
         elif title == "刚性门槛型专利要求":
             if any(token in text for token in ["必须具备", "须具备", "应具备", "刚性门槛"]):
                 title_score += 3
@@ -802,7 +850,7 @@ def _build_formal_evidence_cluster(
     family_key = _formal_family_key(title)
     for item in ranked[:5]:
         if item.section_hint and primary_section_hint and item.section_hint != primary_section_hint:
-            if _formal_family_key(title) != "scoring":
+            if _formal_family_key(title) not in {"scoring", "policy", "structure", "contract", "score_weight"}:
                 continue
         line_quote = clause_window_from_anchor(report_text, item.section_hint) or line_text_from_anchor(report_text, item.section_hint) or item.quote.strip()
         if not line_quote:
@@ -823,6 +871,14 @@ def _formal_family_key(title: str) -> str:
         return "scoring"
     if any(token in title for token in ["证书", "检测报告", "财务指标"]):
         return "score_weight"
+    if any(token in title for token in ["中小企业", "价格扣除", "采购金额口径"]):
+        return "policy"
+    if any(token in title for token in ["项目属性", "合同类型", "持续性作业服务", "采购内容"]):
+        return "structure"
+    if any(token in title for token in ["模板", "成果", "验收标准", "质保", "保修"]):
+        return "contract"
+    if any(token in title for token in ["团队稳定", "人员更换", "采购人批准更换", "采购人审批录用", "容貌体形", "身高限制", "性别限制", "年龄限制"]):
+        return "personnel"
     if any(token in title for token in ["专利"]):
         return "restrictive"
     if any(token in title for token in ["模板残留", "成果模板"]):
@@ -836,6 +892,14 @@ def _formal_family_tokens(title: str) -> list[str]:
         return ["评分", "方案", "售后", "优于", "完全满足", "不完全满足", "扣分"]
     if family == "score_weight":
         return ["评分", "证书", "认证", "检测报告", "财务", "分值", "分"]
+    if family == "policy":
+        return ["中小企业", "价格扣除", "预算金额", "最高限价", "采购金额"]
+    if family == "structure":
+        return ["项目属性", "项目所属分类", "合同类型", "承揽合同", "人工管护", "货物", "服务"]
+    if family == "contract":
+        return ["项目成果", "研究成果", "技术文档", "优胜原则", "验收", "质保", "保修"]
+    if family == "personnel":
+        return ["团队稳定", "人员更换", "采购人同意", "采购人批准", "关键岗位", "团队成员"]
     return []
 
 

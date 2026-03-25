@@ -730,6 +730,18 @@ def _is_rebuttal_clause(clause: ExtractedClause) -> bool:
 
 
 def _to_evidence(clause: ExtractedClause) -> Evidence:
+    raw_quote_fields = {
+        "容貌体形要求",
+        "团队稳定性要求",
+        "人员更换限制",
+        "采购人批准更换",
+        "采购人审批录用",
+    }
+    if clause.field_name in raw_quote_fields and clause.content:
+        return Evidence(
+            quote=clause.content,
+            section_hint=clause.source_anchor,
+        )
     if clause.normalized_value:
         return Evidence(
             quote=f"{clause.field_name}={clause.normalized_value}",
