@@ -1716,6 +1716,21 @@ def test_qualification_overlap_requires_real_dual_anchor_overlap() -> None:
     assert not any("方案部分满足采购需求" in item.quote for item in point.evidence_bundle.direct_evidence)
 
 
+def test_qualification_overlap_ignores_generic_anti_collusion_and_social_security_boilerplate() -> None:
+    text = """
+    投标人的资格要求：投标人应具备政府采购法第二十二条规定的条件；项目负责人或者主要技术人员不是本单位人员的，
+    不得参与本项目投标；投标人需依法缴纳社会保险。
+    评分标准：项目负责人类似项目业绩5分；拟投入团队人员社保齐全得3分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-overlap-boilerplate.txt")
+    point = next(item for item in report.review_points if item.catalog_id == "RP-QUAL-001")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-QUAL-001"]
+
+    assert check.applicable is False
+    assert point.evidence_bundle.direct_evidence == []
+
+
 def test_credit_relief_extractor_ignores_generic_bid_objection_clause() -> None:
     text = """
     投标人在规定时间内未对招标文件提出疑问、质疑或要求澄清的，将视其为无异议。
@@ -1753,7 +1768,33 @@ def test_excessive_certificate_requirement_can_close_with_qualification_and_bid_
     quotes = [item.quote for item in point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence]
     assert any("特定资格要求" in quote or "质量管理体系认证证书" in quote for quote in quotes)
     assert any("检测报告" in quote or "投标文件中需提供" in quote for quote in quotes)
+    assert not any("政府采购法第二十二条" in quote for quote in quotes)
+    assert not any("证书检测报告负担特征=" in quote for quote in quotes)
     assert check.applicable is True
+
+
+def test_certificate_stage_extractor_ignores_generic_personnel_certificate_commitment() -> None:
+    text = """
+    中标人须保证，投标文件所提供的人员证书在合同履行期内持续有效。
+    评分标准：质量管理体系认证证书2分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="certificate-stage-ignore-personnel.txt")
+    stage_clauses = [item for item in report.extracted_clauses if item.field_name == "证书材料适用阶段"]
+    assert all("人员证书" not in item.content for item in stage_clauses)
+
+
+def test_excessive_certificate_requirement_ignores_personnel_and_false_information_boilerplate() -> None:
+    text = """
+    投标文件中需提供项目负责人相关证书扫描件以及学信网截图。
+    供应商有下列情形之一的，属于隐瞒真实情况：通过转让或者租借等方式从其他单位获取资格或者资质证书投标的。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-certificate-negative-boilerplate.txt")
+    point = next(item for item in report.review_points if item.catalog_id == "RP-QUAL-002")
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    check = applicability_map["RP-QUAL-002"]
+
+    assert check.applicable is False
+    assert point.evidence_bundle.direct_evidence == []
 
 
 def test_contract_linkage_can_close_with_satisfaction_and_tail_payment() -> None:

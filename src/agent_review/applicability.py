@@ -549,6 +549,27 @@ def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[Extr
         clause_mapping,
         ["评分项明细", "信用评价要求", "行业相关性存疑评分项", "证书检测报告负担特征"],
     )
+    qualification_texts = [
+        text
+        for text in qualification_texts
+        if any(token in text for token in ["须具备", "应具备", "具有", "取得", "提供", "提交", "满足"])
+        and not any(
+            token in text
+            for token in [
+                "政府采购法第二十二条",
+                "串通投标",
+                "隐瞒真实情况",
+                "重大违法记录",
+                "无行贿犯罪记录",
+                "信用中国",
+                "中国政府采购网",
+                "本单位缴纳社会保险",
+                "项目负责人或者主要技术人员不是本单位人员",
+                "法定代表人",
+            ]
+        )
+    ]
+    scoring_texts = [text for text in scoring_texts if any(token in text for token in ["评分", "得分", "分", "加分", "评审"])]
     if not qualification_texts or not scoring_texts:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取资格条款和评分条款。"]
     overlap_groups = [
@@ -570,8 +591,46 @@ def _excessive_certificate_requirement_evaluator(clause_mapping: dict[str, list[
     qualification_texts = _texts_for_fields(clause_mapping, ["特定资格要求", "一般资格要求", "资格条件明细"])
     burden_texts = _texts_for_fields(clause_mapping, ["证书检测报告负担特征", "行业相关性存疑评分项", "评分项明细"])
     cert_stage = _first_normalized_or_content(clause_mapping, "证书材料适用阶段")
-    qual_has_cert = any(_contains_any(text, ["资质", "证书", "认证", "检测报告"]) for text in qualification_texts)
-    burden_has_cert = any(_contains_any(text, ["资质", "证书", "认证", "检测报告", "管理体系"]) for text in burden_texts)
+    qualification_texts = [
+        text
+        for text in qualification_texts
+        if any(token in text for token in ["须具备", "应具备", "具有", "取得", "提供", "提交", "满足"])
+        and not any(
+            token in text
+            for token in [
+                "政府采购法第二十二条",
+                "串通投标",
+                "隐瞒真实情况",
+                "重大违法记录",
+                "无行贿犯罪记录",
+                "法定代表人",
+            ]
+        )
+    ]
+    burden_texts = [
+        text
+        for text in burden_texts
+        if any(token in text for token in ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"])
+        and (
+            any(token in text for token in ["评分", "得分", "加分", "投标文件", "提交", "提供", "扫描件"])
+            or "证书检测报告负担特征" in text
+        )
+        and not any(
+            token in text
+            for token in [
+                "隐瞒真实情况",
+                "转让或者租借",
+                "项目负责人相关证书",
+                "学信网",
+                "学历学位认证证书",
+                "项目负责人",
+                "主要技术人员",
+                "社会保险",
+            ]
+        )
+    ]
+    qual_has_cert = any(_contains_any(text, ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"]) for text in qualification_texts)
+    burden_has_cert = any(_contains_any(text, ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"]) for text in burden_texts)
     if not qualification_texts and not burden_texts:
         return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到特定资质、证书或检测报告负担信号。"]
     if qual_has_cert and burden_has_cert:

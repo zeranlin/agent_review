@@ -480,18 +480,35 @@ def _assemble_qualification_boundary_evidence(
         ["信用"],
     ]
     overlap_tokens = [token for group in overlap_groups for token in group]
-    cert_tokens = ["资质", "证书", "认证", "检测报告", "管理体系"]
+    cert_tokens = ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"]
     qualification_fields = ["一般资格要求", "特定资格要求", "资格条件明细"]
     scoring_fields = ["评分项明细", "行业相关性存疑评分项", "证书检测报告负担特征", "证书类评分总分", "信用评价要求"]
+    excluded_qualification_tokens = [
+        "政府采购法第二十二条",
+        "串通投标",
+        "隐瞒真实情况",
+        "重大违法记录",
+        "无行贿犯罪记录",
+        "信用中国",
+        "中国政府采购网",
+        "本单位缴纳社会保险",
+        "项目负责人或者主要技术人员不是本单位人员",
+        "法定代表人",
+    ]
+    qualification_requirement_tokens = ["须具备", "应具备", "具有", "取得", "提供", "提交", "满足"]
+    scoring_requirement_tokens = ["评分", "得分", "分", "加分", "评审"]
     qualification_pool = [
         clause
         for clause in _collect_text_anchor_clauses(extracted_clauses, qualification_fields, overlap_tokens)
         if any(token in clause.content for token in overlap_tokens)
+        and any(token in clause.content for token in qualification_requirement_tokens)
+        and not any(token in clause.content for token in excluded_qualification_tokens)
     ]
     scoring_pool = [
         clause
         for clause in _collect_text_anchor_clauses(extracted_clauses, scoring_fields, overlap_tokens)
-        if any(token in clause.content for token in overlap_tokens) and any(token in clause.content for token in ["评分", "得分", "分", "不得分"])
+        if any(token in clause.content for token in overlap_tokens)
+        and any(token in clause.content for token in scoring_requirement_tokens)
     ]
     if definition.catalog_id == "RP-QUAL-001":
         matched_tokens = [
@@ -527,17 +544,42 @@ def _assemble_qualification_boundary_evidence(
         )
 
     if definition.catalog_id == "RP-QUAL-002":
-        burden_fields = ["证书检测报告负担特征", "行业相关性存疑评分项", "评分项明细", "证书材料适用阶段"]
+        burden_fields = ["证书检测报告负担特征", "行业相关性存疑评分项", "评分项明细"]
+        excluded_cert_context_tokens = [
+            "隐瞒真实情况",
+            "转让或者租借",
+            "项目负责人相关证书",
+            "学信网",
+            "学历学位认证证书",
+            "项目负责人",
+            "主要技术人员",
+            "社会保险",
+        ]
         qualification_clauses = [
-            clause for clause in qualification_pool if any(token in clause.content for token in cert_tokens)
+            clause
+            for clause in qualification_pool
+            if any(token in clause.content for token in cert_tokens)
+            and not any(token in clause.content for token in excluded_cert_context_tokens)
         ]
         burden_clauses = [
             clause
             for clause in _collect_text_anchor_clauses(extracted_clauses, burden_fields, cert_tokens)
             if any(token in clause.content for token in cert_tokens)
+            and not any(token in clause.content for token in excluded_cert_context_tokens)
+            and (
+                clause.field_name == "评分项明细"
+                or any(token in clause.content for token in ["投标文件", "评分", "评审", "加分", "得分", "提供", "提交", "扫描件"])
+            )
         ]
         stage_clauses = _collect_by_fields_in_order(extracted_clauses, ["证书材料适用阶段", "检测报告适用阶段"])
         stage_is_bid = any("投标阶段" in (clause.normalized_value or clause.content) for clause in stage_clauses)
+        burden_clauses.sort(
+            key=lambda clause: (
+                clause.field_name != "评分项明细",
+                not any(token in clause.content for token in ["投标文件", "提交", "提供", "扫描件"]),
+                len(clause.content),
+            )
+        )
         direct_clauses = []
         if qualification_clauses and burden_clauses:
             direct_clauses = _dedupe_clauses([qualification_clauses[0], burden_clauses[0]])
@@ -1108,8 +1150,13 @@ def _to_evidence(clause: ExtractedClause) -> Evidence:
         "采购人审批录用",
         "采购方式",
         "采购方式适用理由",
+        "一般资格要求",
+        "特定资格要求",
         "资格条件明细",
         "评分项明细",
+        "证书检测报告负担特征",
+        "证书材料适用阶段",
+        "检测报告适用阶段",
         "信用评价要求",
         "付款节点",
         "验收标准",

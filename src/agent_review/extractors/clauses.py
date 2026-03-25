@@ -362,6 +362,8 @@ def _material_stage_extractor(keywords: list[str]) -> ClauseExtractor:
         for line_no, line in enumerate(lines, start=1):
             if not any(keyword in line for keyword in keywords):
                 continue
+            if "人员证书" in line and not any(token in line for token in ["认证证书", "检测报告", "管理体系认证", "环境标志", "环保产品认证"]):
+                continue
             relation_tags: list[str] = []
             normalized_value = ""
             if any(token in line for token in ["投标文件", "响应文件", "评审", "评分", "加分", "资格审查", "投标阶段"]):
@@ -392,7 +394,7 @@ def _material_burden_extractor(lines: list[str]) -> ExtractedClause | None:
         if not any(term in line for term in requirement_terms):
             continue
         anchors.append(line_no)
-        matched_lines.append(line[:80])
+        matched_lines.append(_build_window_clause(lines, line_no, after=1).content)
         matched_terms.extend(matched)
     if not anchors:
         return None
@@ -555,10 +557,27 @@ def _package_split_extractor(lines: list[str]) -> ExtractedClause | None:
 def _qualification_detail_extractor(lines: list[str]) -> ExtractedClause | None:
     anchors: list[int] = []
     matched_lines: list[str] = []
+    specific_tokens = [
+        "资格要求",
+        "供应商资格",
+        "特定资格要求",
+        "资质证书",
+        "认证证书",
+        "管理体系认证",
+        "检测报告",
+        "业绩要求",
+        "项目负责人",
+        "信用评价",
+        "信用等级",
+    ]
+    requirement_tokens = ["须具备", "应具备", "具有", "取得", "提供", "提交", "满足"]
+    excluded_tokens = ["法定代表人", "声明函", "政府采购法第二十二条", "重大违法记录", "串通投标", "隐瞒真实情况"]
     for line_no, line in enumerate(lines, start=1):
-        if any(token in line for token in ["法定代表人", "声明函"]):
+        if any(token in line for token in excluded_tokens):
             continue
-        if not any(token in line for token in ["资格要求", "供应商资格", "特定资格要求", "资质证书", "业绩要求", "项目负责人"]):
+        if not any(token in line for token in specific_tokens):
+            continue
+        if not any(token in line for token in requirement_tokens) and not any(token in line for token in ["资格要求", "供应商资格", "特定资格要求"]):
             continue
         anchors.append(line_no)
         after = 12 if any(token in line for token in ["本项目特定的资格要求", "投标人的资格要求", "特定资格要求"]) else 4
