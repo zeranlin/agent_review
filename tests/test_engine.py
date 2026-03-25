@@ -1648,7 +1648,9 @@ def test_reviewer_report_uses_reviewer_friendly_language() -> None:
     report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
     reviewer = render_reviewer_report(report)
 
-    assert "已发现明确风险，证据较充分。" in reviewer
+    assert "**招标文件合规审查意见书**" in reviewer
+    assert "**一、审查结论**" in reviewer
+    assert "**二、问题明细**" in reviewer
     assert "要件链成立" not in reviewer
     assert "已满足 1 项要件" not in reviewer
 

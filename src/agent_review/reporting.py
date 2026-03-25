@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
+from pathlib import Path
 
 from .quality import evidence_supports_title
 from .models import FindingType, ReviewReport
@@ -75,64 +78,86 @@ def render_formal_review_opinion(report: ReviewReport) -> str:
 
 
 def render_reviewer_report(report: ReviewReport) -> str:
-    items = _build_formal_review_items(report)
-    review_items = _build_review_review_items(report)
+    issue_entries = _build_reviewer_issue_entries(report)
+    project_name = _extract_project_name(report)
+    purchaser = _extract_purchaser_name(report)
+    review_date = _format_review_date()
+    source_label = report.file_info.document_name
+    source_path = report.parse_result.source_path or report.file_info.document_name
+
     lines = [
-        "# 招标文件审查人员版风险报告",
+        "**招标文件合规审查意见书**",
         "",
-        f"- 审查对象: {report.file_info.document_name}",
-        f"- 总体判断: {report.overall_conclusion.value}",
+        f"项目名称：{project_name}",
+        f"审查材料：[{source_label}]({source_path})",
+        f"采购单位：{purchaser}",
+        f"审查日期：{review_date}",
+        "",
+        "**一、审查结论**",
+        f"经审查，该采购需求文件{_reviewer_conclusion_sentence(report)}",
         "",
     ]
 
-    if items:
+    if not issue_entries:
         lines.extend(
             [
-                "## 已发现明确风险",
-                "",
-            ]
-        )
-        for index, item in enumerate(items, start=1):
-            lines.extend(
-                [
-                    f"### {index}. {item['问题标题']}",
-                    "",
-                    f"- 条款位置: {item['条款位置']}",
-                    f"- 原文摘录: {item['原文摘录']}",
-                    f"- 风险判断: 已发现明确风险，证据较充分。",
-                    f"- 法律/政策依据: {item['法律/政策依据']}",
-                    "",
-                ]
-            )
-
-    if review_items:
-        lines.extend(
-            [
-                "## 建议复核问题",
-                "",
-            ]
-        )
-        for index, item in enumerate(review_items, start=1):
-            lines.extend(
-                [
-                    f"### {index}. {item['问题标题']}",
-                    "",
-                    f"- 条款位置: {item['条款位置']}",
-                    f"- 原文摘录: {item['原文摘录']}",
-                    f"- 风险判断: 已发现风险线索，建议进一步复核。",
-                    f"- 法律/政策依据: {item['法律/政策依据']}",
-                    "",
-                ]
-            )
-
-    if not items and not review_items:
-        lines.extend(
-            [
-                "## 审查结果",
-                "",
+                "**二、问题明细**",
                 "当前未发现可直接输出的明确风险点。",
             ]
         )
+        return "\n".join(lines)
+
+    lines.extend(
+        [
+            "**二、问题明细**",
+            "",
+        ]
+    )
+    for index, item in enumerate(issue_entries, start=1):
+        lines.extend(
+            [
+                f"**{index}. {item['问题标题']}**",
+                f"问题定性：**{item['问题定性']}**",
+                "",
+                f"审查类型：{item['审查类型']}",
+                f"原文位置：{item['原文位置']}",
+                "原文摘录：",
+            ]
+        )
+        for quote in item["原文摘录"]:
+            lines.append(f"- “{quote}”")
+        lines.extend(
+            [
+                "",
+                "风险判断：",
+                item["风险判断"],
+                "",
+                "法律/政策依据：",
+            ]
+        )
+        for basis in item["法律/政策依据"]:
+            lines.append(f"- {basis}")
+        lines.append("")
+
+    if report.recommendations:
+        lines.extend(
+            [
+                "**三、审查意见**",
+            ]
+        )
+        for index, recommendation in enumerate(report.recommendations[:6], start=1):
+            lines.append(f"{index}. {recommendation.suggestion}")
+        lines.append("")
+
+    basis_lines = _build_reviewer_basis_lines(report)
+    if basis_lines:
+        lines.extend(
+            [
+                "**四、主要依据**",
+            ]
+        )
+        for index, basis in enumerate(basis_lines, start=1):
+            lines.append(f"{index}. {basis}")
 
     return "\n".join(lines)
 
@@ -688,6 +713,166 @@ def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
         )
     items.sort(key=lambda item: (item["风险等级"], item["问题标题"]))
     return items[:8]
+
+
+def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object]]:
+    point_index = {item.point_id: item for item in report.review_points}
+    entries: list[dict[str, object]] = []
+    for adjudication in report.formal_adjudication:
+        if not adjudication.included_in_formal:
+            continue
+        point = point_index.get(adjudication.point_id)
+        if point is None:
+            continue
+        locations = _collect_reviewer_locations(point, adjudication)
+        quotes = _collect_reviewer_quotes(point, adjudication)
+        entries.append(
+            {
+                "问题标题": point.title.strip(),
+                "问题定性": _reviewer_severity_label(point.severity.value),
+                "审查类型": point.dimension or "风险点审查",
+                "原文位置": "；".join(locations) if locations else (adjudication.section_hint or "未明确定位"),
+                "原文摘录": quotes or [adjudication.primary_quote or "当前自动抽取未定位到可直接引用的原文。"],
+                "风险判断": _reviewer_risk_judgment(point.rationale, adjudication.rationale),
+                "法律/政策依据": _reviewer_legal_basis_lines(point),
+            }
+        )
+    return entries
+
+
+def _extract_project_name(report: ReviewReport) -> str:
+    for clause in report.extracted_clauses:
+        if clause.field_name != "项目名称":
+            continue
+        cleaned = _strip_field_prefix(clause.content, "项目名称")
+        if cleaned:
+            return cleaned
+    return Path(report.file_info.document_name).stem
+
+
+def _extract_purchaser_name(report: ReviewReport) -> str:
+    text = report.parse_result.text or ""
+    patterns = [
+        r"采购人(?:名称)?[:：]\s*([^\n]+)",
+        r"采购单位[:：]\s*([^\n]+)",
+        r"采购人信息[:：]?\s*([^\n]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            cleaned = match.group(1).strip(" ：:;；,，。")
+            if cleaned:
+                return cleaned
+    return "未自动识别"
+
+
+def _format_review_date() -> str:
+    today = datetime.now().date()
+    return f"{today.year}年{today.month}月{today.day}日"
+
+
+def _reviewer_conclusion_sentence(report: ReviewReport) -> str:
+    mapping = {
+        "整体基本规范，可直接使用": "整体基本规范，可直接使用。",
+        "存在个别条款待完善，建议优化后发出": "存在个别条款待完善，建议优化后再行发布。",
+        "存在明显合规风险，建议修改后再发布": "存在较明显合规风险，建议修改后再行发布。",
+        "存在实质性不合规问题，不建议直接发布": "存在较明显合规风险，建议修改后再行发布。",
+    }
+    return mapping.get(report.overall_conclusion.value, f"存在风险点，建议进一步复核。")
+
+
+def _reviewer_severity_label(severity: str) -> str:
+    return {
+        "critical": "高风险",
+        "high": "高风险",
+        "medium": "中风险",
+        "low": "低风险",
+    }.get(severity, "高风险")
+
+
+def _collect_reviewer_locations(point, adjudication) -> list[str]:
+    locations: list[str] = []
+    for item in [*point.evidence_bundle.direct_evidence, *point.evidence_bundle.supporting_evidence]:
+        section_hint = (item.section_hint or "").strip()
+        if section_hint and section_hint not in locations:
+            locations.append(section_hint)
+    fallback = (adjudication.section_hint or "").strip()
+    if fallback and fallback not in locations:
+        locations.append(fallback)
+    return locations[:3]
+
+
+def _collect_reviewer_quotes(point, adjudication) -> list[str]:
+    quotes: list[str] = []
+    primary = (adjudication.primary_quote or "").strip()
+    if primary and "=" not in primary:
+        quotes.append(primary)
+    for item in [*point.evidence_bundle.direct_evidence, *point.evidence_bundle.supporting_evidence]:
+        quote = (item.quote or "").strip()
+        if not quote or quote in quotes:
+            continue
+        if len(quote) < 6:
+            continue
+        if "=" in quote:
+            continue
+        quotes.append(quote)
+    return quotes[:3]
+
+
+def _reviewer_risk_judgment(point_rationale: str, adjudication_rationale: str) -> str:
+    text = (point_rationale or adjudication_rationale or "").strip()
+    if not text:
+        return "已发现明确风险，证据较充分。"
+    text = re.sub(r"\s+", " ", text)
+    replacements = {
+        "标准审查任务已围绕 ": "",
+        " 采集到直接证据，可进入后续适法性判断。": "已形成较直接的条款依据，相关风险较为明确。",
+        " 采集到支持证据，但同时存在冲突或反证，需谨慎裁决。": "已发现支持该问题的条款依据，但仍需结合上下文核对风险强度。",
+        " 采集到支持证据，但主证据代表性不足。": "已识别相关风险线索，但主证据代表性仍需继续核对。",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    text = text.replace("；要件判断：", "。要件判断：")
+    return text
+
+
+def _reviewer_legal_basis_lines(point) -> list[str]:
+    lines: list[str] = []
+    for basis in point.legal_basis:
+        label = f"《{basis.source_name}》"
+        if basis.article_hint:
+            label = f"{label} {basis.article_hint}"
+        if label not in lines:
+            lines.append(label)
+    if not lines:
+        lines.append("当前结果未自动挂接明确法规依据")
+    return lines
+
+
+def _build_reviewer_basis_lines(report: ReviewReport) -> list[str]:
+    point_index = {item.point_id: item for item in report.review_points}
+    lines: list[str] = []
+    for adjudication in report.formal_adjudication:
+        if not adjudication.included_in_formal:
+            continue
+        point = point_index.get(adjudication.point_id)
+        if point is None:
+            continue
+        for basis in _reviewer_legal_basis_lines(point):
+            if basis not in lines and basis != "当前结果未自动挂接明确法规依据":
+                lines.append(basis)
+    return lines
+
+
+def _strip_field_prefix(content: str, field_name: str) -> str:
+    text = content.strip()
+    patterns = [
+        rf".*?{re.escape(field_name)}[:：]\s*",
+        r"^[（(]?[一二三四五六七八九十\d]+[)）.、]?\s*",
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, "", text, count=1)
+    return text.strip(" ：:;；,，。")
 
 
 def _review_family_key(title: str) -> str:
