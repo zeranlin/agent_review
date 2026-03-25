@@ -218,16 +218,28 @@ def _assemble_credit_evaluation_scoring_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields_in_order(
+    prioritized = _collect_text_anchor_clauses(
         extracted_clauses,
+        ["信用评价要求", "信用修复条款", "异议救济条款", "评分项明细"],
+        ["信用评价", "信用分", "信用等级", "修复", "异议", "救济"],
+    )
+    relevant = _dedupe_clauses(
         [
-            "信用评价要求",
-            "评分项明细",
-            "评分方法",
-            "项目属性",
-            "采购标的",
-            "预算金额",
-        ],
+            *prioritized,
+            *_collect_by_fields_in_order(
+                extracted_clauses,
+                [
+                    "信用评价要求",
+                    "信用修复条款",
+                    "异议救济条款",
+                    "评分项明细",
+                    "评分方法",
+                    "项目属性",
+                    "采购标的",
+                    "预算金额",
+                ],
+            ),
+        ]
     )
     return _assemble_bundle_for_definition(definition, relevant)
 
@@ -350,17 +362,27 @@ def _assemble_procurement_method_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields_in_order(
+    prioritized = _collect_text_anchor_clauses(
         extracted_clauses,
+        ["采购方式适用理由", "采购方式"],
+        ["竞争性磋商", "竞争性谈判", "单一来源", "询价", "适用理由", "适用情形", "唯一", "复杂"],
+    )
+    relevant = _dedupe_clauses(
         [
-            "采购方式",
-            "采购方式适用理由",
-            "预算金额",
-            "项目属性",
-            "采购内容构成",
-            "需求调查结论",
-            "专家论证结论",
-        ],
+            *prioritized,
+            *_collect_by_fields_in_order(
+                extracted_clauses,
+                [
+                    "采购方式",
+                    "采购方式适用理由",
+                    "预算金额",
+                    "项目属性",
+                    "采购内容构成",
+                    "需求调查结论",
+                    "专家论证结论",
+                ],
+            ),
+        ]
     )
     return _assemble_bundle_for_definition(definition, relevant)
 
@@ -369,17 +391,27 @@ def _assemble_package_split_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields_in_order(
+    prioritized = _collect_text_anchor_clauses(
         extracted_clauses,
+        ["采购内容构成", "采购包划分说明", "采购包数量", "合同类型"],
+        ["人工", "运维", "施工", "管护", "服务", "不划分采购包", "包组划分", "划分依据"],
+    )
+    relevant = _dedupe_clauses(
         [
-            "项目属性",
-            "采购标的",
-            "采购内容构成",
-            "是否含持续性服务",
-            "采购包数量",
-            "采购包划分说明",
-            "合同类型",
-        ],
+            *prioritized,
+            *_collect_by_fields_in_order(
+                extracted_clauses,
+                [
+                    "项目属性",
+                    "采购标的",
+                    "采购内容构成",
+                    "是否含持续性服务",
+                    "采购包数量",
+                    "采购包划分说明",
+                    "合同类型",
+                ],
+            ),
+        ]
     )
     return _assemble_bundle_for_definition(definition, relevant)
 
@@ -388,7 +420,8 @@ def _assemble_qualification_boundary_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields_in_order(
+    overlap_tokens = ["资质", "证书", "认证", "业绩", "项目负责人", "人员", "社保", "信用"]
+    prioritized = _collect_text_anchor_clauses(
         extracted_clauses,
         [
             "一般资格要求",
@@ -399,9 +432,28 @@ def _assemble_qualification_boundary_evidence(
             "证书检测报告负担特征",
             "证书类评分总分",
             "信用评价要求",
-            "采购标的",
-            "项目属性",
         ],
+        overlap_tokens,
+    )
+    relevant = _dedupe_clauses(
+        [
+            *prioritized,
+            *_collect_by_fields_in_order(
+                extracted_clauses,
+                [
+                    "一般资格要求",
+                    "特定资格要求",
+                    "资格条件明细",
+                    "评分项明细",
+                    "行业相关性存疑评分项",
+                    "证书检测报告负担特征",
+                    "证书类评分总分",
+                    "信用评价要求",
+                    "采购标的",
+                    "项目属性",
+                ],
+            ),
+        ]
     )
     return _assemble_bundle_for_definition(definition, relevant)
 
@@ -444,16 +496,26 @@ def _assemble_procedural_fairness_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
 ) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
-    relevant = _collect_by_fields_in_order(
+    prioritized = _collect_text_anchor_clauses(
         extracted_clauses,
+        ["违约责任", "解约条款", "整改条款", "申辩条款", "扣款条款"],
+        ["违约责任", "解除合同", "解约", "整改", "限期改正", "申辩", "书面说明", "违约金"],
+    )
+    relevant = _dedupe_clauses(
         [
-            "违约责任",
-            "解约条款",
-            "整改条款",
-            "申辩条款",
-            "扣款条款",
-            "付款节点",
-        ],
+            *prioritized,
+            *_collect_by_fields_in_order(
+                extracted_clauses,
+                [
+                    "违约责任",
+                    "解约条款",
+                    "整改条款",
+                    "申辩条款",
+                    "扣款条款",
+                    "付款节点",
+                ],
+            ),
+        ]
     )
     return _assemble_bundle_for_definition(definition, relevant)
 
@@ -831,6 +893,32 @@ def _collect_by_fields_in_order(
     for field_name in field_names:
         collected.extend(clause for clause in extracted_clauses if clause.field_name == field_name)
     return _dedupe_clauses(collected)
+
+
+def _collect_text_anchor_clauses(
+    extracted_clauses: list[ExtractedClause],
+    field_names: list[str],
+    priority_tokens: list[str],
+) -> list[ExtractedClause]:
+    prioritized: list[ExtractedClause] = []
+    for field_name in field_names:
+        clauses = [clause for clause in extracted_clauses if clause.field_name == field_name]
+        clauses.sort(
+            key=lambda clause: (
+                -sum(
+                    1
+                    for token in priority_tokens
+                    if token and (
+                        token in clause.content
+                        or token in clause.normalized_value
+                        or token in " ".join(clause.relation_tags)
+                    )
+                ),
+                len(clause.content),
+            )
+        )
+        prioritized.extend(clauses[:2])
+    return _dedupe_clauses(prioritized)
 
 
 def _match_condition_clauses(

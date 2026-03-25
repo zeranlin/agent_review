@@ -1650,6 +1650,53 @@ def test_new_topic_evidence_prefers_clause_windows_over_presence_markers() -> No
     )
 
 
+def test_procurement_reason_and_package_split_use_clause_windows() -> None:
+    text = """
+    采购方式：竞争性磋商。
+    适用理由：因项目情况复杂，无法事先确定详细技术规格，采用竞争性磋商。
+    项目属性：货物。
+    采购内容：设备供货、安装、驻场运维服务。
+    本项目不划分采购包。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="procurement-window.txt")
+    point_map = {item.catalog_id: item for item in report.review_points}
+
+    procurement_point = point_map["RP-PROC-001"]
+    package_point = point_map["RP-PROC-002"]
+
+    assert any("适用理由" in item.quote and "竞争性磋商" in item.quote for item in procurement_point.evidence_bundle.direct_evidence + procurement_point.evidence_bundle.supporting_evidence)
+    assert any("不划分采购包" in item.quote or "驻场运维服务" in item.quote for item in package_point.evidence_bundle.direct_evidence + package_point.evidence_bundle.supporting_evidence)
+
+
+def test_qualification_overlap_prefers_dual_anchor_clauses() -> None:
+    text = """
+    资格要求：投标人须具备资质证书，项目负责人须具有类似项目业绩。
+    评分标准：资质证书5分，项目负责人业绩5分，信用评价5分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification-overlap.txt")
+    point_map = {item.catalog_id: item for item in report.review_points}
+    qualification_point = point_map["RP-QUAL-001"]
+
+    quotes = [item.quote for item in qualification_point.evidence_bundle.direct_evidence + qualification_point.evidence_bundle.supporting_evidence]
+    assert any("资格要求" in quote and "资质证书" in quote for quote in quotes)
+    assert any("评分标准" in quote and ("资质证书5分" in quote or "项目负责人业绩5分" in quote) for quote in quotes)
+
+
+def test_credit_transparency_and_procedural_fairness_prefer_raw_clauses() -> None:
+    text = """
+    评分标准：信用评价5分，按地方信用评价结果计分。
+    违约责任：采购人有权解除合同并要求供应商承担违约责任。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="credit-procedural.txt")
+    point_map = {item.catalog_id: item for item in report.review_points}
+
+    credit_point = point_map["RP-SCORE-012"]
+    prud_point = point_map["RP-PRUD-003"]
+
+    assert any("信用评价5分" in item.quote or "按地方信用评价结果计分" in item.quote for item in credit_point.evidence_bundle.direct_evidence + credit_point.evidence_bundle.supporting_evidence)
+    assert any("承担违约责任" in item.quote or "有权解除合同" in item.quote for item in prud_point.evidence_bundle.direct_evidence + prud_point.evidence_bundle.supporting_evidence)
+
+
 def test_markdown_report_uses_v2_sections() -> None:
     text = """
     项目属性：服务

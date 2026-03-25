@@ -486,6 +486,15 @@ def _procurement_method_applicability_evaluator(clause_mapping: dict[str, list[E
     return ApplicabilityStatus.unsatisfied, [f"已识别采购方式={method}，当前不构成非公开招标方式适用性重点。"]
 
 
+def _procurement_reason_presence_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    reason = _first_normalized_or_content(clause_mapping, "采购方式适用理由")
+    if not reason:
+        return ApplicabilityStatus.unsatisfied, ["尚未抽取到采购方式适用理由。"]
+    if any(token in reason for token in ["适用理由", "适用情形", "唯一", "复杂", "无法事先确定", "只能", "没有供应商"]):
+        return ApplicabilityStatus.satisfied, [f"已识别采购方式适用理由={reason}。"]
+    return ApplicabilityStatus.unsatisfied, [f"当前抽取到的采购方式说明={reason}，但仍不足以构成明确适用理由。"]
+
+
 def _package_split_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     project_type = _first_normalized_or_content(clause_mapping, "项目属性")
     content = _first_normalized_or_content(clause_mapping, "采购内容构成")
@@ -500,9 +509,21 @@ def _package_split_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -
     )
     if mixed_signal and not package_note:
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type or '未识别'}，采购内容构成={content or '未识别'}，未抽取到包件划分或拆分依据。"]
+    if mixed_signal and package_note and any(token in package_note for token in ["不划分采购包", "不分包采购", "未拆分"]):
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type or '未识别'}，采购内容构成={content or '未识别'}，且包件说明={package_note}。"]
     if package_note:
         return ApplicabilityStatus.unsatisfied, [f"已识别采购包划分说明={package_note}，采购包数量={package_count or '未识别'}。"]
     return ApplicabilityStatus.unsatisfied, [f"当前未形成明确混合采购未拆分信号：项目属性={project_type or '未识别'}，采购内容构成={content or '未识别'}。"]
+
+
+def _package_split_reason_presence_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    package_note = _first_normalized_or_content(clause_mapping, "采购包划分说明")
+    package_count = _first_normalized_or_content(clause_mapping, "采购包数量")
+    if not package_note:
+        return ApplicabilityStatus.unsatisfied, ["尚未抽取到采购包划分或拆分依据。"]
+    if any(token in package_note for token in ["划分依据", "采购包划分", "包组划分", "分别采购", "已说明划分依据"]):
+        return ApplicabilityStatus.satisfied, [f"已识别包件划分依据={package_note}，采购包数量={package_count or '未识别'}。"]
+    return ApplicabilityStatus.unsatisfied, [f"当前包件条款={package_note}，但仍不足以视为已充分说明拆分依据。"]
 
 
 def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
@@ -798,9 +819,9 @@ def _project_statement_conflict_evaluator(clause_mapping: dict[str, list[Extract
 RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-PROC-001", "存在采购方式"): _procurement_method_applicability_evaluator,
     ("RP-PROC-001", "存在非公开招标采购方式信号"): _procurement_method_applicability_evaluator,
-    ("RP-PROC-001", "已说明适用理由"): _exists_relation("采购方式适用理由", "已说明适用理由"),
+    ("RP-PROC-001", "已说明适用理由"): _procurement_reason_presence_evaluator,
     ("RP-PROC-002", "存在混合采购信号"): _package_split_evaluator,
-    ("RP-PROC-002", "已说明包件划分或拆分依据"): _exists_relation("采购包划分说明", "已说明包件划分或拆分依据"),
+    ("RP-PROC-002", "已说明包件划分或拆分依据"): _package_split_reason_presence_evaluator,
     ("RP-QUAL-001", "存在资格条件明细"): _qualification_scoring_overlap_evaluator,
     ("RP-QUAL-001", "存在评分项明细"): _qualification_scoring_overlap_evaluator,
     ("RP-QUAL-002", "存在特定资格要求"): _excessive_certificate_requirement_evaluator,

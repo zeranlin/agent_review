@@ -182,6 +182,46 @@ def _build_dynamic_task_conditions(
     if not exclusion_conditions:
         for signal_index, group in enumerate(rebuttal_templates, start=1):
             add_exclusion(f"命中反证模板{signal_index}", signal_groups_=[group])
+
+    if "采购方式适用理由不足" in title:
+        required_conditions = [
+            ReviewPointCondition("存在采购方式", clause_fields=["采购方式"]),
+            ReviewPointCondition(
+                "存在非公开招标采购方式信号",
+                clause_fields=["采购方式"],
+                signal_groups=[["竞争性磋商", "竞争性谈判", "单一来源", "询价"]],
+            ),
+        ]
+        exclusion_conditions = [
+            ReviewPointCondition("已说明适用理由", clause_fields=["采购方式适用理由"]),
+        ]
+    elif "资格条件与评分因素重复设门槛" in title:
+        required_conditions = [
+            ReviewPointCondition("存在资格条件明细", clause_fields=["资格条件明细", "一般资格要求", "特定资格要求"]),
+            ReviewPointCondition("存在评分项明细", clause_fields=["评分项明细", "信用评价要求"]),
+        ]
+        exclusion_conditions = [
+            ReviewPointCondition("仅出现单侧资格或评分条款", signal_groups=[["仅资格", "仅评分"]]),
+        ]
+    elif "信用评价规则透明性不足" in title:
+        required_conditions = [
+            ReviewPointCondition("存在信用评价评分信号", clause_fields=["信用评价要求", "评分项明细"]),
+        ]
+        exclusion_conditions = [
+            ReviewPointCondition("已说明信用修复或异议机制", clause_fields=["信用修复条款", "异议救济条款"]),
+        ]
+    elif "违约责任与程序保障失衡" in title:
+        required_conditions = [
+            ReviewPointCondition("存在违约或解约条款", clause_fields=["违约责任", "解约条款", "扣款条款"]),
+        ]
+        exclusion_conditions = [
+            ReviewPointCondition("已设置整改或申辩程序", clause_fields=["整改条款", "申辩条款"]),
+        ]
+    elif "验收与付款" in title and "联动" in title:
+        required_conditions = [
+            ReviewPointCondition("存在付款节点", clause_fields=["付款节点"]),
+            ReviewPointCondition("存在验收或考核条款", clause_fields=["验收标准", "考核条款", "满意度条款"]),
+        ]
     return required_conditions, exclusion_conditions
 
 
