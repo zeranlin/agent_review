@@ -821,6 +821,130 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="面向中小企业采购金额应与最高限价、预算金额保持口径清晰，不宜直接混填。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-PROC-001",
+        title="采购方式适用理由不足",
+        dimension="程序与采购组织风险",
+        default_severity=Severity.high,
+        scenario_tags=["prudential", "structure"],
+        required_conditions=[
+            ReviewPointCondition("存在采购方式", clause_fields=["采购方式"]),
+            ReviewPointCondition(
+                "存在非公开招标采购方式信号",
+                clause_fields=["采购方式"],
+                signal_groups=[["竞争性磋商", "竞争性谈判", "单一来源", "询价"]],
+            ),
+        ],
+        exclusion_conditions=[
+            ReviewPointCondition("已说明适用理由", clause_fields=["采购方式适用理由"]),
+        ],
+        basis_hint="非公开招标采购方式应当有充分、明确的适用理由支撑。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-PROC-002",
+        title="混合采购未拆分或包件划分依据不足",
+        dimension="程序与采购组织风险",
+        default_severity=Severity.high,
+        scenario_tags=["structure", "prudential"],
+        required_conditions=[
+            ReviewPointCondition("存在混合采购信号", clause_fields=["项目属性", "采购内容构成"], signal_groups=[["货物"], ["人工", "运维", "施工", "管护", "服务"]]),
+        ],
+        exclusion_conditions=[
+            ReviewPointCondition("已说明包件划分或拆分依据", clause_fields=["采购包划分说明", "采购包数量"]),
+        ],
+        basis_hint="混合采购项目应复核是否需要拆分采购包以及采购组织方式是否合理。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-QUAL-001",
+        title="资格条件与评分因素重复设门槛",
+        dimension="资格与评分边界风险",
+        default_severity=Severity.high,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition("存在资格条件明细", clause_fields=["资格条件明细"]),
+            ReviewPointCondition("存在评分项明细", clause_fields=["评分项明细"]),
+        ],
+        basis_hint="已作为资格条件的资质、业绩、人员或证书不宜再次通过评分重复放大门槛。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-QUAL-002",
+        title="特定资质或证书要求超必要限度",
+        dimension="资格与评分边界风险",
+        default_severity=Severity.high,
+        scenario_tags=["scoring", "policy"],
+        required_conditions=[
+            ReviewPointCondition("存在特定资格要求", clause_fields=["特定资格要求"]),
+            ReviewPointCondition(
+                "存在资质证书或材料负担信号",
+                clause_fields=["证书检测报告负担特征", "行业相关性存疑评分项"],
+                signal_groups=[["资质", "证书", "认证", "检测报告"]],
+            ),
+        ],
+        basis_hint="资格条件和证书要求应与项目履约能力直接相关，不得超出必要限度设置门槛。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-REQ-001",
+        title="技术或服务要求可验证性不足",
+        dimension="采购需求完整性风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract", "scoring", "structure"],
+        required_conditions=[
+            ReviewPointCondition("存在技术或服务要求信号", clause_fields=["技术服务可验证性信号"]),
+        ],
+        basis_hint="技术参数、服务要求、交付成果和验收指标应可验证、可核验、可操作。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-011",
+        title="验收与付款/考核/满意度联动不当",
+        dimension="合同与履约风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract"],
+        required_conditions=[
+            ReviewPointCondition("存在付款节点", clause_fields=["付款节点"]),
+            ReviewPointCondition("存在验收或考核条款", clause_fields=["验收标准", "考核条款", "满意度条款"]),
+        ],
+        basis_hint="验收、考核、满意度与付款联动应客观、量化，不宜形成单方主观控制付款的机制。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-CONS-010",
+        title="转包外包边界不清或核心任务转包风险",
+        dimension="跨条款一致性检查",
+        default_severity=Severity.high,
+        scenario_tags=["consistency", "contract"],
+        required_conditions=[
+            ReviewPointCondition("存在转包或外包条款", clause_fields=["转包外包条款"], signal_groups=[["转包", "外包"]]),
+        ],
+        basis_hint="核心任务转包、外包边界及其与分包口径的衔接应当清晰。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-SCORE-012",
+        title="信用评价规则透明性不足",
+        dimension="评审标准明确性",
+        default_severity=Severity.high,
+        scenario_tags=["scoring", "policy"],
+        required_conditions=[
+            ReviewPointCondition("存在信用评价评分信号", clause_fields=["信用评价要求"]),
+        ],
+        exclusion_conditions=[
+            ReviewPointCondition("已说明信用修复或异议机制", clause_fields=["信用修复条款", "异议救济条款"]),
+        ],
+        basis_hint="信用评价进入评分时，应明确来源、规则、修复和异议路径，避免口径不透明。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-PRUD-003",
+        title="违约责任与程序保障失衡",
+        dimension="程序审慎性复核",
+        default_severity=Severity.high,
+        task_type="generic",
+        scenario_tags=["prudential", "contract"],
+        required_conditions=[
+            ReviewPointCondition("存在违约或解约条款", clause_fields=["违约责任", "解约条款"]),
+        ],
+        exclusion_conditions=[
+            ReviewPointCondition("已设置整改或申辩程序", clause_fields=["整改条款", "申辩条款"]),
+        ],
+        basis_hint="违约责任、扣款、解约条款应保留必要的整改、申辩或异议程序，不宜程序保障失衡。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-PRUD-001",
         title="需求调查结论与项目复杂度匹配性复核",
         dimension="程序审慎性复核",

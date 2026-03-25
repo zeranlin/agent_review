@@ -130,6 +130,43 @@ def _simple_keyword_extractor(keywords: list[str], *, exclude_tokens: list[str] 
     return extractor
 
 
+def _multi_line_keyword_extractor(
+    include_tokens: list[str],
+    *,
+    require_tokens: list[str] | None = None,
+    exclude_tokens: list[str] | None = None,
+    max_lines: int = 4,
+    normalized_value: str = "存在",
+    relation_tags: list[str] | None = None,
+) -> ClauseExtractor:
+    def extractor(lines: list[str]) -> ExtractedClause | None:
+        anchors: list[int] = []
+        matched_lines: list[str] = []
+        for line_no, line in enumerate(lines, start=1):
+            if exclude_tokens and any(token in line for token in exclude_tokens):
+                continue
+            if not any(token in line for token in include_tokens):
+                continue
+            if require_tokens and not any(token in line for token in require_tokens):
+                continue
+            anchors.append(line_no)
+            matched_lines.append(line[:160])
+            if len(matched_lines) >= max_lines:
+                break
+        if not anchors:
+            return None
+        return ExtractedClause(
+            category="",
+            field_name="",
+            content="；".join(dict.fromkeys(matched_lines))[:480],
+            source_anchor=f"line:{anchors[0]}",
+            normalized_value=normalized_value,
+            relation_tags=relation_tags or [],
+        )
+
+    return extractor
+
+
 def _brand_requirement_extractor(lines: list[str]) -> ExtractedClause | None:
     requirement_tokens = ["指定", "限定", "必须", "须", "应", "要求", "采用", "提供"]
     for line_no, line in enumerate(lines, start=1):
@@ -370,6 +407,62 @@ def _demand_survey_extractor(lines: list[str]) -> ExtractedClause | None:
     return None
 
 
+def _procurement_method_reason_extractor(lines: list[str]) -> ExtractedClause | None:
+    keywords = ["采用竞争性磋商", "采用竞争性谈判", "采用单一来源", "适用情形", "适用理由", "采购方式适用理由"]
+    reason_markers = ["因", "鉴于", "根据", "适用", "理由", "情形", "唯一", "复杂", "无法事先确定"]
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in keywords):
+            continue
+        if not any(token in line for token in reason_markers):
+            continue
+        return _build_clause(line, line_no, normalized_value="存在", relation_tags=["采购方式适用理由"])
+    return None
+
+
+def _package_count_extractor(lines: list[str]) -> ExtractedClause | None:
+    package_lines: list[int] = []
+    package_texts: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in ["采购包", "第1包", "第2包", "包组"]):
+            continue
+        package_lines.append(line_no)
+        package_texts.append(line[:120])
+    if not package_lines:
+        return None
+    numbers = sorted(set(re.findall(r"(?:采购包|第)(\d+)", " ".join(package_texts))))
+    count = str(len(numbers) or len(package_lines))
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(package_texts))[:320],
+        source_anchor=f"line:{package_lines[0]}",
+        normalized_value=count,
+        relation_tags=["采购包数量", f"{count}个包"],
+    )
+
+
+def _package_split_extractor(lines: list[str]) -> ExtractedClause | None:
+    keywords = ["不划分采购包", "划分采购包", "分包采购", "包组划分", "划分依据", "不分包采购"]
+    for line_no, line in enumerate(lines, start=1):
+        if not any(token in line for token in keywords):
+            continue
+        normalized_value = "存在"
+        relation_tags = ["采购包划分说明"]
+        if any(token in line for token in ["不划分采购包", "不分包采购"]):
+            relation_tags.append("未拆分")
+        return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags)
+    return None
+
+
+def _qualification_detail_extractor(lines: list[str]) -> ExtractedClause | None:
+    return _multi_line_keyword_extractor(
+        ["资格要求", "供应商资格", "特定资格要求", "须具备", "具备", "资质证书", "业绩要求"],
+        require_tokens=["资格", "资质", "证书", "业绩", "人员", "社保", "信用"],
+        exclude_tokens=["法定代表人", "声明函"],
+        relation_tags=["资格条件明细"],
+    )(lines)
+
+
 def _expert_review_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if not any(token in line for token in ["专家论证", "论证意见", "需求论证"]):
@@ -384,6 +477,36 @@ def _expert_review_extractor(lines: list[str]) -> ExtractedClause | None:
             relation_tags.append("需要")
         return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags)
     return None
+
+
+def _technical_service_verifiability_extractor(lines: list[str]) -> ExtractedClause | None:
+    vague_terms = [
+        "满足采购人要求",
+        "按行业标准",
+        "高质量完成",
+        "优质服务",
+        "良好服务",
+        "由采购人认定",
+        "以采购人要求为准",
+        "达到项目要求",
+    ]
+    matched_lines: list[str] = []
+    anchors: list[int] = []
+    for line_no, line in enumerate(lines, start=1):
+        if not any(term in line for term in vague_terms):
+            continue
+        anchors.append(line_no)
+        matched_lines.append(line[:140])
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:420],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["技术服务可验证性不足"],
+    )
 
 
 def _amount_extractor(keywords: list[str]) -> ClauseExtractor:
@@ -494,6 +617,14 @@ def _credit_evaluation_scoring_extractor(lines: list[str]) -> ExtractedClause | 
         normalized_value="存在",
         relation_tags=["信用评价评分项", *dict.fromkeys(matched_terms)],
     )
+
+
+def _credit_relief_extractor(lines: list[str]) -> ExtractedClause | None:
+    return _multi_line_keyword_extractor(
+        ["信用修复", "异议", "申诉", "救济", "复核"],
+        require_tokens=["信用", "异议", "申诉", "修复", "救济"],
+        relation_tags=["信用修复或异议机制"],
+    )(lines)
 
 
 def _service_content_extractor(lines: list[str]) -> ExtractedClause | None:
@@ -728,6 +859,19 @@ def _assessment_extractor(lines: list[str]) -> ExtractedClause | None:
     return None
 
 
+def _satisfaction_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        if "满意度" not in line:
+            continue
+        tags = ["满意度条款"]
+        if any(token in line for token in ["付款", "支付", "尾款"]):
+            tags.append("关联付款")
+        if "验收" in line:
+            tags.append("关联验收")
+        return _build_clause(line, line_no, normalized_value="存在", relation_tags=tags)
+    return None
+
+
 def _acceptance_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if not any(token in line for token in ["验收标准", "验收"]):
@@ -737,6 +881,44 @@ def _acceptance_extractor(lines: list[str]) -> ExtractedClause | None:
             relation_tags.append("主观验收")
         return _build_clause(line, line_no, normalized_value="存在", relation_tags=relation_tags)
     return None
+
+
+def _subcontract_outsource_extractor(lines: list[str]) -> ExtractedClause | None:
+    keywords = ["转包", "外包", "分包", "委托第三方", "核心任务"]
+    matched_lines: list[str] = []
+    anchors: list[int] = []
+    matched_terms: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        matched = [token for token in keywords if token in line]
+        if not matched:
+            continue
+        anchors.append(line_no)
+        matched_lines.append(line[:140])
+        matched_terms.extend(matched)
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:420],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["转包外包条款", *dict.fromkeys(matched_terms)],
+    )
+
+
+def _rectification_extractor(lines: list[str]) -> ExtractedClause | None:
+    return _multi_line_keyword_extractor(
+        ["整改", "限期改正", "改正", "补救"],
+        relation_tags=["整改程序"],
+    )(lines)
+
+
+def _defense_extractor(lines: list[str]) -> ExtractedClause | None:
+    return _multi_line_keyword_extractor(
+        ["申辩", "陈述意见", "异议", "说明理由", "书面说明"],
+        relation_tags=["申辩程序"],
+    )(lines)
 
 
 def _personnel_line_extractor(keywords: list[str], normalized_value: str, relation_tags: list[str] | None = None) -> ClauseExtractor:
@@ -810,6 +992,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("项目基本信息", "项目名称", _simple_keyword_extractor(["项目名称"])),
     ("项目基本信息", "项目编号", _simple_keyword_extractor(["项目编号"])),
     ("项目基本信息", "采购方式", _simple_keyword_extractor(["采购方式", "公开招标", "竞争性磋商", "竞争性谈判"])),
+    ("项目基本信息", "采购方式适用理由", _procurement_method_reason_extractor),
     ("项目基本信息", "采购标的", _simple_keyword_extractor(["采购标的", "采购内容", "采购需求"])),
     ("项目基本信息", "品目名称", _simple_keyword_extractor(["品目名称"])),
     ("项目基本信息", "项目属性", _property_type_extractor),
@@ -819,10 +1002,13 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("项目基本信息", "合同类型", _contract_type_extractor),
     ("项目基本信息", "采购内容构成", _service_content_extractor),
     ("项目基本信息", "是否含持续性服务", _service_content_extractor),
+    ("项目基本信息", "采购包数量", _package_count_extractor),
+    ("项目基本信息", "采购包划分说明", _package_split_extractor),
     ("项目基本信息", "需求调查结论", _demand_survey_extractor),
     ("项目基本信息", "专家论证结论", _expert_review_extractor),
     ("资格条款", "一般资格要求", _simple_keyword_extractor(["资格要求", "供应商资格"])),
     ("资格条款", "特定资格要求", _simple_keyword_extractor(["特定资格要求", "资质要求"])),
+    ("资格条款", "资格条件明细", _qualification_detail_extractor),
     ("资格条款", "信用要求", _simple_keyword_extractor(["信用要求"])),
     ("资格条款", "是否允许联合体", _allowance_extractor(["联合体"], ["不接受联合体", "不允许联合体"], ["允许联合体", "接受联合体"])),
     ("资格条款", "是否允许分包", _allowance_extractor(["分包"], ["不允许合同分包", "不得分包", "不允许分包"], ["允许分包", "可以分包"])),
@@ -837,6 +1023,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("技术条款", "证书材料适用阶段", _material_stage_extractor(["认证证书", "证书"])),
     ("技术条款", "是否设置★实质性条款", _simple_keyword_extractor(["★"])),
     ("技术条款", "是否有限制产地厂家商标", _origin_brand_restriction_extractor),
+    ("技术条款", "技术服务可验证性信号", _technical_service_verifiability_extractor),
     ("评分条款", "评分方法", _simple_keyword_extractor(["评分方法", "综合评分", "评标办法"])),
     ("评分条款", "价格分", _simple_keyword_extractor(["价格分"])),
     ("评分条款", "技术分", _simple_keyword_extractor(["技术分"])),
@@ -851,6 +1038,8 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("评分条款", "评分项明细", _scoring_item_details_extractor),
     ("评分条款", "证书类评分总分", _certificate_score_weight_extractor),
     ("评分条款", "信用评价要求", _credit_evaluation_scoring_extractor),
+    ("评分条款", "信用修复条款", _credit_relief_extractor),
+    ("评分条款", "异议救济条款", _credit_relief_extractor),
     ("评分条款", "行业相关性存疑评分项", _industry_mismatch_scoring_extractor),
     ("评分条款", "方案评分扣分模式", _plan_scoring_quant_extractor),
     ("合同条款", "付款节点", _payment_extractor),
@@ -860,12 +1049,16 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("合同条款", "质保期", _simple_keyword_extractor(["质保期"])),
     ("合同条款", "履约保证金", _simple_keyword_extractor(["履约保证金"])),
     ("合同条款", "考核条款", _assessment_extractor),
+    ("合同条款", "满意度条款", _satisfaction_extractor),
     ("合同条款", "扣款条款", _deduction_extractor),
     ("合同条款", "解约条款", _simple_keyword_extractor(["解约", "解除合同"])),
+    ("合同条款", "整改条款", _rectification_extractor),
+    ("合同条款", "申辩条款", _defense_extractor),
     ("合同条款", "单方解释权", _simple_keyword_extractor(["解释权", "以采购人意见为准", "以采购人解释为准"])),
     ("合同条款", "合同成果模板术语", _contract_result_template_extractor),
     ("合同条款", "合同模板残留", _contract_template_residue_extractor),
     ("合同条款", "验收弹性条款", _flexible_acceptance_extractor),
+    ("合同条款", "转包外包条款", _subcontract_outsource_extractor),
     ("人员条款", "性别限制", _personnel_line_extractor(["男性", "女性", "限女性", "限男性"], "存在", ["性别限制"])),
     ("人员条款", "年龄限制", _age_restriction_extractor),
     ("人员条款", "身高限制", _personnel_line_extractor(["身高"], "存在", ["身高限制"])),

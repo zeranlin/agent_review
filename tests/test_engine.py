@@ -238,6 +238,61 @@ def test_review_task_fact_collectors_attach_structured_facts_to_tasks() -> None:
     assert any("付款节点=存在" in item.quote for item in contract_task.evidence_bundle.direct_evidence)
 
 
+def test_new_procurement_and_package_review_points_are_built() -> None:
+    text = """
+    采购方式：竞争性磋商
+    项目属性：货物
+    采购内容：设备供货、安装、驻场运维服务
+    本项目不划分采购包。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="procurement.txt")
+    titles = {item.title for item in report.review_points}
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+
+    assert "采购方式适用理由不足" in titles
+    assert "混合采购未拆分或包件划分依据不足" in titles
+    assert applicability_map["RP-PROC-001"].catalog_id == "RP-PROC-001"
+    assert applicability_map["RP-PROC-002"].catalog_id == "RP-PROC-002"
+
+
+def test_new_qualification_credit_and_procedural_topics_can_close() -> None:
+    text = """
+    资格要求：供应商须具备特定资质证书、项目负责人业绩证明。
+    评分标准：资质证书5分，项目负责人业绩5分，信用评价5分。
+    信用评价得分：按地方信用评价结果计分。
+    违约责任：采购人有权立即解除合同。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification.txt")
+    titles = {item.title for item in report.review_points}
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+
+    assert "资格条件与评分因素重复设门槛" in titles
+    assert "信用评价规则透明性不足" in titles
+    assert "违约责任与程序保障失衡" in titles
+    assert applicability_map["RP-QUAL-001"].catalog_id == "RP-QUAL-001"
+    assert applicability_map["RP-SCORE-012"].catalog_id == "RP-SCORE-012"
+    assert applicability_map["RP-PRUD-003"].catalog_id == "RP-PRUD-003"
+
+
+def test_new_verifiability_and_linkage_topics_can_be_extracted() -> None:
+    text = """
+    服务要求：供应商应高质量完成服务，满足采购人要求。
+    验收标准：由采购人确认。
+    付款方式：尾款于验收合格后支付，并与满意度考核结果挂钩。
+    允许分包，但核心任务不得转包或外包。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="verifiability.txt")
+    titles = {item.title for item in report.review_points}
+    applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+
+    assert "技术或服务要求可验证性不足" in titles
+    assert "验收与付款/考核/满意度联动不当" in titles
+    assert "转包外包边界不清或核心任务转包风险" in titles
+    assert applicability_map["RP-REQ-001"].catalog_id == "RP-REQ-001"
+    assert applicability_map["RP-CONTRACT-011"].catalog_id == "RP-CONTRACT-011"
+    assert applicability_map["RP-CONS-010"].catalog_id == "RP-CONS-010"
+
+
 def test_standard_task_library_and_task_specific_evidence_can_cover_scoring_and_template_tasks() -> None:
     text = """
     项目属性：货物

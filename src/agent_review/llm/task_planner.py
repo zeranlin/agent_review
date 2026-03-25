@@ -295,6 +295,33 @@ def _default_dynamic_task_config(task_type: str, title: str) -> dict[str, object
                 config["rebuttal_templates"].append(rebuttal_group)
         config["enhancement_fields"] = list(dict.fromkeys([*config["enhancement_fields"], "需求调查结论", "专家论证结论", "预算金额", "合同履行期限", "采购内容构成"]))
         config["basis_hint"] = str(config["basis_hint"] or "应复核项目复杂度、程序要求与需求调查或专家论证结论是否匹配。")
+    if "采购方式" in title:
+        config["focus_fields"] = list(dict.fromkeys([*config["focus_fields"], "采购方式", "采购方式适用理由", "预算金额", "采购内容构成", "需求调查结论", "专家论证结论"]))
+        for group in [["竞争性磋商", "竞争性谈判", "单一来源", "询价"], ["适用理由", "适用情形", "唯一", "复杂"]]:
+            if group not in config["signal_groups"]:
+                config["signal_groups"].append(group)
+        config["evidence_hints"] = list(dict.fromkeys([*config["evidence_hints"], "优先采集采购方式、适用理由、项目复杂度和论证条款。"]))
+        config["enhancement_fields"] = list(dict.fromkeys([*config["enhancement_fields"], "采购方式", "采购方式适用理由", "预算金额", "采购内容构成", "需求调查结论", "专家论证结论"]))
+    if "资格条件" in title or "重复设门槛" in title:
+        config["focus_fields"] = list(dict.fromkeys([*config["focus_fields"], "资格条件明细", "特定资格要求", "评分项明细", "信用评价要求"]))
+        config["evidence_hints"] = list(dict.fromkeys([*config["evidence_hints"], "优先对照资格条件与评分项明细，识别重复出现的资质、业绩、人员和信用要求。"]))
+        config["enhancement_fields"] = list(dict.fromkeys([*config["enhancement_fields"], "资格条件明细", "特定资格要求", "评分项明细", "信用评价要求"]))
+    if "可验证性" in title:
+        config["focus_fields"] = list(dict.fromkeys([*config["focus_fields"], "技术服务可验证性信号", "验收标准", "采购标的", "采购内容构成"]))
+        config["evidence_hints"] = list(dict.fromkeys([*config["evidence_hints"], "优先采集笼统技术要求、服务要求和验收条款。"]))
+        config["enhancement_fields"] = list(dict.fromkeys([*config["enhancement_fields"], "技术服务可验证性信号", "验收标准", "采购标的", "采购内容构成"]))
+    if "信用评价规则透明性不足" in title:
+        config["focus_fields"] = list(dict.fromkeys([*config["focus_fields"], "信用评价要求", "信用修复条款", "异议救济条款", "评分项明细"]))
+        config["evidence_hints"] = list(dict.fromkeys([*config["evidence_hints"], "优先采集信用评价来源、评分方式、修复和异议机制条款。"]))
+        config["enhancement_fields"] = list(dict.fromkeys([*config["enhancement_fields"], "信用评价要求", "信用修复条款", "异议救济条款", "评分项明细"]))
+    if "违约责任与程序保障失衡" in title:
+        config["focus_fields"] = list(dict.fromkeys([*config["focus_fields"], "违约责任", "解约条款", "整改条款", "申辩条款", "扣款条款"]))
+        config["evidence_hints"] = list(dict.fromkeys([*config["evidence_hints"], "优先采集违约责任、解约、整改和申辩相关条款。"]))
+        config["enhancement_fields"] = list(dict.fromkeys([*config["enhancement_fields"], "违约责任", "解约条款", "整改条款", "申辩条款", "扣款条款"]))
+    if "转包外包" in title:
+        config["focus_fields"] = list(dict.fromkeys([*config["focus_fields"], "转包外包条款", "是否允许分包", "分包比例", "采购内容构成"]))
+        config["evidence_hints"] = list(dict.fromkeys([*config["evidence_hints"], "优先采集转包、外包、分包和核心任务条款。"]))
+        config["enhancement_fields"] = list(dict.fromkeys([*config["enhancement_fields"], "转包外包条款", "是否允许分包", "分包比例", "采购内容构成"]))
     return config
 
 

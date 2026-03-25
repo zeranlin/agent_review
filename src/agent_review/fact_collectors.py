@@ -346,6 +346,118 @@ def _assemble_consistency_policy_evidence(
     return _assemble_bundle_for_definition(definition, relevant)
 
 
+def _assemble_procurement_method_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields_in_order(
+        extracted_clauses,
+        [
+            "采购方式",
+            "采购方式适用理由",
+            "预算金额",
+            "项目属性",
+            "采购内容构成",
+            "需求调查结论",
+            "专家论证结论",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_package_split_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields_in_order(
+        extracted_clauses,
+        [
+            "项目属性",
+            "采购标的",
+            "采购内容构成",
+            "是否含持续性服务",
+            "采购包数量",
+            "采购包划分说明",
+            "合同类型",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_qualification_boundary_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields_in_order(
+        extracted_clauses,
+        [
+            "一般资格要求",
+            "特定资格要求",
+            "资格条件明细",
+            "评分项明细",
+            "行业相关性存疑评分项",
+            "证书检测报告负担特征",
+            "证书类评分总分",
+            "信用评价要求",
+            "采购标的",
+            "项目属性",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_verifiability_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields_in_order(
+        extracted_clauses,
+        [
+            "技术服务可验证性信号",
+            "验收标准",
+            "采购标的",
+            "采购内容构成",
+            "项目属性",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_transfer_outsource_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields_in_order(
+        extracted_clauses,
+        [
+            "转包外包条款",
+            "是否允许分包",
+            "分包比例",
+            "采购内容构成",
+            "合同类型",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_procedural_fairness_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields_in_order(
+        extracted_clauses,
+        [
+            "违约责任",
+            "解约条款",
+            "整改条款",
+            "申辩条款",
+            "扣款条款",
+            "付款节点",
+        ],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
 def _assemble_bundle_for_definition(
     definition: ReviewPointDefinition,
     relevant: list[ExtractedClause],
@@ -871,6 +983,11 @@ def _dedupe_strings(values: list[str]) -> list[str]:
 
 
 TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
+    "RP-PROC-001": _assemble_procurement_method_evidence,
+    "RP-PROC-002": _assemble_package_split_evidence,
+    "RP-QUAL-001": _assemble_qualification_boundary_evidence,
+    "RP-QUAL-002": _assemble_qualification_boundary_evidence,
+    "RP-REQ-001": _assemble_verifiability_evidence,
     "RP-SME-001": _assemble_policy_conflict_evidence,
     "RP-SME-002": _assemble_service_template_evidence,
     "RP-SME-003": _assemble_service_template_evidence,
@@ -898,6 +1015,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-CONTRACT-008": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-009": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-010": _assemble_structure_conflict_evidence,
+    "RP-CONTRACT-011": _assemble_contract_linkage_evidence,
     "RP-PER-001": _assemble_personnel_boundary_evidence,
     "RP-PER-002": _assemble_personnel_boundary_evidence,
     "RP-PER-003": _assemble_personnel_boundary_evidence,
@@ -928,7 +1046,10 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-CONS-007": _assemble_consistency_policy_evidence,
     "RP-CONS-008": _assemble_consistency_policy_evidence,
     "RP-CONS-009": _assemble_consistency_policy_evidence,
+    "RP-CONS-010": _assemble_transfer_outsource_evidence,
     "RP-SME-005": _assemble_consistency_policy_evidence,
+    "RP-SCORE-012": _assemble_credit_evaluation_scoring_evidence,
+    "RP-PRUD-003": _assemble_procedural_fairness_evidence,
 }
 
 

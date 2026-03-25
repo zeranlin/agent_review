@@ -474,6 +474,137 @@ def _credit_evaluation_scoring_evaluator(clause_mapping: dict[str, list[Extracte
     return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：信用评价评分项={credit_raw}。"]
 
 
+def _procurement_method_applicability_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    method = _first_normalized_or_content(clause_mapping, "采购方式")
+    reason = _first_normalized_or_content(clause_mapping, "采购方式适用理由")
+    if not method:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到采购方式。"]
+    if any(token in method for token in ["竞争性磋商", "竞争性谈判", "单一来源", "询价"]):
+        if reason:
+            return ApplicabilityStatus.unsatisfied, [f"已识别采购方式={method}，且存在适用理由={reason}。"]
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：采购方式={method}，但尚未抽取到明确适用理由。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别采购方式={method}，当前不构成非公开招标方式适用性重点。"]
+
+
+def _package_split_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    project_type = _first_normalized_or_content(clause_mapping, "项目属性")
+    content = _first_normalized_or_content(clause_mapping, "采购内容构成")
+    service_flag = _first_normalized_or_content(clause_mapping, "是否含持续性服务")
+    package_note = _first_normalized_or_content(clause_mapping, "采购包划分说明")
+    package_count = _first_normalized_or_content(clause_mapping, "采购包数量")
+    if not project_type and not content:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到项目属性或采购内容构成。"]
+    mixed_signal = bool(
+        (project_type == "货物" and service_flag == "是")
+        or (content and any(token in content for token in ["人工", "运维", "施工", "管护", "服务", "安装"]))
+    )
+    if mixed_signal and not package_note:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：项目属性={project_type or '未识别'}，采购内容构成={content or '未识别'}，未抽取到包件划分或拆分依据。"]
+    if package_note:
+        return ApplicabilityStatus.unsatisfied, [f"已识别采购包划分说明={package_note}，采购包数量={package_count or '未识别'}。"]
+    return ApplicabilityStatus.unsatisfied, [f"当前未形成明确混合采购未拆分信号：项目属性={project_type or '未识别'}，采购内容构成={content or '未识别'}。"]
+
+
+def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    qualification = _first_normalized_or_content(clause_mapping, "资格条件明细")
+    scoring = _first_normalized_or_content(clause_mapping, "评分项明细")
+    if not qualification or not scoring:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取资格条件明细和评分项明细。"]
+    overlap_tokens = [
+        token
+        for token in ["资质", "证书", "业绩", "项目负责人", "人员", "社保", "信用"]
+        if token in qualification and token in scoring
+    ]
+    if overlap_tokens:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：资格条件与评分项在 {', '.join(overlap_tokens)} 上存在重复门槛。"]
+    return ApplicabilityStatus.unsatisfied, [f"已抽取资格条件与评分项，但当前未识别重复门槛：资格条件={qualification}；评分项={scoring}。"]
+
+
+def _excessive_certificate_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    qualification = _first_normalized_or_content(clause_mapping, "特定资格要求")
+    burden = _first_normalized_or_content(clause_mapping, "证书检测报告负担特征")
+    suspicious = _first_normalized_or_content(clause_mapping, "行业相关性存疑评分项")
+    cert_stage = _first_normalized_or_content(clause_mapping, "证书材料适用阶段")
+    if not qualification and not burden and not suspicious:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到特定资质、证书或检测报告负担信号。"]
+    if qualification and (burden or suspicious):
+        detail = f"特定资格要求={qualification}"
+        if burden:
+            detail += f"，材料负担={burden}"
+        if suspicious:
+            detail += f"，评分疑点={suspicious}"
+        if cert_stage:
+            detail += f"，材料阶段={cert_stage}"
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：{detail}。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别部分资质/证书要求，但尚未形成超必要限度链：特定资格要求={qualification or '未识别'}，材料负担={burden or '未识别'}，评分疑点={suspicious or '未识别'}。"]
+
+
+def _technical_service_verifiability_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    signal = _first_normalized_or_content(clause_mapping, "技术服务可验证性信号")
+    acceptance = _first_normalized_or_content(clause_mapping, "验收标准")
+    if not signal:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到技术或服务要求可验证性信号。"]
+    if acceptance:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别可验证性不足信号={signal}，且存在验收标准条款={acceptance}。"]
+    return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别技术或服务要求可验证性不足信号={signal}。"]
+
+
+def _acceptance_payment_linkage_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    payment = _first_normalized_or_content(clause_mapping, "付款节点")
+    acceptance = _first_normalized_or_content(clause_mapping, "验收标准")
+    assessment = _first_normalized_or_content(clause_mapping, "考核条款")
+    satisfaction = _first_normalized_or_content(clause_mapping, "满意度条款")
+    pay_tags = _collect_tags(clause_mapping, "付款节点")
+    assessment_tags = _collect_tags(clause_mapping, "考核条款")
+    satisfaction_tags = _collect_tags(clause_mapping, "满意度条款")
+    if not payment:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到付款节点。"]
+    linked = (
+        "考核联动" in pay_tags
+        or "关联付款" in assessment_tags
+        or "关联付款" in satisfaction_tags
+        or ("尾款" in pay_tags and (assessment or satisfaction))
+    )
+    if linked and (acceptance or assessment or satisfaction):
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：付款节点={payment}，验收/考核/满意度条款存在联动。"]
+    if acceptance or assessment or satisfaction:
+        return ApplicabilityStatus.unsatisfied, [f"已抽取付款节点与验收/考核/满意度条款，但尚未识别明确联动：付款={payment}，验收={acceptance or '未识别'}，考核={assessment or '未识别'}，满意度={satisfaction or '未识别'}。"]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到验收、考核或满意度条款。"]
+
+
+def _transfer_outsource_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    transfer = _first_normalized_or_content(clause_mapping, "转包外包条款")
+    allow_subcontract = _first_normalized_or_content(clause_mapping, "是否允许分包")
+    if not transfer:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到转包或外包条款。"]
+    if any(token in transfer for token in ["转包", "外包", "核心任务", "委托第三方"]):
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别转包外包条款={transfer}，是否允许分包={allow_subcontract or '未识别'}。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别分包条款，但尚未形成明确转包/外包风险：{transfer}。"]
+
+
+def _credit_transparency_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    credit = _first_normalized_or_content(clause_mapping, "信用评价要求")
+    repair = _first_normalized_or_content(clause_mapping, "信用修复条款")
+    relief = _first_normalized_or_content(clause_mapping, "异议救济条款")
+    if not credit:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到信用评价要求。"]
+    if not repair and not relief:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别信用评价要求={credit}，但未抽取到信用修复或异议机制。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别信用评价要求={credit}，且存在修复/异议机制。"]
+
+
+def _procedural_fairness_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    breach = _first_normalized_or_content(clause_mapping, "违约责任")
+    termination = _first_normalized_or_content(clause_mapping, "解约条款")
+    rectification = _first_normalized_or_content(clause_mapping, "整改条款")
+    defense = _first_normalized_or_content(clause_mapping, "申辩条款")
+    if not breach and not termination:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到违约责任或解约条款。"]
+    if (breach or termination) and not rectification and not defense:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：违约责任={breach or '未识别'}，解约条款={termination or '未识别'}，未见整改或申辩程序。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别程序保障条款：整改={rectification or '未识别'}，申辩={defense or '未识别'}。"]
+
+
 def _team_stability_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     team_raw = _first_value(clause_mapping, "团队稳定性要求")
     project_type = _first_value(clause_mapping, "项目属性")
@@ -665,6 +796,16 @@ def _project_statement_conflict_evaluator(clause_mapping: dict[str, list[Extract
 
 
 RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
+    ("RP-PROC-001", "存在采购方式"): _procurement_method_applicability_evaluator,
+    ("RP-PROC-001", "存在非公开招标采购方式信号"): _procurement_method_applicability_evaluator,
+    ("RP-PROC-001", "已说明适用理由"): _exists_relation("采购方式适用理由", "已说明适用理由"),
+    ("RP-PROC-002", "存在混合采购信号"): _package_split_evaluator,
+    ("RP-PROC-002", "已说明包件划分或拆分依据"): _exists_relation("采购包划分说明", "已说明包件划分或拆分依据"),
+    ("RP-QUAL-001", "存在资格条件明细"): _qualification_scoring_overlap_evaluator,
+    ("RP-QUAL-001", "存在评分项明细"): _qualification_scoring_overlap_evaluator,
+    ("RP-QUAL-002", "存在特定资格要求"): _excessive_certificate_requirement_evaluator,
+    ("RP-QUAL-002", "存在资质证书或材料负担信号"): _excessive_certificate_requirement_evaluator,
+    ("RP-REQ-001", "存在技术或服务要求信号"): _technical_service_verifiability_evaluator,
     ("RP-SME-001", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
     ("RP-SME-001", "文件仍保留价格扣除"): _equals_relation("是否仍保留价格扣除条款", "是", "文件仍保留价格扣除"),
     ("RP-SME-002", "项目属性为服务"): _equals_relation("项目属性", "服务", "项目属性为服务"),
@@ -680,6 +821,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-CONTRACT-010", "项目属性为货物"): _warranty_scope_mismatch_evaluator,
     ("RP-CONTRACT-010", "存在持续性作业服务"): _warranty_scope_mismatch_evaluator,
     ("RP-CONTRACT-010", "存在货物保修表述"): _warranty_scope_mismatch_evaluator,
+    ("RP-CONTRACT-011", "存在付款节点"): _acceptance_payment_linkage_evaluator,
+    ("RP-CONTRACT-011", "存在验收或考核条款"): _acceptance_payment_linkage_evaluator,
     ("RP-STRUCT-005", "存在项目属性"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-005", "存在声明函类型"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-007", "存在项目属性"): _contract_type_mismatch_evaluator,
@@ -698,6 +841,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SCORE-010", "存在证书类评分总分"): _certificate_score_weight_value_evaluator,
     ("RP-SCORE-011", "存在信用评价评分信号"): _credit_evaluation_scoring_evaluator,
     ("RP-SCORE-011", "存在评分项明细"): _credit_evaluation_scoring_evaluator,
+    ("RP-SCORE-012", "存在信用评价评分信号"): _credit_transparency_evaluator,
+    ("RP-SCORE-012", "已说明信用修复或异议机制"): _credit_transparency_evaluator,
     ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,
@@ -714,6 +859,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-PRUD-002", "存在专家论证结论"): _expert_review_recommendation_evaluator,
     ("RP-PRUD-002", "项目存在复杂度信号"): _expert_review_recommendation_evaluator,
     ("RP-PRUD-002", "已组织专家论证"): _equals_relation("专家论证结论", "需要", "已组织专家论证"),
+    ("RP-PRUD-003", "存在违约或解约条款"): _procedural_fairness_evaluator,
+    ("RP-PRUD-003", "已设置整改或申辩程序"): _procedural_fairness_evaluator,
     ("RP-CONS-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
     ("RP-CONS-003", "存在价格扣除"): _equals_relation("是否仍保留价格扣除条款", "是", "存在价格扣除"),
     ("RP-CONS-004", "存在验收标准"): _contains_relation("验收标准", "存在", "存在验收标准"),
@@ -725,4 +872,5 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-PER-009", "存在团队稳定性要求"): _team_stability_requirement_evaluator,
     ("RP-PER-010", "存在人员更换限制"): _personnel_change_limit_evaluator,
     ("RP-PER-010", "采购人批准更换"): _personnel_change_limit_evaluator,
+    ("RP-CONS-010", "存在转包或外包条款"): _transfer_outsource_evaluator,
 }

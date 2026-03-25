@@ -79,6 +79,99 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         )
     ],
+    "采购方式适用理由不足": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法",
+            article_hint="公开招标及法定采购方式相关条款",
+            summary="采购方式的选择应当符合法定适用条件，非公开招标采购方式应有充分、明确的适用理由。",
+        ),
+        LegalBasis(
+            source_name="中华人民共和国政府采购法实施条例",
+            article_hint="采购方式适用相关条款",
+            summary="采用竞争性磋商、谈判、询价或单一来源等方式时，应当符合相应法定情形并留存论证依据。",
+            basis_type="行政法规",
+        ),
+    ],
+    "混合采购未拆分或包件划分依据不足": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="采购需求与采购组织方式匹配要求",
+            summary="采购组织方式、包件划分和项目拆分应与采购标的构成、履约边界和实际需求相匹配。",
+            basis_type="部门规范性文件",
+        )
+    ],
+    "资格条件与评分因素重复设门槛": [
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="资格条件与评审因素设置相关条款",
+            summary="资格条件和评分因素应当各司其职，不宜将已作为资格条件的事项再次通过评分重复放大。",
+            basis_type="部门规章",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求与评审关联性要求",
+            summary="评分因素应与采购需求和履约能力直接相关，不得通过重复门槛影响公平竞争。",
+            basis_type="部门规范性文件",
+        ),
+    ],
+    "特定资质或证书要求超必要限度": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="资格条件、资质证书和证明材料要求应与项目实际需要相适应，不得超出必要限度设置门槛。",
+            basis_type="部门规范性文件",
+        )
+    ],
+    "技术或服务要求可验证性不足": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="技术、商务要求客观可验要求",
+            summary="采购需求、技术参数、服务要求和验收标准应客观明确、可验证、可核验。",
+            basis_type="部门规范性文件",
+        )
+    ],
+    "验收与付款/考核/满意度联动不当": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="履约与验收管理相关要求",
+            summary="付款、验收、考核和满意度安排应衔接合理、客观量化，不宜形成单方主观控制付款的机制。",
+            basis_type="部门规范性文件",
+        ),
+        LegalBasis(
+            source_name="中华人民共和国民法典",
+            article_hint="合同编公平原则",
+            summary="合同履行、验收和付款条款应遵循公平和诚实信用原则，不宜由一方以主观评价决定对方主要利益。",
+        ),
+    ],
+    "转包外包边界不清或核心任务转包风险": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法实施条例",
+            article_hint="采购合同履行管理相关条款",
+            summary="分包、外包、转包边界应明确，核心任务不宜被模糊转移或变相转包。",
+            basis_type="行政法规",
+        )
+    ],
+    "信用评价规则透明性不足": [
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="评审因素设置相关条款",
+            summary="信用评价如进入评分，应明确评价来源、规则和适用口径，不宜使用不透明的地方信用分或模糊标准。",
+            basis_type="部门规章",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求与评审关联性要求",
+            summary="信用评价规则、修复和异议路径应清晰，避免因规则不透明影响供应商公平参与。",
+            basis_type="部门规范性文件",
+        ),
+    ],
+    "违约责任与程序保障失衡": [
+        LegalBasis(
+            source_name="中华人民共和国民法典",
+            article_hint="合同编公平与程序保障原则",
+            summary="违约责任、扣款、解约等条款应当明确合理，并保留必要整改、申辩或救济程序。",
+        )
+    ],
     "货物保修表述与项目实际履约内容不匹配": [
         LegalBasis(
             source_name="政府采购需求管理办法",

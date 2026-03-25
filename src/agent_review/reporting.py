@@ -797,8 +797,24 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
             ("credit_evaluation", "信用评价作为评分因素", "评分因素关联性审查", "高风险"),
         ),
         (
+            {"RP-SCORE-012"},
+            ("credit_transparency", "信用评价规则透明性不足", "信用评价规则审查", "高风险"),
+        ),
+        (
             {"RP-SCORE-006", "RP-SCORE-007"},
             ("scoring_quant", "方案评分主观性过强，量化不足", "评分标准量化性审查", "中风险"),
+        ),
+        (
+            {"RP-QUAL-001"},
+            ("qualification_repeat", "资格条件与评分因素重复设门槛", "资格与评分边界审查", "高风险"),
+        ),
+        (
+            {"RP-QUAL-002"},
+            ("qualification_excess", "特定资质或证书要求超必要限度", "资格与评分边界审查", "高风险"),
+        ),
+        (
+            {"RP-REQ-001"},
+            ("verifiability", "技术或服务要求可验证性不足", "采购需求完整性审查", "高风险"),
         ),
         (
             {"RP-CONTRACT-008"},
@@ -809,8 +825,28 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
             ("acceptance_flexible", "验收标准表述过于弹性", "履约验收条款审查", "高风险"),
         ),
         (
+            {"RP-CONTRACT-011"},
+            ("acceptance_payment_link", "验收与付款/考核/满意度联动不当", "履约管理联动审查", "高风险"),
+        ),
+        (
             {"RP-CONS-009", "RP-SME-005"},
             ("amount_consistency", "中小企业采购金额口径不一致", "政策条款一致性审查", "中风险"),
+        ),
+        (
+            {"RP-PROC-001"},
+            ("procurement_method", "采购方式适用理由不足", "采购方式适用性审查", "高风险"),
+        ),
+        (
+            {"RP-PROC-002"},
+            ("package_split", "混合采购未拆分或包件划分依据不足", "采购组织方式审查", "高风险"),
+        ),
+        (
+            {"RP-CONS-010"},
+            ("transfer_outsource", "转包外包边界不清或核心任务转包风险", "分包与外包边界审查", "高风险"),
+        ),
+        (
+            {"RP-PRUD-003"},
+            ("procedural_fairness", "违约责任与程序保障失衡", "合同程序保障审查", "高风险"),
         ),
         (
             {"RP-CONTRACT-010"},
@@ -884,6 +920,69 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             ["最高限价"],
             limit=4,
             strict=True,
+        )
+    if title == "采购方式适用理由不足":
+        return _select_group_quote_records(
+            quote_records,
+            ["采购方式", "竞争性磋商", "竞争性谈判", "单一来源", "询价"],
+            ["适用理由", "适用情形", "唯一", "复杂"],
+            limit=3,
+            strict=True,
+        )
+    if title == "资格条件与评分因素重复设门槛":
+        return _select_group_quote_records(
+            quote_records,
+            ["资格要求", "特定资格要求", "资质证书", "项目负责人", "业绩"],
+            ["评分", "得分", "分"],
+            limit=4,
+            strict=True,
+        )
+    if title == "特定资质或证书要求超必要限度":
+        return _select_group_quote_records(
+            quote_records,
+            ["资质证书", "认证证书", "检测报告"],
+            ["必须", "须", "提供", "提交", "具备"],
+            limit=4,
+            strict=True,
+        )
+    if title == "技术或服务要求可验证性不足":
+        return _select_group_quote_records(
+            quote_records,
+            ["满足采购人要求", "按行业标准", "高质量完成", "由采购人认定"],
+            limit=3,
+            strict=True,
+        )
+    if title == "验收与付款/考核/满意度联动不当":
+        return _select_group_quote_records(
+            quote_records,
+            ["付款", "支付", "尾款"],
+            ["验收", "考核", "满意度"],
+            limit=4,
+            strict=True,
+        )
+    if title == "转包外包边界不清或核心任务转包风险":
+        return _select_group_quote_records(
+            quote_records,
+            ["转包", "外包"],
+            ["核心任务", "委托第三方", "分包"],
+            limit=4,
+            strict=True,
+        )
+    if title == "信用评价规则透明性不足":
+        return _select_group_quote_records(
+            quote_records,
+            ["信用评价", "信用分", "征信"],
+            ["修复", "异议", "申诉", "救济"],
+            limit=4,
+            strict=False,
+        )
+    if title == "违约责任与程序保障失衡":
+        return _select_group_quote_records(
+            quote_records,
+            ["违约责任", "解约", "解除合同"],
+            ["整改", "申辩", "陈述意见", "异议"],
+            limit=4,
+            strict=False,
         )
     if title == "货物保修表述与项目实际履约内容不匹配":
         return _select_group_quote_records(
@@ -973,6 +1072,39 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
             r"预算金额（元）[:：]?\s*[0-9,\.]+元?",
             r"面向中小企业采购金额(?:为)?[0-9,\.]+元?",
             r"最高限价（元）[:：]?\s*[0-9,\.]+",
+        ],
+        "采购方式适用理由不足": [
+            r"采购方式[^。；\n]{0,80}",
+            r"(竞争性磋商|竞争性谈判|单一来源|询价)[^。；\n]{0,120}",
+            r"(适用理由|适用情形|唯一|复杂)[^。；\n]{0,120}",
+        ],
+        "资格条件与评分因素重复设门槛": [
+            r"(资格要求|特定资格要求)[^。；\n]{0,150}",
+            r"(资质证书|项目负责人|业绩)[^。；\n]{0,150}",
+            r"(评分|得分)[^。；\n]{0,150}",
+        ],
+        "特定资质或证书要求超必要限度": [
+            r"(资质证书|认证证书|检测报告)[^。；\n]{0,160}",
+            r"(必须|须|提供|提交|具备)[^。；\n]{0,160}",
+        ],
+        "技术或服务要求可验证性不足": [
+            r"(满足采购人要求|按行业标准|高质量完成|由采购人认定)[^。；\n]{0,160}",
+        ],
+        "验收与付款/考核/满意度联动不当": [
+            r"(尾款|付款|支付)[^。；\n]{0,140}",
+            r"(验收|考核|满意度)[^。；\n]{0,160}",
+        ],
+        "转包外包边界不清或核心任务转包风险": [
+            r"(转包|外包|分包)[^。；\n]{0,160}",
+            r"(核心任务|委托第三方)[^。；\n]{0,160}",
+        ],
+        "信用评价规则透明性不足": [
+            r"(信用评价|信用分|征信)[^。；\n]{0,160}",
+            r"(信用修复|异议|申诉|救济)[^。；\n]{0,160}",
+        ],
+        "违约责任与程序保障失衡": [
+            r"(违约责任|解约|解除合同)[^。；\n]{0,160}",
+            r"(整改|申辩|陈述意见|异议)[^。；\n]{0,160}",
         ],
     }
     patterns = pattern_map.get(title)
