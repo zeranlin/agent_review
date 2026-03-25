@@ -1678,6 +1678,43 @@ def test_reviewer_report_merges_related_issue_families() -> None:
     assert "评分分档主观性与量化充分性复核" not in reviewer
 
 
+def test_reviewer_report_prefers_scoring_relevance_and_amount_clusters() -> None:
+    text = """
+    （一）项目名称：丹巴县2024年中央财政林业草原专项资金造林绿化项目
+    （三）项目所属分类：货物
+    （四）预算金额（元）：2,899,600.00元
+    本项目专门面向中小企业采购。面向中小企业采购金额为2680443.18元,总体预留比例为100.0000%。
+    最高限价（元）：2,680,443.18
+    5 详细评审 利润率 1.近三年平均净利润率（扣除非经常性损益后，净利润÷营业收入×100%）
+    6 详细评审 履约能力 投标人具有行政单位颁发的软件企业认定证书（5分）。投标人具有有效的中国电子工业标准化技术协会信息技术服务分会（ITSS）颁发的信息技术服务标准符合性证书。
+    财务报告…2.00
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "“5 详细评审 利润率" in reviewer
+    assert "软件企业认定证书" in reviewer
+    assert "ITSS" in reviewer
+    assert "预算金额（元）：2,899,600.00元" in reviewer
+    assert "面向中小企业采购金额为2680443.18元" in reviewer
+    assert "最高限价（元）：2,680,443.18" in reviewer
+
+
+def test_reviewer_report_formats_location_ranges_and_generates_issue_recommendations() -> None:
+    text = """
+    （三）项目所属分类：货物
+    人工管护：管护期3年，包含清林整地、连续施肥、幼林抚育、成林管护、机械运水。
+    1）合同类型：承揽合同
+    质量保修范围和保修期：货物质保期3年（自验收合格之日起计）
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "原文位置：第" in reviewer
+    assert "**三、审查意见**" in reviewer
+    assert "建议重新核定项目属性、采购内容和合同类型的一致性" in reviewer
+
+
 def test_warranty_scope_mismatch_review_point_can_formalize() -> None:
     text = """
     （三）项目所属分类：货物

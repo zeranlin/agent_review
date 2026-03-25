@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .quality import evidence_supports_title
+from .quality import clause_window_from_anchor, evidence_supports_title
 from .models import FindingType, QualityGateStatus, ReviewReport
 
 
@@ -126,6 +126,11 @@ def render_reviewer_report(report: ReviewReport) -> str:
         )
         for quote in item["原文摘录"]:
             lines.append(f"- “{quote}”")
+        supporting_quotes = item.get("补充摘录", [])
+        if supporting_quotes:
+            lines.append("补充摘录：")
+            for quote in supporting_quotes:
+                lines.append(f"- “{quote}”")
         lines.extend(
             [
                 "",
@@ -139,14 +144,15 @@ def render_reviewer_report(report: ReviewReport) -> str:
             lines.append(f"- {basis}")
         lines.append("")
 
-    if report.recommendations:
+    reviewer_recommendations = _build_reviewer_recommendations(issue_entries)
+    if reviewer_recommendations:
         lines.extend(
             [
                 "**三、审查意见**",
             ]
         )
-        for index, recommendation in enumerate(report.recommendations[:6], start=1):
-            lines.append(f"{index}. {recommendation.suggestion}")
+        for index, recommendation in enumerate(reviewer_recommendations[:6], start=1):
+            lines.append(f"{index}. {recommendation}")
         lines.append("")
 
     basis_lines = _build_reviewer_basis_lines(report)
@@ -732,7 +738,7 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
                 "问题定性": severity,
                 "审查类型": dimension,
                 "_locations": [],
-                "_quotes": [],
+                "_quote_records": [],
                 "_risk_judgments": [],
                 "_basis": [],
             },
@@ -740,9 +746,9 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
         for location in _collect_reviewer_locations(point, adjudication):
             if location not in entry["_locations"]:
                 entry["_locations"].append(location)
-        for quote in _collect_reviewer_quotes(point, adjudication):
-            if quote not in entry["_quotes"]:
-                entry["_quotes"].append(quote)
+        for record in _collect_reviewer_quote_records(report.parse_result.text or "", point, adjudication):
+            if record not in entry["_quote_records"]:
+                entry["_quote_records"].append(record)
         risk_judgment = _reviewer_risk_judgment(point.rationale, adjudication.rationale)
         if risk_judgment not in entry["_risk_judgments"]:
             entry["_risk_judgments"].append(risk_judgment)
@@ -752,7 +758,12 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
 
     entries: list[dict[str, object]] = []
     for group_key, entry in grouped_entries.items():
-        quotes = _rewrite_group_quotes(entry["问题标题"], list(entry["_quotes"]))
+        quote_records = _rewrite_group_quote_records(entry["问题标题"], list(entry["_quote_records"]))
+        primary_quotes = [item["quote"] for item in quote_records[:3]]
+        supporting_quotes = [item["quote"] for item in quote_records[3:5]]
+        selected_locations = [item["location"] for item in quote_records if item["location"]]
+        if not selected_locations:
+            selected_locations = list(entry["_locations"])
         risk_judgment = _rewrite_group_risk_judgment(
             group_key,
             entry["问题标题"],
@@ -763,8 +774,9 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
                 "问题标题": entry["问题标题"],
                 "问题定性": entry["问题定性"],
                 "审查类型": entry["审查类型"],
-                "原文位置": "；".join(entry["_locations"][:4]) if entry["_locations"] else "未明确定位",
-                "原文摘录": quotes or ["当前自动抽取未定位到可直接引用的原文。"],
+                "原文位置": _format_reviewer_locations(selected_locations),
+                "原文摘录": (primary_quotes if primary_quotes else ["当前自动抽取未定位到可直接引用的原文。"]),
+                "补充摘录": supporting_quotes,
                 "风险判断": risk_judgment,
                 "法律/政策依据": entry["_basis"] or ["当前结果未自动挂接明确法规依据"],
             }
@@ -826,28 +838,73 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
     )
 
 
-def _rewrite_group_quotes(title: str, quotes: list[str]) -> list[str]:
+def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]) -> list[dict[str, str]]:
+    quotes = [item["quote"] for item in quote_records]
     if title == "项目属性与采购内容、合同类型不一致":
-        return _select_group_quotes(quotes, ["项目所属分类", "项目属性", "货物"], ["人工管护", "清林整地", "抚育", "运水"], ["合同类型", "承揽合同"])
+        return _select_group_quote_records(
+            quote_records,
+            ["项目所属分类", "项目属性", "货物"],
+            ["人工管护", "清林整地", "抚育", "运水"],
+            ["合同类型", "承揽合同"],
+            limit=4,
+        )
     if title == "评分项与采购标的不相关":
-        return _select_group_quotes(quotes, ["利润率"], ["软件企业认定证书", "ITSS"], ["财务报告"])
+        return _select_group_quote_records(
+            quote_records,
+            ["利润率"],
+            ["软件企业认定证书"],
+            ["ITSS"],
+            ["财务报告"],
+            limit=4,
+            strict=True,
+        )
     if title == "方案评分主观性过强，量化不足":
-        return _select_group_quotes(quotes, ["齐全且无缺陷得30分", "齐全且无缺陷得15分"], ["每缺少一项内容扣5分", "每有一处缺陷扣2.5分"], ["缺陷指"])
+        return _select_group_quote_records(
+            quote_records,
+            ["齐全且无缺陷得30分", "齐全且无缺陷得15分"],
+            ["每缺少一项内容扣5分", "每有一处缺陷扣2.5分"],
+            ["缺陷指"],
+            limit=4,
+        )
+    if title == "中小企业采购金额口径不一致":
+        return _select_group_quote_records(
+            quote_records,
+            ["预算金额"],
+            ["面向中小企业采购金额"],
+            ["最高限价"],
+            limit=4,
+            strict=True,
+        )
     if title == "货物保修表述与项目实际履约内容不匹配":
-        return _select_group_quotes(quotes, ["质量保修范围和保修期", "货物质保期"], ["人工管护", "抚育", "运水"])
-    return quotes[:3]
+        return _select_group_quote_records(
+            quote_records,
+            ["质量保修范围和保修期", "货物质保期"],
+            ["人工管护", "抚育", "运水"],
+            limit=4,
+        )
+    return quote_records[:3]
 
 
-def _select_group_quotes(quotes: list[str], *preferred_token_groups: list[str]) -> list[str]:
-    selected: list[str] = []
+def _select_group_quote_records(
+    quote_records: list[dict[str, str]],
+    *preferred_token_groups: list[str],
+    limit: int = 3,
+    strict: bool = False,
+) -> list[dict[str, str]]:
+    selected: list[dict[str, str]] = []
     for tokens in preferred_token_groups:
-        match = next((quote for quote in quotes if any(token in quote for token in tokens)), "")
+        match = next((item for item in quote_records if any(token in item["quote"] for token in tokens)), None)
         if match and match not in selected:
             selected.append(match)
-    for quote in quotes:
-        if quote not in selected:
-            selected.append(quote)
-    return selected[:3]
+    if strict:
+        return selected[:limit]
+    for item in quote_records:
+        if item not in selected and not _is_generic_background_quote(item["quote"]):
+            selected.append(item)
+    for item in quote_records:
+        if item not in selected:
+            selected.append(item)
+    return selected[:limit]
 
 
 def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: list[str]) -> str:
@@ -926,24 +983,27 @@ def _collect_reviewer_locations(point, adjudication) -> list[str]:
     fallback = (adjudication.section_hint or "").strip()
     if fallback and fallback not in locations:
         locations.append(fallback)
-    return locations[:3]
+    return locations[:6]
 
 
-def _collect_reviewer_quotes(point, adjudication) -> list[str]:
-    quotes: list[str] = []
+def _collect_reviewer_quote_records(report_text: str, point, adjudication) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
     primary = (adjudication.primary_quote or "").strip()
     if primary and "=" not in primary:
-        quotes.append(primary)
+        records.append({"location": (adjudication.section_hint or "").strip(), "quote": primary})
     for item in [*point.evidence_bundle.direct_evidence, *point.evidence_bundle.supporting_evidence]:
-        quote = (item.quote or "").strip()
-        if not quote or quote in quotes:
+        quote = (
+            clause_window_from_anchor(report_text, item.section_hint)
+            or (item.quote or "").strip()
+        )
+        if not quote:
             continue
         if len(quote) < 6:
             continue
         if "=" in quote:
             continue
-        quotes.append(quote)
-    return quotes[:3]
+        records.append({"location": (item.section_hint or "").strip(), "quote": quote})
+    return _dedupe_quote_records(records)[:8]
 
 
 def _reviewer_risk_judgment(point_rationale: str, adjudication_rationale: str) -> str:
@@ -989,6 +1049,107 @@ def _build_reviewer_basis_lines(report: ReviewReport) -> list[str]:
             if basis not in lines and basis != "当前结果未自动挂接明确法规依据":
                 lines.append(basis)
     return lines
+
+
+def _format_reviewer_locations(locations: list[str]) -> str:
+    if not locations:
+        return "未明确定位"
+
+    line_numbers: list[int] = []
+    others: list[str] = []
+    for location in locations:
+        match = re.fullmatch(r"line:(\d+)", location.strip())
+        if match:
+            line_numbers.append(int(match.group(1)))
+        elif location not in others:
+            others.append(location)
+
+    parts: list[str] = []
+    if line_numbers:
+        parts.extend(_compress_line_ranges(sorted(set(line_numbers))))
+    parts.extend(others[:2])
+    return "；".join(parts) if parts else "未明确定位"
+
+
+def _compress_line_ranges(line_numbers: list[int]) -> list[str]:
+    if not line_numbers:
+        return []
+    ranges: list[tuple[int, int]] = []
+    start = prev = line_numbers[0]
+    for number in line_numbers[1:]:
+        if number == prev + 1:
+            prev = number
+            continue
+        ranges.append((start, prev))
+        start = prev = number
+    ranges.append((start, prev))
+    results: list[str] = []
+    for start, end in ranges:
+        if start == end:
+            results.append(f"第{start}行")
+        else:
+            results.append(f"第{start}行至第{end}行")
+    return results
+
+
+def _dedupe_quotes(quotes: list[str]) -> list[str]:
+    results: list[str] = []
+    for quote in quotes:
+        normalized = re.sub(r"\s+", " ", quote).strip(" ；;")
+        if not normalized:
+            continue
+        if normalized not in results:
+            results.append(normalized)
+    return results
+
+
+def _dedupe_quote_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[tuple[str, str]] = set()
+    results: list[dict[str, str]] = []
+    for item in records:
+        quote = re.sub(r"\s+", " ", item.get("quote", "")).strip(" ；;")
+        location = item.get("location", "").strip()
+        if not quote:
+            continue
+        key = (location, quote)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append({"location": location, "quote": quote})
+    return results
+
+
+def _is_generic_background_quote(quote: str) -> bool:
+    return any(
+        token in quote
+        for token in [
+            "政府采购项目采购需求",
+            "采购单位：",
+            "编制单位：",
+            "是否支持联合体投标",
+            "不分包采购",
+            "项目概况：本项目共一个包",
+        ]
+    )
+
+
+def _build_reviewer_recommendations(issue_entries: list[dict[str, object]]) -> list[str]:
+    rules = {
+        "项目属性与采购内容、合同类型不一致": "建议重新核定项目属性、采购内容和合同类型的一致性，必要时明确货物与持续性作业服务的边界。",
+        "评分项与采购标的不相关": "建议删除与项目履约能力无直接关联的评分项，仅保留与本项目直接相关的客观评价因素。",
+        "方案评分主观性过强，量化不足": "建议将方案评分细化为客观、量化、可核验的指标，减少评委自由裁量空间。",
+        "合同条款存在明显模板错配": "建议重写合同条款，删除与当前项目场景不匹配的成果交付或保密模板表述。",
+        "验收标准表述过于弹性": "建议明确验收依据和标准，避免使用优胜原则或采购人单方弹性判断表述。",
+        "中小企业采购金额口径不一致": "建议统一预算金额、最高限价和面向中小企业采购金额等关键金额口径。",
+        "货物保修表述与项目实际履约内容不匹配": "建议按项目实际履约内容重写质保和管护责任条款，避免仅以货物质保概括全部责任。",
+    }
+    recommendations: list[str] = []
+    for item in issue_entries:
+        title = str(item.get("问题标题", "")).strip()
+        recommendation = rules.get(title)
+        if recommendation and recommendation not in recommendations:
+            recommendations.append(recommendation)
+    return recommendations
 
 
 def _strip_field_prefix(content: str, field_name: str) -> str:
