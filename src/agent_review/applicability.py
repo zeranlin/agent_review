@@ -505,6 +505,27 @@ def _acceptance_flexible_evaluator(clause_mapping: dict[str, list[ExtractedClaus
     return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到验收弹性条款。"]
 
 
+def _warranty_scope_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    project_type = _first_normalized_or_content(clause_mapping, "项目属性")
+    service_flag = _first_normalized_or_content(clause_mapping, "是否含持续性服务")
+    warranty_clause = _first_value(clause_mapping, "质保期")
+    if not project_type or not warranty_clause:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：需同时抽取项目属性和质保/保修条款。"]
+    if project_type == "货物" and service_flag == "是" and any(
+        token in warranty_clause for token in ["货物质保期", "质量保修范围和保修期", "验收合格之日起计"]
+    ):
+        return ApplicabilityStatus.satisfied, [
+            f"结构化字段关系成立：项目属性={project_type}，存在持续性服务，且质保条款仍以“{warranty_clause}”表述，合同履约条款适配性不足。"
+        ]
+    if project_type == "货物" and service_flag == "是":
+        return ApplicabilityStatus.unsatisfied, [
+            f"已识别项目属性={project_type} 且存在持续性服务，但质保条款={warranty_clause} 尚未体现典型货物保修口径。"
+        ]
+    return ApplicabilityStatus.unsatisfied, [
+        f"结构化字段关系未成立：项目属性={project_type}，持续性服务标记={service_flag or '未识别'}，质保条款={warranty_clause}。"
+    ]
+
+
 def _complexity_signal_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     procurement_content = _first_value(clause_mapping, "采购内容构成")
     duration_raw = _first_value(clause_mapping, "合同履行期限")
@@ -621,6 +642,9 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-CONTRACT-005", "存在考核条款"): _payment_assessment_link_evaluator,
     ("RP-CONTRACT-008", "存在成果模板术语"): _contract_template_mismatch_evaluator,
     ("RP-CONTRACT-009", "存在验收弹性条款"): _acceptance_flexible_evaluator,
+    ("RP-CONTRACT-010", "项目属性为货物"): _warranty_scope_mismatch_evaluator,
+    ("RP-CONTRACT-010", "存在持续性作业服务"): _warranty_scope_mismatch_evaluator,
+    ("RP-CONTRACT-010", "存在货物保修表述"): _warranty_scope_mismatch_evaluator,
     ("RP-STRUCT-005", "存在项目属性"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-005", "存在声明函类型"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-007", "存在项目属性"): _contract_type_mismatch_evaluator,

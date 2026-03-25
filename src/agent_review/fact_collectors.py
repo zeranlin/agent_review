@@ -842,6 +842,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-CONTRACT-007": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-008": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-009": _assemble_contract_linkage_evidence,
+    "RP-CONTRACT-010": _assemble_structure_conflict_evidence,
     "RP-PER-001": _assemble_personnel_boundary_evidence,
     "RP-PER-002": _assemble_personnel_boundary_evidence,
     "RP-PER-003": _assemble_personnel_boundary_evidence,

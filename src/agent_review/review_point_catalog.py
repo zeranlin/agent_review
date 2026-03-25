@@ -458,6 +458,23 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="验收标准应事先明确、客观，不宜保留采购人单方弹性判断空间。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-010",
+        title="货物保修表述与项目实际履约内容不匹配",
+        dimension="合同与履约风险",
+        default_severity=Severity.medium,
+        scenario_tags=["contract", "structure"],
+        required_conditions=[
+            ReviewPointCondition("项目属性为货物", clause_fields=["项目属性"], signal_groups=[["货物"]]),
+            ReviewPointCondition("存在持续性作业服务", clause_fields=["是否含持续性服务"], signal_groups=[["人工管护", "抚育", "运水"]]),
+            ReviewPointCondition(
+                "存在货物保修表述",
+                clause_fields=["质保期"],
+                signal_groups=[["货物质保期", "质量保修范围和保修期", "验收合格之日起计"]],
+            ),
+        ],
+        basis_hint="当项目实际包含持续性服务或作业责任时，合同履约条款不宜仅以货物质保表述替代整体责任安排。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-STRUCT-001",
         title="货物项目混入大量服务履约内容",
         dimension="项目结构风险",

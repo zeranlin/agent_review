@@ -1655,6 +1655,44 @@ def test_reviewer_report_uses_reviewer_friendly_language() -> None:
     assert "已满足 1 项要件" not in reviewer
 
 
+def test_reviewer_report_merges_related_issue_families() -> None:
+    text = """
+    （三）项目所属分类：货物
+    人工管护：管护期3年，包含清林整地、连续施肥、幼林抚育、成林管护、机械运水。
+    1）合同类型：承揽合同
+    6 详细评审 履约能力 利润率10分；软件企业认定证书（5分）；ITSS运行维护服务证书（2分）；财务报告（2分）。
+    以上方案齐全且无缺陷得30分，每缺少一项内容扣5分，每项中每有一处缺陷扣2.5分。
+    以上方案齐全且无缺陷得15分，每有一处缺陷扣2.5分。
+    缺陷指：方案内容与项目实际情况不符、套用其他项目方案、存在与本项目无关的内容。
+    质量保修范围和保修期：货物质保期3年（自验收合格之日起计）
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "项目属性与采购内容、合同类型不一致" in reviewer
+    assert "评分项与采购标的不相关" in reviewer
+    assert "方案评分主观性过强，量化不足" in reviewer
+    assert "项目属性与合同类型口径疑似不一致" not in reviewer
+    assert "货物采购混入持续性作业服务" not in reviewer
+    assert "行业无关证书或财务指标被纳入评分" not in reviewer
+    assert "评分分档主观性与量化充分性复核" not in reviewer
+
+
+def test_warranty_scope_mismatch_review_point_can_formalize() -> None:
+    text = """
+    （三）项目所属分类：货物
+    人工管护：管护期3年，包含抚育、运水等持续性作业内容。
+    质量保修范围和保修期：货物质保期3年（自验收合格之日起计）
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+
+    titles = {item.title for item in report.review_points}
+    reviewer = render_reviewer_report(report)
+
+    assert "货物保修表述与项目实际履约内容不匹配" in titles
+    assert "货物保修表述与项目实际履约内容不匹配" in reviewer
+
+
 def test_clause_window_from_anchor_can_merge_fragmented_pdf_lines() -> None:
     text = "\n".join(
         [

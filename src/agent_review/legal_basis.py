@@ -79,6 +79,14 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         )
     ],
+    "货物保修表述与项目实际履约内容不匹配": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="合同与履约条款相关要求",
+            summary="采购需求、合同条款和实际履约责任应保持一致，不宜以单一货物质保条款替代持续性服务或作业责任安排。",
+            basis_type="部门规范性文件",
+        )
+    ],
     "主观评分表述": [
         LegalBasis(
             source_name="政府采购货物和服务招标投标管理办法",

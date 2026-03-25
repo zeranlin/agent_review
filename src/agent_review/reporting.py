@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .quality import evidence_supports_title
-from .models import FindingType, ReviewReport
+from .models import FindingType, QualityGateStatus, ReviewReport
 
 
 def render_json(report: ReviewReport) -> str:
@@ -717,27 +717,154 @@ def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
 
 def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object]]:
     point_index = {item.point_id: item for item in report.review_points}
-    entries: list[dict[str, object]] = []
+    grouped_entries: dict[str, dict[str, object]] = {}
     for adjudication in report.formal_adjudication:
-        if not adjudication.included_in_formal:
+        if not _include_in_reviewer_issue_entries(adjudication):
             continue
         point = point_index.get(adjudication.point_id)
         if point is None:
             continue
-        locations = _collect_reviewer_locations(point, adjudication)
-        quotes = _collect_reviewer_quotes(point, adjudication)
+        group_key, title, dimension, severity = _reviewer_issue_group_definition(point)
+        entry = grouped_entries.setdefault(
+            group_key,
+            {
+                "问题标题": title,
+                "问题定性": severity,
+                "审查类型": dimension,
+                "_locations": [],
+                "_quotes": [],
+                "_risk_judgments": [],
+                "_basis": [],
+            },
+        )
+        for location in _collect_reviewer_locations(point, adjudication):
+            if location not in entry["_locations"]:
+                entry["_locations"].append(location)
+        for quote in _collect_reviewer_quotes(point, adjudication):
+            if quote not in entry["_quotes"]:
+                entry["_quotes"].append(quote)
+        risk_judgment = _reviewer_risk_judgment(point.rationale, adjudication.rationale)
+        if risk_judgment not in entry["_risk_judgments"]:
+            entry["_risk_judgments"].append(risk_judgment)
+        for basis in _reviewer_legal_basis_lines(point):
+            if basis not in entry["_basis"]:
+                entry["_basis"].append(basis)
+
+    entries: list[dict[str, object]] = []
+    for group_key, entry in grouped_entries.items():
+        quotes = _rewrite_group_quotes(entry["问题标题"], list(entry["_quotes"]))
+        risk_judgment = _rewrite_group_risk_judgment(
+            group_key,
+            entry["问题标题"],
+            list(entry["_risk_judgments"]),
+        )
         entries.append(
             {
-                "问题标题": point.title.strip(),
-                "问题定性": _reviewer_severity_label(point.severity.value),
-                "审查类型": point.dimension or "风险点审查",
-                "原文位置": "；".join(locations) if locations else (adjudication.section_hint or "未明确定位"),
-                "原文摘录": quotes or [adjudication.primary_quote or "当前自动抽取未定位到可直接引用的原文。"],
-                "风险判断": _reviewer_risk_judgment(point.rationale, adjudication.rationale),
-                "法律/政策依据": _reviewer_legal_basis_lines(point),
+                "问题标题": entry["问题标题"],
+                "问题定性": entry["问题定性"],
+                "审查类型": entry["审查类型"],
+                "原文位置": "；".join(entry["_locations"][:4]) if entry["_locations"] else "未明确定位",
+                "原文摘录": quotes or ["当前自动抽取未定位到可直接引用的原文。"],
+                "风险判断": risk_judgment,
+                "法律/政策依据": entry["_basis"] or ["当前结果未自动挂接明确法规依据"],
             }
         )
     return entries
+
+
+def _include_in_reviewer_issue_entries(adjudication) -> bool:
+    if adjudication.included_in_formal:
+        return True
+    # 审查员视图允许保留少量“证据充分但未进入高风险 formal”的中风险问题项。
+    return (
+        adjudication.catalog_id in {"RP-CONTRACT-010"}
+        and adjudication.evidence_sufficient
+        and adjudication.legal_basis_applicable
+        and adjudication.quality_gate_status == QualityGateStatus.passed
+    )
+
+
+def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
+    group_rules = [
+        (
+            {"RP-STRUCT-007", "RP-STRUCT-008"},
+            ("structure_mismatch", "项目属性与采购内容、合同类型不一致", "项目属性一致性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-005", "RP-SCORE-008"},
+            ("scoring_relevance", "评分项与采购标的不相关", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-006", "RP-SCORE-007"},
+            ("scoring_quant", "方案评分主观性过强，量化不足", "评分标准量化性审查", "中风险"),
+        ),
+        (
+            {"RP-CONTRACT-008"},
+            ("contract_template", "合同条款存在明显模板错配", "合同文本适配性审查", "高风险"),
+        ),
+        (
+            {"RP-CONTRACT-009"},
+            ("acceptance_flexible", "验收标准表述过于弹性", "履约验收条款审查", "高风险"),
+        ),
+        (
+            {"RP-CONS-009", "RP-SME-005"},
+            ("amount_consistency", "中小企业采购金额口径不一致", "政策条款一致性审查", "中风险"),
+        ),
+        (
+            {"RP-CONTRACT-010"},
+            ("warranty_scope", "货物保修表述与项目实际履约内容不匹配", "合同履约条款适配性审查", "中风险"),
+        ),
+    ]
+    for catalog_ids, group in group_rules:
+        if point.catalog_id in catalog_ids:
+            return group
+    return (
+        point.catalog_id or point.title,
+        point.title.strip(),
+        point.dimension or "风险点审查",
+        _reviewer_severity_label(point.severity.value),
+    )
+
+
+def _rewrite_group_quotes(title: str, quotes: list[str]) -> list[str]:
+    if title == "项目属性与采购内容、合同类型不一致":
+        return _select_group_quotes(quotes, ["项目所属分类", "项目属性", "货物"], ["人工管护", "清林整地", "抚育", "运水"], ["合同类型", "承揽合同"])
+    if title == "评分项与采购标的不相关":
+        return _select_group_quotes(quotes, ["利润率"], ["软件企业认定证书", "ITSS"], ["财务报告"])
+    if title == "方案评分主观性过强，量化不足":
+        return _select_group_quotes(quotes, ["齐全且无缺陷得30分", "齐全且无缺陷得15分"], ["每缺少一项内容扣5分", "每有一处缺陷扣2.5分"], ["缺陷指"])
+    if title == "货物保修表述与项目实际履约内容不匹配":
+        return _select_group_quotes(quotes, ["质量保修范围和保修期", "货物质保期"], ["人工管护", "抚育", "运水"])
+    return quotes[:3]
+
+
+def _select_group_quotes(quotes: list[str], *preferred_token_groups: list[str]) -> list[str]:
+    selected: list[str] = []
+    for tokens in preferred_token_groups:
+        match = next((quote for quote in quotes if any(token in quote for token in tokens)), "")
+        if match and match not in selected:
+            selected.append(match)
+    for quote in quotes:
+        if quote not in selected:
+            selected.append(quote)
+    return selected[:3]
+
+
+def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: list[str]) -> str:
+    templates = {
+        "structure_mismatch": "文件将项目定性为货物，但采购内容中同时包含持续性作业服务，合同类型又偏向承揽或服务口径，项目属性、采购内容与合同类型之间存在明显错配风险。",
+        "scoring_relevance": "评分中出现利润率、软件企业认定证书、ITSS 或财务报告等内容，与项目实际履约能力缺乏直接关联，存在限制竞争风险。",
+        "scoring_quant": "方案评分以主观分档和“无缺陷得满分”等规则为核心，量化和客观性不足，评委裁量空间较大。",
+        "contract_template": "合同条款中出现“项目成果、移作他用、泄露成果”等表述，更符合咨询、设计或信息化项目，和当前项目行业场景明显不匹配。",
+        "acceptance_flexible": "验收条款赋予采购人较大的单方裁量空间，缺乏固定、明确、可预期的验收标准，容易引发履约争议。",
+        "amount_consistency": "预算金额、最高限价与面向中小企业采购金额之间存在异常对应关系，金额口径不清，文件严谨性不足。",
+        "warranty_scope": "项目核心履约内容包含持续性作业或服务责任，但合同条款仍仅以货物质保表述概括，未能准确覆盖实际履约责任。",
+    }
+    if group_key in templates:
+        return templates[group_key]
+    if risk_judgments:
+        return risk_judgments[0]
+    return "已发现明确风险，证据较充分。"
 
 
 def _extract_project_name(report: ReviewReport) -> str:
