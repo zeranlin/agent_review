@@ -342,9 +342,10 @@ def render_markdown(report: ReviewReport) -> str:
     if report.llm_semantic_review.review_point_second_reviews:
         lines.append("## LLM审查点二审")
         for item in report.llm_semantic_review.review_point_second_reviews:
+            intensity = f"，强度判断：{item.intensity_judgment}" if item.intensity_judgment else ""
             lines.append(
                 f"- {item.point_id} {item.title}: 建议 {item.suggested_disposition or 'manual_confirmation'}，"
-                f"{item.rationale}（{item.adoption_status.value}）"
+                f"{item.rationale}{intensity}（{item.adoption_status.value}）"
             )
         lines.append("")
 

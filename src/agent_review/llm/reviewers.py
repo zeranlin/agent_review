@@ -782,6 +782,7 @@ def _parse_review_point_second_reviews(raw_items: object) -> list[ReviewPointSec
                 role_judgment=str(item.get("role_judgment", "")).strip(),
                 evidence_judgment=str(item.get("evidence_judgment", "")).strip(),
                 applicability_judgment=str(item.get("applicability_judgment", "")).strip(),
+                intensity_judgment=str(item.get("intensity_judgment", "")).strip(),
                 suggested_disposition=str(item.get("suggested_disposition", "")).strip(),
                 rationale=rationale,
                 adoption_status=_parse_adoption_status(item.get("adoption_status")),

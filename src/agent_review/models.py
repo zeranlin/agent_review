@@ -571,6 +571,7 @@ class ReviewPointSecondReview:
     role_judgment: str = ""
     evidence_judgment: str = ""
     applicability_judgment: str = ""
+    intensity_judgment: str = ""
     suggested_disposition: str = ""
     rationale: str = ""
     adoption_status: AdoptionStatus = AdoptionStatus.manual
@@ -582,6 +583,7 @@ class ReviewPointSecondReview:
             "role_judgment": self.role_judgment,
             "evidence_judgment": self.evidence_judgment,
             "applicability_judgment": self.applicability_judgment,
+            "intensity_judgment": self.intensity_judgment,
             "suggested_disposition": self.suggested_disposition,
             "rationale": self.rationale,
             "adoption_status": self.adoption_status.value,

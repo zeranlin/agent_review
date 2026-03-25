@@ -934,6 +934,21 @@ def test_default_enhanced_mode_prefers_high_value_llm_tasks() -> None:
     assert llm_tasks["llm_consistency_review"] == "skipped"
 
 
+def test_review_point_second_review_prompt_includes_intensity_judgment_guidance() -> None:
+    text = """
+    预算金额：578600.00元
+    评分方法：综合评分法
+    商务部分 | 资质证书 (5.0分) | 每具有1个相关认证证书得1分。
+    商务部分 | 管理体系认证情况 (5.0分) | 质量管理体系认证得分。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    prompt = build_review_point_second_review_prompt(report)
+    assert "intensity_judgment" in prompt
+    assert "偏重要求" in prompt
+    assert "刚性门槛" in prompt
+    assert "裁量过大" in prompt
+
+
 def test_dynamic_tasks_can_add_evidence_hints_rebuttal_templates_and_enhanced_assembly() -> None:
     text = """
     项目属性：货物
@@ -1216,6 +1231,34 @@ def test_contract_template_residue_point_detects_placeholder_terms() -> None:
     check = build_applicability_checks([point], clauses)[0]
     assert check.applicable is True
     assert any("合同模板残留" in item.detail for item in check.requirement_results)
+
+
+def test_scoring_quant_clause_aggregates_multiple_similar_scoring_evidences() -> None:
+    text = """
+    评分方法：综合评分法
+    项目整体实施方案：完全满足且优于项目要求的得10分，完全满足项目要求的得6分，不完全满足项目要求的得2分。
+    售后服务方案：完全满足且优于项目要求的得8分，完全满足项目要求的得4分，不完全满足项目要求的得1分。
+    """
+    clauses = extract_clauses(text)
+    scoring_clause = next(item for item in clauses if item.field_name == "方案评分扣分模式")
+
+    assert "项目整体实施方案" in scoring_clause.content
+    assert "售后服务方案" in scoring_clause.content
+    assert "完全满足且优于" in scoring_clause.content
+    assert "不完全满足项目要求" in scoring_clause.content
+
+
+def test_material_burden_clause_aggregates_multiple_bid_stage_requirements() -> None:
+    text = """
+    投标文件中须提供主要原材料检测报告。
+    投标文件中须提供质量管理体系认证证书、中国环保产品认证、中国环境标志产品认证。
+    """
+    clauses = extract_clauses(text)
+    burden_clause = next(item for item in clauses if item.field_name == "证书检测报告负担特征")
+
+    assert "检测报告" in burden_clause.content
+    assert "质量管理体系认证证书" in burden_clause.content
+    assert "中国环境标志产品认证" in burden_clause.content
 
 
 def test_risk_rules_do_not_treat_factory_quality_wording_as_origin_brand_restriction() -> None:

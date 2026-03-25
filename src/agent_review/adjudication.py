@@ -640,11 +640,12 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
     if not evidence:
         return "未明确定位", "当前自动抽取未定位到可直接引用的原文。"
 
-    primary = evidence[0]
+    ranked = _rank_evidence_for_formal(point.title, evidence, report_text)
+    primary = ranked[0]
     section_hint = primary.section_hint or "未明确定位"
     raw_quote = primary.quote.strip()
     supplemental: list[str] = []
-    for item in evidence[:3]:
+    for item in ranked[:4]:
         line_quote = line_text_from_anchor(report_text, item.section_hint)
         if line_quote:
             supplemental.append(line_quote)
@@ -673,6 +674,39 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
     if raw_quote:
         return section_hint, raw_quote
     return section_hint, "当前自动抽取未定位到可直接引用的原文。"
+
+
+def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text: str) -> list[Evidence]:
+    def score(item: Evidence) -> tuple[int, int, int]:
+        quote = item.quote.strip()
+        line_quote = line_text_from_anchor(report_text, item.section_hint) or quote
+        text = f"{quote} {line_quote}"
+        title_score = 0
+        if title in {"方案评分量化不足", "评分分档主观性与量化充分性复核"}:
+            if any(token in text for token in ["完全满足且优于", "完全满足项目要求", "不完全满足项目要求", "缺陷", "扣分"]):
+                title_score += 3
+            if "方案" in text:
+                title_score += 2
+        elif title in {"证书类评分分值偏高", "投标阶段证书或检测报告负担过重"}:
+            if any(token in text for token in ["资质证书", "管理体系认证", "认证证书", "检测报告"]):
+                title_score += 3
+            if "分" in text or "评分总分=" in text:
+                title_score += 2
+        elif title == "刚性门槛型专利要求":
+            if any(token in text for token in ["必须具备", "须具备", "应具备", "刚性门槛"]):
+                title_score += 3
+            if "专利" in text:
+                title_score += 2
+        elif title == "合同文本存在明显模板残留":
+            if any(token in text for token in ["设计、测试", "X年", "事件发生后", "免费质保服务"]):
+                title_score += 3
+        return (
+            title_score,
+            1 if item.section_hint and item.section_hint.startswith("line:") else 0,
+            len(line_quote),
+        )
+
+    return sorted(evidence, key=score, reverse=True)
 
 
 def _resolve_review_point_roles(

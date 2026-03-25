@@ -480,6 +480,7 @@ def build_review_point_second_review_prompt(report: ReviewReport) -> str:
       "role_judgment": "角色判断结论",
       "evidence_judgment": "证据充分性结论",
       "applicability_judgment": "适法性结论",
+      "intensity_judgment": "判断属于一般要求、偏重要求、刚性门槛、裁量过大或证据不足",
       "suggested_disposition": "include 或 manual_confirmation 或 filtered_out",
       "rationale": "二审理由",
       "adoption_status": "可直接采用 或 需人工确认"
@@ -513,15 +514,15 @@ def _select_second_review_points(report: ReviewReport, limit: int = 12) -> list:
 
 def _build_second_review_focus(task_type: str) -> str:
     focus_map = {
-        "structure": "重点复核项目属性、采购内容、合同类型、履约周期之间是否真实错配。",
-        "scoring": "重点复核评分因素是否与履约能力相关、是否量化、是否存在行业错配。",
-        "contract": "重点复核付款、验收、考核、扣款、解约之间是否形成实质联动。",
-        "template": "重点复核模板语句是否只是残留，还是已实质影响资格、评审或履约。",
-        "policy": "重点复核政策适用条件、声明函口径、金额口径和价格扣除是否闭合。",
-        "restrictive": "重点复核条款是否真的构成限制竞争，而非普通承诺、声明或说明。",
+        "structure": "重点复核项目属性、采购内容、合同类型、履约周期之间是否真实错配，并判断整体主线是否仍然自洽。",
+        "scoring": "重点复核评分因素是否与履约能力相关、是否量化、是否存在行业错配，并判断属于一般提示、权重偏重还是裁量过大。",
+        "contract": "重点复核付款、验收、考核、扣款、解约之间是否形成实质联动，并判断条款失衡强度。",
+        "template": "重点复核模板语句是否只是残留，还是已实质影响资格、评审或履约，并判断是否足以进入formal。",
+        "policy": "重点复核政策适用条件、声明函口径、金额口径和价格扣除是否闭合，并判断冲突强度。",
+        "restrictive": "重点复核条款是否真的构成限制竞争，而非普通承诺、声明或说明，并判断属于一般要求、偏重要求还是刚性门槛。",
         "personnel": "重点复核对象是否确为履约人员要求，而非一般劳动合规或表单字段。",
-        "consistency": "重点复核冲突是否可独立成立，还是仅为镜像重复或待补证问题。",
-        "generic": "重点复核证据、角色、适法性和formal裁决是否一致。",
+        "consistency": "重点复核冲突是否可独立成立，还是仅为镜像重复或待补证问题，并判断formal强度。",
+        "generic": "重点复核证据、角色、适法性和formal裁决是否一致，并明确风险强度。",
     }
     return focus_map.get(task_type, focus_map["generic"])
 

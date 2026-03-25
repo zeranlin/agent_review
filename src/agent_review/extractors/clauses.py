@@ -248,19 +248,28 @@ def _material_stage_extractor(keywords: list[str]) -> ClauseExtractor:
 def _material_burden_extractor(lines: list[str]) -> ExtractedClause | None:
     burden_terms = ["检测报告", "认证证书", "管理体系认证", "环境标志", "环保产品认证"]
     requirement_terms = ["需", "须", "必须", "提供", "提交", "具备"]
+    matched_lines: list[str] = []
+    anchors: list[int] = []
+    matched_terms: list[str] = []
     for line_no, line in enumerate(lines, start=1):
         matched = [term for term in burden_terms if term in line]
         if not matched:
             continue
         if not any(term in line for term in requirement_terms):
             continue
-        return _build_clause(
-            line,
-            line_no,
-            normalized_value=";".join(matched),
-            relation_tags=["材料负担要求", *matched],
-        )
-    return None
+        anchors.append(line_no)
+        matched_lines.append(line[:80])
+        matched_terms.extend(matched)
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:320],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value=";".join(dict.fromkeys(matched_terms)),
+        relation_tags=["材料负担要求", *dict.fromkeys(matched_terms)],
+    )
 
 
 def _amount_extractor(keywords: list[str]) -> ClauseExtractor:
@@ -371,34 +380,52 @@ def _service_content_extractor(lines: list[str]) -> ExtractedClause | None:
 
 def _industry_mismatch_scoring_extractor(lines: list[str]) -> ExtractedClause | None:
     mismatch_terms = ["软件企业认定证书", "ITSS", "运行维护服务证书", "利润率", "财务报告"]
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    matched_terms: list[str] = []
     for line_no, line in enumerate(lines, start=1):
         matched = [term for term in mismatch_terms if term in line]
         if not matched:
             continue
         if not any(token in line for token in ["分", "评分", "评审", "得分", "证书", "财务报告", "利润率"]):
             continue
-        return _build_clause(
-            line,
-            line_no,
-            normalized_value=";".join(matched),
-            relation_tags=["行业相关性存疑评分项", *matched],
-        )
-    return None
+        anchors.append(line_no)
+        matched_lines.append(line[:80])
+        matched_terms.extend(matched)
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:320],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value=";".join(dict.fromkeys(matched_terms)),
+        relation_tags=["行业相关性存疑评分项", *dict.fromkeys(matched_terms)],
+    )
 
 
 def _plan_scoring_quant_extractor(lines: list[str]) -> ExtractedClause | None:
     keywords = ["无缺陷得满分", "每缺项扣", "每处缺陷扣", "缺陷扣", "扣2.5分", "缺项扣分", "完全满足且优于", "完全满足项目要求", "不完全满足项目要求"]
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    matched_terms: list[str] = []
     for line_no, line in enumerate(lines, start=1):
         matched = [token for token in keywords if token in line]
         if not matched:
             continue
-        return _build_clause(
-            line,
-            line_no,
-            normalized_value="存在",
-            relation_tags=["方案量化不足", *matched],
-        )
-    return None
+        anchors.append(line_no)
+        matched_lines.append(line[:100])
+        matched_terms.extend(matched)
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:400],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["方案量化不足", *dict.fromkeys(matched_terms)],
+    )
 
 
 def _contract_result_template_extractor(lines: list[str]) -> ExtractedClause | None:
