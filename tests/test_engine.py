@@ -612,6 +612,31 @@ class FakeClient:
                 },
                 ensure_ascii=False,
             )
+        if "专门分析评分章节或评分相关条款的语义风险" in system_prompt:
+            return json.dumps(
+                {
+                    "scoring_review_summary": "评分章节存在主观分档与证书权重偏重的风险特征，建议补充评分动态审查任务。",
+                    "dynamic_review_tasks": [
+                        {
+                            "catalog_id": "RP-DYN-SCORE-001",
+                            "title": "评分分档主观性与量化充分性复核",
+                            "dimension": "评审标准明确性",
+                            "severity": "high",
+                            "task_type": "scoring",
+                            "scenario_tags": ["dynamic", "scoring"],
+                            "focus_fields": ["评分方法", "方案评分扣分模式"],
+                            "signal_groups": [["完全满足", "不完全满足"], ["证书", "财务"]],
+                            "evidence_hints": [
+                                "优先采集评分方法、方案评分扣分模式、行业相关性存疑评分项和采购标的"
+                            ],
+                            "rebuttal_templates": [["法定强制认证", "中标后提交"]],
+                            "enhancement_fields": ["评分方法", "方案评分扣分模式", "行业相关性存疑评分项"],
+                            "basis_hint": "评分分档主观性和证书权重偏高容易影响评审客观性。",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
         if "条款角色判断做复核" in system_prompt:
             return json.dumps(
                 {
@@ -793,6 +818,8 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     text = """
     项目属性：服务
     中小企业声明函：制造商声明
+    评分方法：综合评分法
+    方案评分扣分模式：完全满足/不完全满足。
     本项目专门面向中小企业采购，仍适用价格扣除。
     供应商需承诺服务满意度，尾款支付与履约评价挂钩。
     """
@@ -805,7 +832,9 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert enhanced_report.llm_enhanced is True
     assert enhanced_report.llm_semantic_review.clause_supplements
     assert enhanced_report.llm_semantic_review.scenario_review_summary
+    assert enhanced_report.llm_semantic_review.scoring_review_summary
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks
+    assert enhanced_report.llm_semantic_review.scoring_dynamic_review_tasks
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].evidence_hints
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].rebuttal_templates
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].enhancement_fields
@@ -825,6 +854,7 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
     assert llm_tasks == {
         "llm_scenario_review": "completed",
+        "llm_scoring_review": "completed",
         "llm_clause_supplement": "completed",
         "llm_role_review": "completed",
         "llm_evidence_review": "completed",
@@ -837,6 +867,7 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     markdown = render_markdown(enhanced_report)
     assert "## LLM补充条款" in markdown
     assert "## LLM场景识别与动态任务" in markdown
+    assert "## LLM评分语义分析与动态任务" in markdown
     assert "证据提示" in markdown
     assert "反证模板" in markdown
     assert "## LLM裁决复核" in markdown
@@ -958,6 +989,29 @@ def test_dynamic_task_type_can_flow_into_llm_second_review_prompt_and_override()
         item.title == "项目属性与采购内容结构错配" and "结构类二审重点已触发" in item.rationale
         for item in second_review_report.llm_semantic_review.review_point_second_reviews
     )
+
+
+def test_scoring_review_prompt_and_dynamic_tasks_can_flow_into_main_chain() -> None:
+    text = """
+    项目属性：货物
+    采购标的：家具
+    评分方法：综合评分法
+    方案评分扣分模式：完全满足且优于/完全满足/不完全满足。
+    行业相关性存疑评分项：软件企业认定证书5分、财务报告2分。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+    enhanced_report = QwenReviewEnhancer(client=FakeClient()).enhance(base_report)
+
+    assert enhanced_report.llm_semantic_review.scoring_review_summary
+    assert enhanced_report.llm_semantic_review.scoring_dynamic_review_tasks
+    scoring_task = enhanced_report.llm_semantic_review.scoring_dynamic_review_tasks[0]
+    assert scoring_task.task_type == "scoring"
+    assert scoring_task.evidence_hints
+    assert any(item.title == scoring_task.title for item in enhanced_report.review_points)
+    llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
+    assert llm_tasks["llm_scoring_review"] == "completed"
 
 
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:

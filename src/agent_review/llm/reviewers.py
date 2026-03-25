@@ -38,6 +38,7 @@ from .prompts import (
     CLAUSE_SUPPLEMENT_SYSTEM_PROMPT,
     CONSISTENCY_REVIEW_SYSTEM_PROMPT,
     EVIDENCE_REVIEW_SYSTEM_PROMPT,
+    SCORING_REVIEW_SYSTEM_PROMPT,
     SCENARIO_REVIEW_SYSTEM_PROMPT,
     REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
     ROLE_REVIEW_SYSTEM_PROMPT,
@@ -47,6 +48,7 @@ from .prompts import (
     build_clause_supplement_prompt,
     build_consistency_review_prompt,
     build_evidence_review_prompt,
+    build_scoring_review_prompt,
     build_scenario_review_prompt,
     build_review_point_second_review_prompt,
     build_role_review_prompt,
@@ -58,6 +60,7 @@ from .task_planner import build_dynamic_review_points, parse_dynamic_review_task
 
 LLM_TASK_ORDER = [
     "llm_scenario_review",
+    "llm_scoring_review",
     "llm_clause_supplement",
     "llm_role_review",
     "llm_evidence_review",
@@ -97,11 +100,38 @@ class QwenReviewEnhancer:
         warnings: list[str] = []
         working_report = report
 
+        scoring_payload, scoring_error = self._run_task(
+            task_name="llm_scoring_review",
+            task_records=task_records,
+            system_prompt=SCORING_REVIEW_SYSTEM_PROMPT,
+            user_prompt=build_scoring_review_prompt(report),
+            skip_when=not _has_scoring_context(report),
+            skip_detail="当前未识别到评分章节或评分相关条款，跳过评分语义分析。",
+        )
+        if scoring_payload:
+            semantic_review.scoring_review_summary = str(
+                scoring_payload.get("scoring_review_summary", "")
+            ).strip()
+            semantic_review.scoring_dynamic_review_tasks = parse_dynamic_review_tasks(
+                scoring_payload.get("dynamic_review_tasks")
+            )
+            semantic_review.dynamic_review_tasks = _merge_dynamic_task_definitions(
+                semantic_review.dynamic_review_tasks,
+                semantic_review.scoring_dynamic_review_tasks,
+            )
+            if semantic_review.scoring_dynamic_review_tasks:
+                working_report = _merge_dynamic_tasks_into_report(
+                    report,
+                    semantic_review.scoring_dynamic_review_tasks,
+                )
+        if scoring_error:
+            warnings.append(scoring_error)
+
         scenario_payload, scenario_error = self._run_task(
             task_name="llm_scenario_review",
             task_records=task_records,
             system_prompt=SCENARIO_REVIEW_SYSTEM_PROMPT,
-            user_prompt=build_scenario_review_prompt(report),
+            user_prompt=build_scenario_review_prompt(working_report),
             skip_when=False,
             skip_detail="",
         )
@@ -109,33 +139,18 @@ class QwenReviewEnhancer:
             semantic_review.scenario_review_summary = str(
                 scenario_payload.get("scenario_review_summary", "")
             ).strip()
-            semantic_review.dynamic_review_tasks = parse_dynamic_review_tasks(
+            scenario_dynamic_tasks = parse_dynamic_review_tasks(
                 scenario_payload.get("dynamic_review_tasks")
             )
-            if semantic_review.dynamic_review_tasks:
-                dynamic_points = build_dynamic_review_points(
-                    semantic_review.dynamic_review_tasks,
-                    report.extracted_clauses,
-                )
-                merged_points = merge_review_points(report.review_points + dynamic_points)
-                applicability_checks = build_point_applicability_checks(
-                    merged_points,
-                    report.extracted_clauses,
-                )
-                quality_gates = build_point_quality_gates(merged_points)
-                working_report = replace(
-                    report,
-                    review_points=merged_points,
-                    review_point_catalog=build_review_point_catalog_snapshot(merged_points),
-                    applicability_checks=applicability_checks,
-                    quality_gates=quality_gates,
-                    formal_adjudication=build_formal_adjudication(
-                        merged_points,
-                        applicability_checks,
-                        quality_gates,
-                        report.parse_result.text,
-                        report.extracted_clauses,
-                    ),
+            combined_dynamic_tasks = _merge_dynamic_task_definitions(
+                semantic_review.scoring_dynamic_review_tasks,
+                scenario_dynamic_tasks,
+            )
+            semantic_review.dynamic_review_tasks = combined_dynamic_tasks
+            if scenario_dynamic_tasks:
+                working_report = _merge_dynamic_tasks_into_report(
+                    working_report,
+                    scenario_dynamic_tasks,
                 )
         if scenario_error:
             warnings.append(scenario_error)
@@ -397,6 +412,8 @@ def _find_task_record(task_records: list[TaskRecord], task_name: str) -> TaskRec
 def _count_task_items(task_name: str, parsed: dict) -> int:
     if task_name == "llm_scenario_review":
         return len(parsed.get("dynamic_review_tasks", []))
+    if task_name == "llm_scoring_review":
+        return len(parsed.get("dynamic_review_tasks", []))
     if task_name == "llm_clause_supplement":
         return len(parsed.get("clause_supplements", []))
     if task_name == "llm_specialist_review":
@@ -414,6 +431,61 @@ def _count_task_items(task_name: str, parsed: dict) -> int:
     if task_name == "llm_verdict_review":
         return 1 if parsed.get("verdict_review") or parsed.get("summary") else 0
     return 0
+
+
+def _has_scoring_context(report: ReviewReport) -> bool:
+    keywords = ("评分", "评审", "分值", "方案", "证书", "检测报告", "财务", "样品")
+    return any(
+        any(token in f"{item.category}{item.field_name}{item.content}" for token in keywords)
+        for item in report.extracted_clauses
+    )
+
+
+def _merge_dynamic_task_definitions(
+    existing: list,
+    incoming: list,
+) -> list:
+    merged = list(existing)
+    seen = {(item.catalog_id, item.title) for item in merged}
+    for item in incoming:
+        key = (item.catalog_id, item.title)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return merged
+
+
+def _merge_dynamic_tasks_into_report(
+    report: ReviewReport,
+    dynamic_tasks: list,
+) -> ReviewReport:
+    if not dynamic_tasks:
+        return report
+    dynamic_points = build_dynamic_review_points(
+        dynamic_tasks,
+        report.extracted_clauses,
+    )
+    merged_points = merge_review_points(report.review_points + dynamic_points)
+    applicability_checks = build_point_applicability_checks(
+        merged_points,
+        report.extracted_clauses,
+    )
+    quality_gates = build_point_quality_gates(merged_points)
+    return replace(
+        report,
+        review_points=merged_points,
+        review_point_catalog=build_review_point_catalog_snapshot(merged_points),
+        applicability_checks=applicability_checks,
+        quality_gates=quality_gates,
+        formal_adjudication=build_formal_adjudication(
+            merged_points,
+            applicability_checks,
+            quality_gates,
+            report.parse_result.text,
+            report.extracted_clauses,
+        ),
+    )
 
 
 def _infer_task_status(exc: Exception) -> TaskStatus:

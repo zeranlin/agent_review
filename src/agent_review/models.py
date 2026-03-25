@@ -468,7 +468,9 @@ class RuleSelection:
 @dataclass(slots=True)
 class LLMSemanticReview:
     scenario_review_summary: str = ""
+    scoring_review_summary: str = ""
     dynamic_review_tasks: list[ReviewPointDefinition] = field(default_factory=list)
+    scoring_dynamic_review_tasks: list[ReviewPointDefinition] = field(default_factory=list)
     clause_supplements: list[ExtractedClause] = field(default_factory=list)
     specialist_findings: list[Finding] = field(default_factory=list)
     consistency_findings: list[Finding] = field(default_factory=list)
@@ -481,7 +483,9 @@ class LLMSemanticReview:
     def to_dict(self) -> dict[str, object]:
         return {
             "scenario_review_summary": self.scenario_review_summary,
+            "scoring_review_summary": self.scoring_review_summary,
             "dynamic_review_tasks": [item.to_dict() for item in self.dynamic_review_tasks],
+            "scoring_dynamic_review_tasks": [item.to_dict() for item in self.scoring_dynamic_review_tasks],
             "clause_supplements": [item.to_dict() for item in self.clause_supplements],
             "specialist_findings": [item.to_dict() for item in self.specialist_findings],
             "consistency_findings": [item.to_dict() for item in self.consistency_findings],

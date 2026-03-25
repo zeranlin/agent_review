@@ -238,11 +238,35 @@ def render_markdown(report: ReviewReport) -> str:
             )
         lines.append("")
 
-    if report.llm_semantic_review.scenario_review_summary or report.llm_semantic_review.dynamic_review_tasks:
+    scoring_task_ids = {
+        (item.catalog_id, item.title) for item in report.llm_semantic_review.scoring_dynamic_review_tasks
+    }
+    scenario_dynamic_tasks = [
+        item
+        for item in report.llm_semantic_review.dynamic_review_tasks
+        if (item.catalog_id, item.title) not in scoring_task_ids
+    ]
+
+    if report.llm_semantic_review.scenario_review_summary or scenario_dynamic_tasks:
         lines.append("## LLM场景识别与动态任务")
         if report.llm_semantic_review.scenario_review_summary:
             lines.append(f"- 场景判断：{report.llm_semantic_review.scenario_review_summary}")
-        for item in report.llm_semantic_review.dynamic_review_tasks:
+        for item in scenario_dynamic_tasks:
+            lines.append(f"- [{item.catalog_id}] {item.title}：{item.dimension}")
+            if item.evidence_hints:
+                lines.append(f"  证据提示：{'；'.join(item.evidence_hints)}")
+            if item.rebuttal_templates:
+                lines.append(
+                    "  反证模板："
+                    + " / ".join("、".join(group) for group in item.rebuttal_templates)
+                )
+        lines.append("")
+
+    if report.llm_semantic_review.scoring_review_summary or report.llm_semantic_review.scoring_dynamic_review_tasks:
+        lines.append("## LLM评分语义分析与动态任务")
+        if report.llm_semantic_review.scoring_review_summary:
+            lines.append(f"- 评分判断：{report.llm_semantic_review.scoring_review_summary}")
+        for item in report.llm_semantic_review.scoring_dynamic_review_tasks:
             lines.append(f"- [{item.catalog_id}] {item.title}：{item.dimension}")
             if item.evidence_hints:
                 lines.append(f"  证据提示：{'；'.join(item.evidence_hints)}")

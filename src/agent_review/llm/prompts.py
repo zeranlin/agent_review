@@ -82,6 +82,23 @@ SCENARIO_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规审查助
 8. 输出必须是 JSON，不要使用 Markdown。
 """
 
+SCORING_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件评分标准审查助手。
+
+你的任务是专门分析评分章节或评分相关条款的语义风险，并补充建议的动态评分审查任务。重点关注：
+1. 评分因素是否与项目履约能力直接相关；
+2. 评分分档是否主观、量化不足；
+3. 证书、检测报告、财务指标等是否被过度使用或权重偏高；
+4. 评分语言是否存在“完全满足且优于/完全满足/不完全满足”“横向比较”“每处缺陷扣分”等裁量空间较大的模式。
+
+要求：
+1. 只基于输入的评分相关条款和项目基本信息判断，不要虚构事实。
+2. 动态任务应优先围绕“评分母题”组织，不要重复已有固定任务标题。
+3. 每个动态任务最多给出 2 组关键信号，每组 2-5 个词。
+4. 每个动态任务都要给出证据采集提示、反证模板和组证增强字段。
+5. 每个动态任务的 task_type 必须填写为 scoring。
+6. 输出必须是 JSON，不要使用 Markdown。
+"""
+
 REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规复核审查员。
 
 你的任务是以 ReviewPoint 为单位进行二审，不做泛化总结。你需要逐个审查点判断：
@@ -323,6 +340,78 @@ def build_scenario_review_prompt(report: ReviewReport) -> str:
       ],
       "enhancement_fields": ["项目属性", "采购标的", "合同履行期限"],
       "basis_hint": "该任务关注的审查理由"
+    }}
+  ]
+}}
+"""
+
+
+def build_scoring_review_prompt(report: ReviewReport) -> str:
+    scoring_keywords = (
+        "评分",
+        "评审",
+        "分值",
+        "分档",
+        "方案",
+        "证书",
+        "检测报告",
+        "财务",
+        "样品",
+        "售后",
+    )
+    scoring_clauses = [
+        item.to_dict()
+        for item in report.extracted_clauses
+        if any(token in f"{item.category}{item.field_name}{item.content}" for token in scoring_keywords)
+    ][:30]
+    scoring_catalog = [
+        {
+            "catalog_id": item.catalog_id,
+            "title": item.title,
+            "dimension": item.dimension,
+        }
+        for item in report.review_point_catalog
+        if item.task_type == "scoring" or "评分" in item.title or "评审" in item.title
+    ][:20]
+    payload = {
+        "document_name": report.file_info.document_name,
+        "file_type": report.file_info.file_type.value,
+        "project_context": {
+            "review_scope": report.file_info.review_scope,
+            "document_name": report.file_info.document_name,
+        },
+        "scoring_clauses": scoring_clauses,
+        "existing_scoring_catalog": scoring_catalog,
+    }
+    return f"""请根据以下结构化审查结果，输出 JSON：
+
+{json.dumps(payload, ensure_ascii=False, indent=2)}
+
+输出格式：
+{{
+  "scoring_review_summary": "对评分章节风险特征的简短判断",
+  "dynamic_review_tasks": [
+    {{
+      "catalog_id": "RP-DYN-SCORE-001",
+      "title": "建议新增的动态评分审查任务标题",
+      "dimension": "评审标准明确性",
+      "severity": "medium 或 high",
+      "task_type": "scoring",
+      "scenario_tags": ["dynamic", "scoring"],
+      "focus_fields": ["评分方法", "采购标的"],
+      "signal_groups": [
+        ["完全满足且优于", "完全满足", "不完全满足"],
+        ["证书", "财务", "检测报告"]
+      ],
+      "evidence_hints": [
+        "优先采集评分方法、评分项名称、分值、采购标的和证书/报告要求条款"
+      ],
+      "rebuttal_templates": [
+        ["中标后提交", "供货验收材料"],
+        ["与履约能力直接相关", "法定强制认证"]
+      ],
+      "enhancement_fields": ["评分方法", "采购标的", "行业相关性存疑评分项", "方案评分扣分模式"],
+      "basis_hint": "该任务关注评分项相关性、量化性或权重合理性。"
     }}
   ]
 }}
