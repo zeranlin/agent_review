@@ -94,12 +94,12 @@ def resolve_formal_evidence(report_text: str, finding: Finding) -> tuple[str, st
         return section_hint, "当前自动抽取未定位到可直接引用的原文。"
 
     primary_hint = finding.evidence[0].section_hint if finding.evidence else ""
-    line_quote = line_text_from_anchor(report_text, primary_hint)
+    line_quote = clause_window_from_anchor(report_text, primary_hint)
     if raw_quote and " / " in raw_quote:
         parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
         supplemental = []
         for part in parts:
-            matched = search_line_by_keyword(report_text, part)
+            matched = search_line_by_keyword(report_text, part, prefer_window=True)
             if matched:
                 supplemental.append(matched)
         if line_quote:
@@ -219,8 +219,83 @@ def line_text_from_anchor(text: str, anchor: str) -> str:
     return ""
 
 
-def search_line_by_keyword(text: str, keyword: str) -> str:
-    for line in text.splitlines():
+def clause_window_from_anchor(text: str, anchor: str, before: int = 1, after: int = 4) -> str:
+    match = re.match(r"line:(\d+)", anchor or "")
+    if not match:
+        return ""
+    line_no = int(match.group(1))
+    lines = text.splitlines()
+    if not (1 <= line_no <= len(lines)):
+        return ""
+
+    index = line_no - 1
+    start = index
+    end = index
+
+    current = lines[index].strip()
+    if _looks_like_fragment_start(current):
+        while start > 0:
+            candidate = lines[start - 1].strip()
+            if not candidate:
+                break
+            start -= 1
+            if _looks_like_clause_boundary(candidate) or len(candidate) >= 20:
+                break
+        start = max(0, start - before + 1)
+
+    while end + 1 < len(lines) and end - start < after:
+        next_line = lines[end + 1].strip()
+        if not next_line:
+            break
+        if _is_clause_complete(lines[end].strip()) and _looks_like_clause_boundary(next_line):
+            break
+        end += 1
+        if _is_clause_complete(lines[end].strip()) and len(_join_clause_lines(lines[start : end + 1])) >= 28:
+            break
+
+    window = _join_clause_lines(lines[start : end + 1])
+    return window or current
+
+
+def search_line_by_keyword(text: str, keyword: str, prefer_window: bool = False) -> str:
+    lines = text.splitlines()
+    for idx, line in enumerate(lines, start=1):
         if keyword and keyword in line:
+            if prefer_window:
+                return clause_window_from_anchor(text, f"line:{idx}")
             return line.strip()
     return ""
+
+
+def _looks_like_fragment_start(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if len(stripped) <= 12:
+        return True
+    return stripped[0] in {"的", "及", "、", "（", "(", ",", "，", "）", ")", "须", "由"}
+
+
+def _looks_like_clause_boundary(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    return bool(
+        re.match(r"^(\d+[\.\、\)]|[一二三四五六七八九十]+[、\)]|[（(]?\d+[）)].*|[A-Za-z]+\d*[\.\)]|第.+[章节条款])", stripped)
+    )
+
+
+def _is_clause_complete(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    return stripped.endswith(("。", "；", "!", "！", "?", "？", "：", ":", "）", ")"))
+
+
+def _join_clause_lines(lines: list[str]) -> str:
+    parts = [item.strip() for item in lines if item.strip()]
+    if not parts:
+        return ""
+    text = "".join(parts)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text

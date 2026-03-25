@@ -24,7 +24,14 @@ from .models import (
     ReviewQualityGate,
     Severity,
 )
-from .quality import evidence_supports_title, infer_evidence_roles, infer_role_from_text, line_text_from_anchor, search_line_by_keyword
+from .quality import (
+    clause_window_from_anchor,
+    evidence_supports_title,
+    infer_evidence_roles,
+    infer_role_from_text,
+    line_text_from_anchor,
+    search_line_by_keyword,
+)
 from .review_point_catalog import resolve_review_point_definition, select_standard_review_tasks, snapshot_catalog_for_points
 from .review_quality_gate import build_review_quality_gates
 
@@ -664,7 +671,7 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
         parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
         supplemental: list[str] = []
         for part in parts:
-            matched = search_line_by_keyword(report_text, part)
+            matched = search_line_by_keyword(report_text, part, prefer_window=True)
             if matched:
                 supplemental.append(matched)
         if supplemental:
@@ -675,7 +682,7 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
 
     if raw_quote and " / " in raw_quote:
         parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
-        supplemental = [matched for part in parts if (matched := search_line_by_keyword(report_text, part))]
+        supplemental = [matched for part in parts if (matched := search_line_by_keyword(report_text, part, prefer_window=True))]
         if supplemental:
             return section_hint, "；".join(dict.fromkeys(supplemental))
     if raw_quote:
@@ -686,7 +693,7 @@ def _resolve_review_point_evidence(point: ReviewPoint, report_text: str) -> tupl
 def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text: str) -> list[Evidence]:
     def score(item: Evidence) -> tuple[int, int, int]:
         quote = item.quote.strip()
-        line_quote = line_text_from_anchor(report_text, item.section_hint) or quote
+        line_quote = clause_window_from_anchor(report_text, item.section_hint) or line_text_from_anchor(report_text, item.section_hint) or quote
         text = f"{quote} {line_quote}"
         title_score = 0
         if title in {"方案评分量化不足", "评分分档主观性与量化充分性复核"}:
@@ -728,7 +735,7 @@ def _build_formal_evidence_cluster(
         if item.section_hint and primary_section_hint and item.section_hint != primary_section_hint:
             if _formal_family_key(title) != "scoring":
                 continue
-        line_quote = line_text_from_anchor(report_text, item.section_hint) or item.quote.strip()
+        line_quote = clause_window_from_anchor(report_text, item.section_hint) or line_text_from_anchor(report_text, item.section_hint) or item.quote.strip()
         if not line_quote:
             continue
         if not evidence_supports_title(title, line_quote):

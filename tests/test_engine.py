@@ -35,6 +35,7 @@ from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
 from agent_review.parsers.vision_ocr import VisionOcrResult
+from agent_review.quality import clause_window_from_anchor
 from agent_review.rules.risk_rules import match_risk_rules
 from agent_review.reporting import (
     render_formal_review_opinion,
@@ -1649,6 +1650,41 @@ def test_reviewer_report_uses_reviewer_friendly_language() -> None:
     assert "已发现明确风险，证据较充分。" in reviewer
     assert "要件链成立" not in reviewer
     assert "已满足 1 项要件" not in reviewer
+
+
+def test_clause_window_from_anchor_can_merge_fragmented_pdf_lines() -> None:
+    text = "\n".join(
+        [
+            "6 详细评审 履约能力 投标人具有行政单位颁发",
+            "的软件企业认定证书（5",
+            "分）。投标人具有有效的",
+            "中国电子工业标准化技术",
+            "协会信息技术服务分会（ITSS）颁发的信息技术服务标准符合性证书。",
+        ]
+    )
+
+    window = clause_window_from_anchor(text, "line:2")
+
+    assert "软件企业认定证书" in window
+    assert "ITSS" in window
+    assert "分）" in window
+
+
+def test_formal_review_prefers_clause_window_over_fragment_line() -> None:
+    text = "\n".join(
+        [
+            "6 详细评审 履约能力 投标人具有行政单位颁发",
+            "的软件企业认定证书（5",
+            "分）。投标人具有有效的",
+            "中国电子工业标准化技术",
+            "协会信息技术服务分会（ITSS）颁发的信息技术服务标准符合性证书。",
+        ]
+    )
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "投标人具有行政单位颁发的软件企业认定证书（5分）" in reviewer
+    assert "ITSS" in reviewer
 
 
 def test_formal_review_opinion_suppresses_review_mirror_items() -> None:
