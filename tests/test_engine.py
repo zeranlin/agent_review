@@ -615,7 +615,7 @@ class FakeClient:
         if "专门分析评分章节或评分相关条款的语义风险" in system_prompt:
             return json.dumps(
                 {
-                    "scoring_review_summary": "评分章节存在主观分档与证书权重偏重的风险特征，建议补充评分动态审查任务。",
+                    "scoring_review_summary": "评分章节同时存在主观分档和证书权重偏重的风险特征，建议拆成两类评分动态任务。",
                     "dynamic_review_tasks": [
                         {
                             "catalog_id": "RP-DYN-SCORE-001",
@@ -632,6 +632,22 @@ class FakeClient:
                             "rebuttal_templates": [["法定强制认证", "中标后提交"]],
                             "enhancement_fields": ["评分方法", "方案评分扣分模式", "行业相关性存疑评分项"],
                             "basis_hint": "评分分档主观性和证书权重偏高容易影响评审客观性。",
+                        },
+                        {
+                            "catalog_id": "RP-DYN-SCORE-002",
+                            "title": "证书检测报告及财务指标权重合理性复核",
+                            "dimension": "评审标准明确性",
+                            "severity": "high",
+                            "task_type": "scoring",
+                            "scenario_tags": ["dynamic", "scoring"],
+                            "focus_fields": ["评分方法", "行业相关性存疑评分项"],
+                            "signal_groups": [["证书", "检测报告"], ["财务", "分值"]],
+                            "evidence_hints": [
+                                "优先采集证书类评分项、检测报告要求、财务指标评分项、分值和采购标的"
+                            ],
+                            "rebuttal_templates": [["法定强制认证", "中标后提交"]],
+                            "enhancement_fields": ["评分方法", "行业相关性存疑评分项", "财务指标加分"],
+                            "basis_hint": "证书、检测报告和财务指标分值偏重时，容易加重投标负担并影响相关性。",
                         }
                     ],
                 },
@@ -835,6 +851,13 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert enhanced_report.llm_semantic_review.scoring_review_summary
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks
     assert enhanced_report.llm_semantic_review.scoring_dynamic_review_tasks
+    assert len(enhanced_report.llm_semantic_review.scoring_dynamic_review_tasks) == 2
+    assert {
+        item.title for item in enhanced_report.llm_semantic_review.scoring_dynamic_review_tasks
+    } == {
+        "评分分档主观性与量化充分性复核",
+        "证书检测报告及财务指标权重合理性复核",
+    }
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].evidence_hints
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].rebuttal_templates
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].enhancement_fields
@@ -1010,6 +1033,10 @@ def test_scoring_review_prompt_and_dynamic_tasks_can_flow_into_main_chain() -> N
     assert scoring_task.task_type == "scoring"
     assert scoring_task.evidence_hints
     assert any(item.title == scoring_task.title for item in enhanced_report.review_points)
+    assert any(
+        item.title == "证书检测报告及财务指标权重合理性复核"
+        for item in enhanced_report.review_points
+    )
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
     assert llm_tasks["llm_scoring_review"] == "completed"
 
