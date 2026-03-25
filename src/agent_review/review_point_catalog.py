@@ -116,6 +116,21 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="专利要求应具备必要性，避免形成不合理门槛。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-REST-004",
+        title="刚性门槛型专利要求",
+        dimension="A.限制竞争风险",
+        default_severity=Severity.high,
+        scenario_tags=["goods"],
+        required_conditions=[
+            ReviewPointCondition(
+                "专利要求具有刚性门槛特征",
+                clause_fields=["是否要求专利"],
+                signal_groups=[["必须具备", "须具备", "应具备"], ["专利"]],
+            )
+        ],
+        basis_hint="不宜将与采购标的相关专利直接设为刚性准入门槛。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-SCORE-001",
         title="主观评分表述",
         dimension="B.评分不规范风险",
@@ -226,6 +241,42 @@ CATALOG: list[ReviewPointDefinition] = [
             ),
         ],
         basis_hint="证书、检测报告和财务指标评分应与项目履约能力直接相关，且权重、提交负担不得明显超过必要限度。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-SCORE-009",
+        title="投标阶段证书或检测报告负担过重",
+        dimension="评审标准明确性",
+        default_severity=Severity.high,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在证书检测报告负担特征",
+                clause_fields=["证书检测报告负担特征", "证书材料适用阶段", "检测报告适用阶段"],
+                signal_groups=[["检测报告", "认证证书"], ["提供", "提交", "具备"]],
+            )
+        ],
+        exclusion_conditions=[
+            ReviewPointCondition(
+                "证书检测报告仅在履约或验收阶段提交",
+                clause_fields=["证书材料适用阶段", "检测报告适用阶段"],
+            )
+        ],
+        basis_hint="如检测报告、认证证书被要求在投标阶段普遍提交，容易形成超必要限度的投标负担。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-SCORE-010",
+        title="证书类评分分值偏高",
+        dimension="评审标准明确性",
+        default_severity=Severity.high,
+        scenario_tags=["scoring"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在证书类评分总分",
+                clause_fields=["证书类评分总分"],
+                signal_groups=[["资质证书", "管理体系认证", "分"]],
+            )
+        ],
+        basis_hint="证书类评分分值应与项目规模和履约能力相匹配，避免权重明显偏高。",
     ),
     ReviewPointDefinition(
         catalog_id="RP-PER-001",
@@ -570,6 +621,21 @@ CATALOG: list[ReviewPointDefinition] = [
             ReviewPointCondition("仍保留联合体或分包模板", signal_groups=[["联合体共同投标协议书", "联合体形式投标", "接受分包"]]),
         ],
         basis_hint="前文禁止联合体或分包时，不应保留对应模板或说明条款。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-TPL-007",
+        title="合同文本存在明显模板残留",
+        dimension="模板残留与冲突风险",
+        default_severity=Severity.high,
+        scenario_tags=["template", "contract"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在合同模板残留",
+                clause_fields=["合同模板残留"],
+                signal_groups=[["X年", "事件发生后天内", "设计、测试", "免费质保服务"]],
+            )
+        ],
+        basis_hint="合同文本中不应保留占位符、错行业术语或明显旧模板残留。",
     ),
     ReviewPointDefinition(
         catalog_id="RP-CONS-001",

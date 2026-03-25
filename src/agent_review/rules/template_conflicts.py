@@ -72,6 +72,19 @@ def match_template_conflict_risks(text: str, clauses) -> list[RiskHit]:
             )
         )
 
+    contract_template_residue = _first_content(mapping, "合同模板残留")
+    if contract_template_residue:
+        hits.append(
+            RiskHit(
+                risk_group="模板残留与冲突风险",
+                rule_name="合同文本存在明显模板残留",
+                severity=Severity.high,
+                matched_text=contract_template_residue,
+                rationale="合同文本中保留了占位符、错行业术语或明显旧模板残留，已影响合同明确性和可执行性。",
+                source_anchor=_anchor(mapping, "合同模板残留"),
+            )
+        )
+
     return hits
 
 

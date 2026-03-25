@@ -33,6 +33,20 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="行政法规",
         )
     ],
+    "刚性门槛型专利要求": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法实施条例",
+            article_hint="采购需求编制相关条款",
+            summary="不得将与采购标的相关专利直接设为不必要的刚性门槛，采购需求应与项目实际需要相适应。",
+            basis_type="行政法规",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="采购需求和证明材料要求应与项目实际需要一致，不得超出必要限度设置门槛。",
+            basis_type="部门规范性文件",
+        ),
+    ],
     "认证证书要求": [
         LegalBasis(
             source_name="政府采购需求管理办法",
@@ -322,6 +336,28 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规章",
         ),
     ],
+    "投标阶段证书或检测报告负担过重": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="证明材料要求应与采购项目实际需要相适应，不得要求供应商在投标阶段普遍提交超必要限度的检测报告和认证证书。",
+            basis_type="部门规范性文件",
+        ),
+    ],
+    "证书类评分分值偏高": [
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="评审因素设置相关条款",
+            summary="评审因素和分值设置应与项目实际需求和履约能力直接相关，不宜以证书类评分形成过重权重。",
+            basis_type="部门规章",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="技术、商务要求客观量化要求",
+            summary="评分因素应当客观、适度，与采购需求相匹配，避免因证书类评分权重偏高影响中小企业公平参与。",
+            basis_type="部门规范性文件",
+        ),
+    ],
     "预算金额 vs 最高限价": [
         LegalBasis(
             source_name="政府采购需求管理办法",
@@ -359,6 +395,14 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             source_name="政府采购需求管理办法",
             article_hint="采购文件与合同文本一致性要求",
             summary="合同条款应与项目行业性质、履约方式和验收要求保持一致，避免沿用其他行业成果交付模板。",
+            basis_type="部门规范性文件",
+        )
+    ],
+    "合同文本存在明显模板残留": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="采购文件与合同文本一致性要求",
+            summary="采购文件和合同文本应准确、完整、可执行，不应保留空白占位、错行业术语或明显旧模板残留。",
             basis_type="部门规范性文件",
         )
     ],

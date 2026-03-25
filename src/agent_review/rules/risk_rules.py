@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Iterable
 
 from ..models import Evidence, Finding, FindingType, Recommendation, RiskHit, Severity
@@ -7,17 +8,21 @@ from ..models import Evidence, Finding, FindingType, Recommendation, RiskHit, Se
 
 def match_risk_rules(text: str) -> list[RiskHit]:
     keyword_rules = [
-        ("A.限制竞争风险", "指定品牌/原厂限制", Severity.high, ["指定品牌", "原厂"], "存在指定品牌或原厂倾向，需核查是否构成排斥竞争。"),
+        ("A.限制竞争风险", "指定品牌/原厂限制", Severity.high, ["指定品牌", "原厂授权", "原厂证明", "原厂服务", "原厂服务团队"], "存在指定品牌或原厂倾向，需核查是否构成排斥竞争。"),
         ("A.限制竞争风险", "产地厂家商标限制", Severity.high, ["产地", "厂家", "商标"], "存在对产地、厂家或商标的倾向性表达。"),
         ("A.限制竞争风险", "专利要求", Severity.high, ["专利"], "出现专利要求，需核查是否属于不必要门槛。"),
+        ("A.限制竞争风险", "刚性门槛型专利要求", Severity.high, ["必须具备", "须具备", "应具备", "必须具有"], "将专利作为刚性门槛，存在明显限制竞争风险。"),
         ("A.限制竞争风险", "认证证书要求", Severity.medium, ["认证证书", "证书"], "出现证书要求，需判断是否与项目需求直接相关。"),
         ("A.限制竞争风险", "检测报告要求", Severity.medium, ["检测报告"], "出现检测报告要求，需判断是否必要且合理。"),
+        ("A.限制竞争风险", "投标阶段证书或检测报告负担过重", Severity.high, ["检测报告", "认证证书", "管理体系认证"], "如要求在投标阶段普遍提交检测报告或大量认证证书，可能形成超必要限度门槛。"),
         ("B.评分不规范风险", "无缺陷得满分", Severity.medium, ["无缺陷得满分"], "评分裁量口径过宽，缺陷定义不明确。"),
         ("B.评分不规范风险", "业绩加分", Severity.medium, ["业绩加分"], "业绩分需核查与采购需求的关联性和分值合理性。"),
+        ("B.评分不规范风险", "证书类评分分值偏高", Severity.high, ["资质证书", "管理体系认证情况"], "证书类评分分值偏高，可能对中小企业形成不利影响。"),
         ("D.合同与验收风险", "采购人单方决定", Severity.high, ["以采购人意见为准", "采购人说了算"], "争议或验收机制明显偏向采购人。"),
         ("D.合同与验收风险", "验收标准不明确", Severity.medium, ["验收标准", "验收"], "需核查验收标准是否清晰、客观、可执行。"),
         ("D.合同与验收风险", "付款节点不明确", Severity.medium, ["付款方式以正式合同为准", "付款节点"], "付款节点需与履约节点匹配并明确。"),
         ("E.模板残留风险", "模板占位或旧模板残留", Severity.low, ["另行通知", "详见附件", "以正式合同为准"], "存在模板依赖或未清理表述，需要人工核验。"),
+        ("E.模板残留风险", "合同文本存在明显模板残留", Severity.high, ["X年", "于事件发生后", "设计、测试、验收"], "合同文本存在明显旧模板占位或错行业术语，影响明确性和可执行性。"),
         ("政策条款风险", "中小企业政策冲突", Severity.medium, ["中小企业", "价格扣除"], "需核查是否存在专门面向中小企业 yet 保留价格扣除的冲突。"),
     ]
     hits: list[RiskHit] = []
@@ -25,12 +30,23 @@ def match_risk_rules(text: str) -> list[RiskHit]:
     for group, rule_name, severity, keywords, rationale in keyword_rules:
         for line_no, line in enumerate(lines, start=1):
             if rule_name == "产地厂家商标限制":
-                if any(token in line for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权"]):
+                if any(token in line for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权", "厂家出厂标准", "原厂正品"]):
                     continue
                 if not any(token in line for token in ["指定", "限定", "必须", "要求", "提供", "采用"]):
                     continue
             if rule_name == "专利要求":
                 if any(token in line for token in ["专利权", "知识产权", "侵犯", "纠纷", "不会产生"]):
+                    continue
+            if rule_name == "刚性门槛型专利要求":
+                if "专利" not in line:
+                    continue
+                if any(token in line for token in ["专利权", "知识产权", "侵犯", "纠纷", "不会产生"]):
+                    continue
+            if rule_name == "投标阶段证书或检测报告负担过重":
+                if not any(token in line for token in ["投标文件", "评分", "评审", "提供", "提交", "具备"]):
+                    continue
+            if rule_name == "证书类评分分值偏高":
+                if "分" not in line:
                     continue
             if any(keyword in line for keyword in keywords):
                 hits.append(
@@ -104,6 +120,27 @@ def match_risk_rules(text: str) -> list[RiskHit]:
                 )
             )
             break
+    certificate_score = 0.0
+    for line in lines:
+        if not any(token in line for token in ["资质证书", "管理体系认证情况", "认证证书"]):
+            continue
+        match = re.search(r"\((\d+(?:\.\d+)?)分\)", line)
+        if match:
+            certificate_score += float(match.group(1))
+    if certificate_score >= 8:
+        for line_no, line in enumerate(lines, start=1):
+            if any(token in line for token in ["资质证书", "管理体系认证情况", "认证证书"]):
+                hits.append(
+                    RiskHit(
+                        risk_group="B.评分不规范风险",
+                        rule_name="证书类评分分值偏高",
+                        severity=Severity.high,
+                        matched_text=line[:120],
+                        rationale=f"证书类评分分值累计约 {certificate_score:.1f} 分，权重疑似偏高。",
+                        source_anchor=f"line:{line_no}",
+                    )
+                )
+                break
     return hits
 
 
@@ -142,15 +179,19 @@ def build_recommendations(findings: list[Finding]) -> list[Recommendation]:
         "指定品牌/原厂限制": "删除品牌或原厂倾向性要求，改为描述满足采购需求的功能、性能和服务标准。",
         "产地厂家商标限制": "删除对产地、厂家、商标的倾向性限制，保留必要的技术兼容性表达。",
         "专利要求": "删除“必须具备相关专利”要求，改为要求供应商保证不侵犯第三方知识产权。",
+        "刚性门槛型专利要求": "删除将专利作为刚性门槛的表述，改为要求供应商保证不侵犯第三方知识产权并满足功能质量标准。",
         "认证证书要求": "仅保留与项目直接相关且有必要性的证书要求，并说明设置依据。",
         "检测报告要求": "明确检测报告的适用范围、时间要求和必要性，避免作为普遍门槛。",
+        "投标阶段证书或检测报告负担过重": "区分投标阶段与履约验收阶段材料，仅保留必要的投标阶段证明材料要求。",
         "主观评分表述": "将主观评分细化为可量化、可比对的指标，避免仅用优良中差分档。",
         "业绩加分": "压缩与项目无直接关联的业绩加分项，明确业绩范围、期限与证明口径。",
         "行业无关证书或财务指标被纳入评分": "删除与项目履约能力无直接关联的证书、利润率或财务类评分项，仅保留与本项目相关的客观指标。",
         "方案评分量化不足": "将实施方案、保障方案、后续服务等评分项细化为客观、量化、可比的评分标准，避免仅按缺陷扣分。",
+        "证书类评分分值偏高": "压缩证书类评分分值，避免证书评分权重明显高于项目实际履约相关性。",
         "采购人单方决定": "删除“以采购人意见为准”等单方决定表述，改为客观验收和争议解决机制。",
         "付款节点不明确": "将付款节点与履约节点、验收节点一一对应，并写明触发条件。",
         "模板占位或旧模板残留": "清理“详见附件”“另行通知”“以正式合同为准”等模板残留，补足正式条款。",
+        "合同文本存在明显模板残留": "清理合同中的X年、空白期限、设计测试等旧模板残留，统一为当前项目适用条款。",
         "项目属性 vs 履约内容": "统一项目属性与履约内容表述，必要时调整采购方式、合同类型和评分结构。",
         "技术要求 vs 评分标准": "确保评分因素直接对应技术需求，并补足量化评分细则。",
         "预算金额 vs 最高限价": "统一预算金额与最高限价口径，避免金额要素前后缺失或冲突。",

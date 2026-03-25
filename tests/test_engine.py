@@ -27,6 +27,7 @@ from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
 from agent_review.parsers.vision_ocr import VisionOcrResult
+from agent_review.rules.risk_rules import match_risk_rules
 from agent_review.reporting import (
     render_formal_review_opinion,
     render_markdown,
@@ -1106,6 +1107,112 @@ def test_scoring_weight_point_can_exclude_delivery_stage_materials() -> None:
     assert "要件链被阻断" in check.summary
 
 
+def test_rigid_patent_requirement_can_be_formally_supported() -> None:
+    text = """
+    采购标的：家具
+    投标人必须具备与采购标的相关的外观、结构、工艺及技术专利。
+    """
+    clauses = extract_clauses(text)
+    patent_clause = next(item for item in clauses if item.field_name == "是否要求专利")
+    assert patent_clause.normalized_value == "刚性门槛"
+
+    point = ReviewPoint(
+        point_id="RP-T-003",
+        catalog_id="RP-REST-004",
+        title="刚性门槛型专利要求",
+        dimension="A.限制竞争风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.identified,
+        rationale="测试专利刚性门槛。",
+        evidence_bundle=EvidenceBundle(),
+        source_findings=["task_library:RP-REST-004"],
+    )
+    check = build_applicability_checks([point], clauses)[0]
+    assert check.applicable is True
+    assert any("刚性门槛" in item.detail for item in check.requirement_results)
+
+
+def test_bid_stage_material_burden_point_prefers_bid_submission_context() -> None:
+    text = """
+    采购标的：家具
+    投标文件中须提供主要原材料检测报告和质量管理体系认证证书作为评审依据。
+    """
+    clauses = extract_clauses(text)
+    point = ReviewPoint(
+        point_id="RP-T-004",
+        catalog_id="RP-SCORE-009",
+        title="投标阶段证书或检测报告负担过重",
+        dimension="评审标准明确性",
+        severity=Severity.high,
+        status=ReviewPointStatus.identified,
+        rationale="测试投标阶段材料负担。",
+        evidence_bundle=EvidenceBundle(),
+        source_findings=["task_library:RP-SCORE-009"],
+    )
+    check = build_applicability_checks([point], clauses)[0]
+    assert check.applicable is True
+    assert any("投标阶段" in item.detail for item in check.requirement_results)
+
+
+def test_certificate_score_weight_point_uses_total_score() -> None:
+    text = """
+    预算金额：578600.00元
+    商务部分 | 资质证书 (5.0分) | 每具有1个相关认证证书得1分。
+    商务部分 | 管理体系认证情况 (5.0分) | 质量管理体系认证得分。
+    """
+    clauses = extract_clauses(text)
+    score_clause = next(item for item in clauses if item.field_name == "证书类评分总分")
+    assert score_clause.normalized_value == "10.0"
+
+    point = ReviewPoint(
+        point_id="RP-T-005",
+        catalog_id="RP-SCORE-010",
+        title="证书类评分分值偏高",
+        dimension="评审标准明确性",
+        severity=Severity.high,
+        status=ReviewPointStatus.identified,
+        rationale="测试证书类评分总分。",
+        evidence_bundle=EvidenceBundle(),
+        source_findings=["task_library:RP-SCORE-010"],
+    )
+    check = build_applicability_checks([point], clauses)[0]
+    assert check.applicable is True
+    assert any("10.0分" in item.detail for item in check.requirement_results)
+
+
+def test_contract_template_residue_point_detects_placeholder_terms() -> None:
+    text = """
+    合同签订之日起1个月内完成设计、测试、验收。
+    提供X年的免费质保服务。
+    于事件发生后天内完成处理。
+    """
+    clauses = extract_clauses(text)
+    point = ReviewPoint(
+        point_id="RP-T-006",
+        catalog_id="RP-TPL-007",
+        title="合同文本存在明显模板残留",
+        dimension="模板残留与冲突风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.identified,
+        rationale="测试合同模板残留。",
+        evidence_bundle=EvidenceBundle(),
+        source_findings=["task_library:RP-TPL-007"],
+    )
+    check = build_applicability_checks([point], clauses)[0]
+    assert check.applicable is True
+    assert any("合同模板残留" in item.detail for item in check.requirement_results)
+
+
+def test_risk_rules_do_not_treat_factory_quality_wording_as_origin_brand_restriction() -> None:
+    text = """
+    中标人提供的货物是全新、表面和内部均无瑕疵的原厂正品。
+    产品符合国家现行相关标准和厂家出厂标准。
+    """
+    hits = match_risk_rules(text)
+    assert all(item.rule_name != "指定品牌/原厂限制" for item in hits)
+    assert all(item.rule_name != "产地厂家商标限制" for item in hits)
+
+
 def test_engine_can_review_multiple_files(tmp_path: Path) -> None:
     main_file = tmp_path / "main.txt"
     contract_file = tmp_path / "contract.txt"
@@ -1263,7 +1370,7 @@ def test_markdown_report_uses_v2_sections() -> None:
 def test_markdown_can_render_legal_basis() -> None:
     text = """
     采购需求
-    本项目要求原厂服务团队。
+    本项目要求指定品牌产品。
     """
     report = TenderReviewEngine().review_text(text, document_name="demo.txt")
     markdown = render_markdown(report)

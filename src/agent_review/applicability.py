@@ -406,6 +406,16 @@ def _certificate_weight_scoring_evaluator(clause_mapping: dict[str, list[Extract
     return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到行业相关性存疑评分项或财务指标评分。"]
 
 
+def _rigid_patent_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    patent_value = _first_normalized_or_content(clause_mapping, "是否要求专利")
+    project_subject = _first_value(clause_mapping, "采购标的") or _first_value(clause_mapping, "项目属性")
+    if not patent_value:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到专利要求条款。"]
+    if patent_value == "刚性门槛":
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：在 {project_subject or '当前项目'} 中识别到“必须具备相关专利”等刚性门槛表述。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别专利要求={patent_value}，但尚未达到刚性门槛强度。"]
+
+
 def _scoring_material_stage_exclusion_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     cert_stage = _first_value(clause_mapping, "证书材料适用阶段")
     report_stage = _first_value(clause_mapping, "检测报告适用阶段")
@@ -419,12 +429,49 @@ def _scoring_material_stage_exclusion_evaluator(clause_mapping: dict[str, list[E
     return ApplicabilityStatus.not_applicable, [f"已识别材料适用阶段={sorted(stage_values)}，仍需结合上下文判断。"]
 
 
+def _bid_stage_material_burden_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    burden = _first_value(clause_mapping, "证书检测报告负担特征")
+    cert_stage = _first_value(clause_mapping, "证书材料适用阶段")
+    report_stage = _first_value(clause_mapping, "检测报告适用阶段")
+    stage_values = {value for value in [cert_stage, report_stage] if value}
+    if not burden:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到证书或检测报告负担特征。"]
+    if "投标阶段" in stage_values:
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别材料负担特征={burden}，且材料适用阶段={sorted(stage_values)}，存在投标阶段门槛偏重疑点。"]
+    if "履约/验收阶段" in stage_values:
+        return ApplicabilityStatus.unsatisfied, [f"已识别材料负担特征={burden}，但当前更像履约/验收阶段材料。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别材料负担特征={burden}，但材料适用阶段尚未明确为投标阶段。"]
+
+
+def _certificate_score_weight_value_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    score_raw = _first_value(clause_mapping, "证书类评分总分")
+    budget_raw = _first_value(clause_mapping, "预算金额")
+    score = _parse_amount(score_raw)
+    budget = _parse_amount(budget_raw)
+    if score is None:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到证书类评分总分。"]
+    if score >= 8:
+        if budget is not None:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：证书类评分总分={score_raw}分，预算金额={budget_raw}，证书类评分权重疑似偏高。"]
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：证书类评分总分={score_raw}分，证书类评分权重疑似偏高。"]
+    return ApplicabilityStatus.unsatisfied, [f"已识别证书类评分总分={score_raw}分，当前未达到高权重阈值。"]
+
+
 def _contract_template_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     template_terms = _first_value(clause_mapping, "合同成果模板术语")
     project_subject = _first_value(clause_mapping, "采购标的") or _first_value(clause_mapping, "项目属性")
     if template_terms:
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：在 {project_subject or '当前项目'} 中识别到成果模板术语={template_terms}。"]
     return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到合同成果模板术语。"]
+
+
+def _contract_template_residue_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    residue = _first_value(clause_mapping, "合同模板残留")
+    contract_term = _first_value(clause_mapping, "合同履行期限")
+    if residue:
+        suffix = f" 合同履行期限={contract_term}。" if contract_term else ""
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别合同模板残留={residue}。{suffix}".strip()]
+    return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到合同模板残留条款。"]
 
 
 def _acceptance_flexible_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
@@ -513,11 +560,15 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-STRUCT-007", "存在合同类型"): _contract_type_mismatch_evaluator,
     ("RP-STRUCT-008", "项目属性为货物"): _continuous_service_in_goods_evaluator,
     ("RP-STRUCT-008", "存在持续性作业服务"): _continuous_service_in_goods_evaluator,
+    ("RP-REST-004", "专利要求具有刚性门槛特征"): _rigid_patent_requirement_evaluator,
     ("RP-SCORE-005", "评分项存在行业相关性疑点"): _industry_mismatch_scoring_evaluator,
     ("RP-SCORE-006", "存在方案评分扣分模式"): _plan_scoring_quant_evaluator,
     ("RP-SCORE-007", "存在评分分档或方案扣分模式"): _subjective_scoring_evaluator,
     ("RP-SCORE-008", "存在证书报告或财务指标评分信号"): _certificate_weight_scoring_evaluator,
     ("RP-SCORE-008", "证书检测报告仅在履约或验收阶段提交"): _scoring_material_stage_exclusion_evaluator,
+    ("RP-SCORE-009", "存在证书检测报告负担特征"): _bid_stage_material_burden_evaluator,
+    ("RP-SCORE-009", "证书检测报告仅在履约或验收阶段提交"): _scoring_material_stage_exclusion_evaluator,
+    ("RP-SCORE-010", "存在证书类评分总分"): _certificate_score_weight_value_evaluator,
     ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,
@@ -527,6 +578,7 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-TPL-002", "声明函出现制造商口径"): _service_template_mismatch_evaluator,
     ("RP-TPL-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
     ("RP-TPL-003", "保留价格扣除模板"): _equals_relation("是否仍保留价格扣除条款", "是", "保留价格扣除模板"),
+    ("RP-TPL-007", "存在合同模板残留"): _contract_template_residue_evaluator,
     ("RP-CONS-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
     ("RP-CONS-003", "存在价格扣除"): _equals_relation("是否仍保留价格扣除条款", "是", "存在价格扣除"),
     ("RP-CONS-004", "存在验收标准"): _contains_relation("验收标准", "存在", "存在验收标准"),
