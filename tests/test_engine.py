@@ -847,7 +847,6 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     enhanced_report = enhancer.enhance(base_report)
 
     assert enhanced_report.llm_enhanced is True
-    assert enhanced_report.llm_semantic_review.clause_supplements
     assert enhanced_report.llm_semantic_review.scenario_review_summary
     assert enhanced_report.llm_semantic_review.scoring_review_summary
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks
@@ -863,43 +862,27 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].rebuttal_templates
     assert enhanced_report.llm_semantic_review.dynamic_review_tasks[0].enhancement_fields
     assert any(item.title == "项目属性与采购内容结构错配" for item in enhanced_report.review_points)
-    assert enhanced_report.llm_semantic_review.clause_supplements[0].adoption_status == AdoptionStatus.manual
-    assert any(item.title == "评分因素与履约考核存在隐性耦合" for item in enhanced_report.findings)
-    assert any(item.title == "付款条件与满意度表述存在隐性冲突" for item in enhanced_report.findings)
-    assert any(item.adoption_status == AdoptionStatus.direct for item in enhanced_report.llm_semantic_review.specialist_findings)
-    assert any(item.adoption_status == AdoptionStatus.manual for item in enhanced_report.llm_semantic_review.consistency_findings)
-    assert enhanced_report.llm_semantic_review.verdict_review
-    assert enhanced_report.llm_semantic_review.role_review_notes
-    assert enhanced_report.llm_semantic_review.evidence_review_notes
-    assert enhanced_report.llm_semantic_review.applicability_review_notes
     assert enhanced_report.llm_semantic_review.review_point_second_reviews
-    assert enhanced_report.pending_confirmation_items
     assert any(item.stage_name == "llm_semantic_review" for item in enhanced_report.stage_records)
     llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
     assert llm_tasks == {
         "llm_scenario_review": "completed",
         "llm_scoring_review": "completed",
-        "llm_clause_supplement": "completed",
-        "llm_role_review": "completed",
-        "llm_evidence_review": "completed",
-        "llm_applicability_review": "completed",
+        "llm_clause_supplement": "skipped",
+        "llm_role_review": "skipped",
+        "llm_evidence_review": "skipped",
+        "llm_applicability_review": "skipped",
         "llm_review_point_second_review": "completed",
-        "llm_specialist_review": "completed",
-        "llm_consistency_review": "completed",
-        "llm_verdict_review": "completed",
+        "llm_specialist_review": "skipped",
+        "llm_consistency_review": "skipped",
+        "llm_verdict_review": "skipped",
     }
     markdown = render_markdown(enhanced_report)
-    assert "## LLM补充条款" in markdown
     assert "## LLM场景识别与动态任务" in markdown
     assert "## LLM评分语义分析与动态任务" in markdown
     assert "证据提示" in markdown
     assert "反证模板" in markdown
-    assert "## LLM裁决复核" in markdown
-    assert "## LLM角色复核" in markdown
-    assert "## LLM证据复核" in markdown
-    assert "## LLM适法性复核" in markdown
     assert "## LLM审查点二审" in markdown
-    assert "## 待确认问题单" in markdown
 
 
 def test_llm_second_review_can_downgrade_formal_adjudication() -> None:
@@ -922,6 +905,26 @@ def test_llm_second_review_can_downgrade_formal_adjudication() -> None:
     assert target.disposition.value == "manual_confirmation"
     assert target.included_in_formal is False
     assert "LLM二审" in target.rationale
+
+
+def test_default_enhanced_mode_prefers_high_value_llm_tasks() -> None:
+    text = """
+    项目属性：服务
+    评分方法：综合评分法
+    方案评分扣分模式：完全满足/不完全满足。
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+    enhanced_report = QwenReviewEnhancer(client=FakeClient()).enhance(base_report)
+    llm_tasks = {item.task_name: item.status.value for item in enhanced_report.task_records if item.task_name.startswith("llm_")}
+    assert llm_tasks["llm_scenario_review"] == "completed"
+    assert llm_tasks["llm_scoring_review"] == "completed"
+    assert llm_tasks["llm_review_point_second_review"] == "completed"
+    assert llm_tasks["llm_clause_supplement"] == "skipped"
+    assert llm_tasks["llm_specialist_review"] == "skipped"
+    assert llm_tasks["llm_consistency_review"] == "skipped"
 
 
 def test_dynamic_tasks_can_add_evidence_hints_rebuttal_templates_and_enhanced_assembly() -> None:

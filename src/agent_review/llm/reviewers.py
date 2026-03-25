@@ -71,6 +71,12 @@ LLM_TASK_ORDER = [
     "llm_verdict_review",
 ]
 
+HIGH_VALUE_LLM_TASKS = {
+    "llm_scenario_review",
+    "llm_scoring_review",
+    "llm_review_point_second_review",
+}
+
 
 class NullReviewEnhancer:
     def enhance(self, report: ReviewReport) -> ReviewReport:
@@ -82,6 +88,7 @@ class QwenReviewEnhancer:
         self,
         client: OpenAICompatibleClient | None = None,
         timeout: float | None = None,
+        task_mode: str = "precision",
     ) -> None:
         if client is not None:
             self.client = client
@@ -90,6 +97,7 @@ class QwenReviewEnhancer:
             if timeout is not None:
                 config.timeout = timeout
             self.client = OpenAICompatibleClient(config)
+        self.task_mode = task_mode
 
     def enhance(self, report: ReviewReport) -> ReviewReport:
         semantic_review = LLMSemanticReview()
@@ -105,8 +113,11 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=SCORING_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_scoring_review_prompt(report),
-            skip_when=not _has_scoring_context(report),
-            skip_detail="当前未识别到评分章节或评分相关条款，跳过评分语义分析。",
+            skip_when=(not self._is_task_enabled("llm_scoring_review")) or (not _has_scoring_context(report)),
+            skip_detail=self._skip_detail(
+                "llm_scoring_review",
+                "当前未识别到评分章节或评分相关条款，跳过评分语义分析。",
+            ),
         )
         if scoring_payload:
             semantic_review.scoring_review_summary = str(
@@ -132,8 +143,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=SCENARIO_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_scenario_review_prompt(working_report),
-            skip_when=False,
-            skip_detail="",
+            skip_when=not self._is_task_enabled("llm_scenario_review"),
+            skip_detail=self._skip_detail("llm_scenario_review", ""),
         )
         if scenario_payload:
             semantic_review.scenario_review_summary = str(
@@ -160,8 +171,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=CLAUSE_SUPPLEMENT_SYSTEM_PROMPT,
             user_prompt=build_clause_supplement_prompt(working_report),
-            skip_when=False,
-            skip_detail="",
+            skip_when=not self._is_task_enabled("llm_clause_supplement"),
+            skip_detail=self._skip_detail("llm_clause_supplement", ""),
         )
         if clause_payload:
             semantic_review.clause_supplements = _parse_clause_supplements(
@@ -175,8 +186,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=ROLE_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_role_review_prompt(working_report),
-            skip_when=not working_report.review_points,
-            skip_detail="当前无 ReviewPoint，跳过角色复核。",
+            skip_when=(not self._is_task_enabled("llm_role_review")) or (not working_report.review_points),
+            skip_detail=self._skip_detail("llm_role_review", "当前无 ReviewPoint，跳过角色复核。"),
         )
         if role_payload:
             semantic_review.role_review_notes = _parse_notes(role_payload.get("role_review_notes"))
@@ -188,8 +199,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=EVIDENCE_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_evidence_review_prompt(working_report),
-            skip_when=not working_report.review_points,
-            skip_detail="当前无 ReviewPoint，跳过证据复核。",
+            skip_when=(not self._is_task_enabled("llm_evidence_review")) or (not working_report.review_points),
+            skip_detail=self._skip_detail("llm_evidence_review", "当前无 ReviewPoint，跳过证据复核。"),
         )
         if evidence_payload:
             semantic_review.evidence_review_notes = _parse_notes(evidence_payload.get("evidence_review_notes"))
@@ -201,8 +212,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=APPLICABILITY_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_applicability_review_prompt(working_report),
-            skip_when=not working_report.applicability_checks,
-            skip_detail="当前无适法性检查结果，跳过适法性复核。",
+            skip_when=(not self._is_task_enabled("llm_applicability_review")) or (not working_report.applicability_checks),
+            skip_detail=self._skip_detail("llm_applicability_review", "当前无适法性检查结果，跳过适法性复核。"),
         )
         if applicability_payload:
             semantic_review.applicability_review_notes = _parse_notes(
@@ -216,8 +227,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_review_point_second_review_prompt(working_report),
-            skip_when=not working_report.review_points,
-            skip_detail="当前无 ReviewPoint，跳过审查点二审。",
+            skip_when=(not self._is_task_enabled("llm_review_point_second_review")) or (not working_report.review_points),
+            skip_detail=self._skip_detail("llm_review_point_second_review", "当前无 ReviewPoint，跳过审查点二审。"),
         )
         if second_review_payload:
             semantic_review.review_point_second_reviews = _parse_review_point_second_reviews(
@@ -250,8 +261,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=SPECIALIST_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_specialist_review_prompt(working_report),
-            skip_when=specialist_skip,
-            skip_detail="当前专项表为空，跳过专项语义复核。",
+            skip_when=(not self._is_task_enabled("llm_specialist_review")) or specialist_skip,
+            skip_detail=self._skip_detail("llm_specialist_review", "当前专项表为空，跳过专项语义复核。"),
         )
         if specialist_payload:
             semantic_review.specialist_findings = _parse_findings(
@@ -273,8 +284,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=CONSISTENCY_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_consistency_review_prompt(working_report),
-            skip_when=not working_report.consistency_checks,
-            skip_detail="当前一致性矩阵为空，跳过深层一致性复核。",
+            skip_when=(not self._is_task_enabled("llm_consistency_review")) or (not working_report.consistency_checks),
+            skip_detail=self._skip_detail("llm_consistency_review", "当前一致性矩阵为空，跳过深层一致性复核。"),
         )
         if consistency_payload:
             semantic_review.consistency_findings = _parse_findings(
@@ -289,8 +300,8 @@ class QwenReviewEnhancer:
             task_records=task_records,
             system_prompt=VERDICT_REVIEW_SYSTEM_PROMPT,
             user_prompt=build_verdict_review_prompt(working_report),
-            skip_when=False,
-            skip_detail="",
+            skip_when=not self._is_task_enabled("llm_verdict_review"),
+            skip_detail=self._skip_detail("llm_verdict_review", ""),
         )
         if verdict_payload:
             summary = str(verdict_payload.get("summary", "")).strip() or summary
@@ -349,6 +360,16 @@ class QwenReviewEnhancer:
             stage_records=stage_records,
             task_records=task_records,
         )
+
+    def _is_task_enabled(self, task_name: str) -> bool:
+        if self.task_mode == "full":
+            return True
+        return task_name in HIGH_VALUE_LLM_TASKS
+
+    def _skip_detail(self, task_name: str, fallback: str) -> str:
+        if self._is_task_enabled(task_name):
+            return fallback
+        return "默认精准模式下跳过低价值 LLM 子任务。"
 
     def _run_task(
         self,
