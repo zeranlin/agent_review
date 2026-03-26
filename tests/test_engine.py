@@ -342,6 +342,37 @@ def test_review_text_surfaces_deposit_transfer_test_cost_and_price_floor_risks()
     assert "以预算金额比例设最低报价门槛" in titles
 
 
+def test_formal_adjudication_includes_direct_risk_hit_points_with_strong_quotes() -> None:
+    text = """
+    履约担保：合同总价的5%作为质量保证金，须以银行转账方式缴纳，质保期满后无息退还。
+    检测验证：验收时产生的第三方检测费用由中标人承担，无论检测结果是否合格。
+    投标报价不得低于预算金额的80%，低于此价格的投标将被视为无效投标。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="formal_risk_hit_demo.txt")
+    formal_map = {item.title: item for item in report.formal_adjudication}
+
+    assert formal_map["履约保证金转质量保证金或长期无息占压"].included_in_formal is True
+    assert "质量保证金" in formal_map["履约保证金转质量保证金或长期无息占压"].primary_quote
+    assert formal_map["第三方检测费用无论结果均由中标人承担"].included_in_formal is True
+    assert "第三方检测费用" in formal_map["第三方检测费用无论结果均由中标人承担"].primary_quote
+    assert formal_map["以预算金额比例设最低报价门槛"].included_in_formal is True
+    assert "预算金额的80%" in formal_map["以预算金额比例设最低报价门槛"].primary_quote
+
+
+def test_formal_adjudication_prefers_named_institution_quote_for_evidence_source_point() -> None:
+    text = """
+    技术要求：
+    投标人须提供深圳市医疗器械检测中心出具的产品检测报告。
+    评分标准：
+    提供第三方检测机构出具的具有CMA和CNAS标识的检测报告得分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="formal_named_institution_demo.txt")
+    formal_map = {item.catalog_id: item for item in report.formal_adjudication}
+
+    assert formal_map["RP-EVID-001"].included_in_formal is True
+    assert "深圳市医疗器械检测中心" in formal_map["RP-EVID-001"].primary_quote
+
+
 def test_review_task_planning_exposes_a_clear_contract_for_unknown_documents() -> None:
     text = """
     目录

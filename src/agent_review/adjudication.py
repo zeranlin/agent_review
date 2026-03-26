@@ -432,6 +432,7 @@ def build_formal_adjudication(
         roles = _resolve_review_point_roles(point, extracted_clauses, quote)
         effect_tags = _resolve_review_point_effect_tags(point, extracted_clauses, quote)
         has_direct = bool(point.evidence_bundle.direct_evidence)
+        risk_hit_direct = any(source.startswith("risk_hit:") for source in point.source_findings)
         strong_anchor = bool(section_hint) and section_hint not in {
             "未明确定位",
             "keyword_match",
@@ -462,6 +463,8 @@ def build_formal_adjudication(
         legal_basis_applicable = bool(point.legal_basis or authority_bindings) and (
             applicability.applicable if applicability is not None else True
         )
+        if risk_hit_direct and point.legal_basis:
+            legal_basis_applicable = True
         external_boundary = lookup_external_manual_review_boundary(
             catalog_id=point.catalog_id,
             title=point.title,
@@ -488,6 +491,10 @@ def build_formal_adjudication(
         authority_propositions = _ordered_unique(
             binding.legal_proposition for binding in authority_bindings if binding.legal_proposition
         )
+        if risk_hit_direct and has_direct and quote and quote != "当前自动抽取未定位到可直接引用的原文。":
+            weak_role_only = False
+            weak_effect_only = False
+            weak_zone_only = False
         evidence_sufficient = bool(
             has_direct
             and strong_anchor
@@ -499,6 +506,11 @@ def build_formal_adjudication(
             and not weak_effect_only
             and not weak_zone_only
         )
+        if point.title in {
+            "履约保证金转质量保证金或长期无息占压",
+            "第三方检测费用无论结果均由中标人承担",
+        } and has_direct and strong_anchor and quote and evidence_supports_title(point.title, quote):
+            evidence_sufficient = True
 
         applicability_summary = applicability.summary if applicability else "未进行适法性检查。"
         quality_status = quality_gate.status if quality_gate else QualityGateStatus.passed
@@ -909,6 +921,27 @@ def _resolve_review_point_evidence(
     if not evidence:
         return "未明确定位", "当前自动抽取未定位到可直接引用的原文。"
 
+    if any(source.startswith("risk_hit:") for source in point.source_findings):
+        ranked_direct = _rank_evidence_for_formal(point.title, list(evidence), report_text)
+        if ranked_direct:
+            primary_direct = ranked_direct[0]
+            direct_section_hint = primary_direct.section_hint or "未明确定位"
+            direct_line_quote = (
+                clause_window_from_anchor(report_text, direct_section_hint)
+                or line_text_from_anchor(report_text, direct_section_hint)
+                or primary_direct.quote.strip()
+            )
+            direct_raw_quote = primary_direct.quote.strip()
+            direct_quote = (
+                direct_line_quote
+                if direct_line_quote
+                and evidence_supports_title(point.title, direct_line_quote)
+                and not _formal_quote_is_noise_like(direct_line_quote, _formal_family_key(point.title))
+                else direct_raw_quote
+            )
+            if direct_quote and evidence_supports_title(point.title, direct_quote):
+                return direct_section_hint, _sanitize_formal_quote(point.title, direct_quote)
+
     family_key = _formal_family_key(point.title)
     matched_clauses = _resolve_point_matched_clauses(point, extracted_clauses, "")
     clause_candidate = _best_clause_quote_for_formal(point.title, matched_clauses, report_text)
@@ -920,7 +953,10 @@ def _resolve_review_point_evidence(
         line_quote = clause_window_from_anchor(report_text, section_hint)
         content_quote = clause_candidate.content or ""
         if content_quote and evidence_supports_title(point.title, content_quote) and (
-            not line_quote or len(content_quote) <= len(line_quote) or _formal_quote_is_noise_like(line_quote, family_key)
+            not line_quote
+            or not evidence_supports_title(point.title, line_quote)
+            or len(content_quote) <= len(line_quote)
+            or _formal_quote_is_noise_like(line_quote, family_key)
         ):
             clause_quote = content_quote
         else:
@@ -1182,6 +1218,12 @@ def _qualification_clause_priority_for_formal(
 ) -> tuple[int, int, int, int, int, int, int]:
     constraint_values = {item.value for item in clause.clause_constraint.constraint_types}
     return (
+        0
+        if (
+            "证明材料来源" in title
+            and any(token in clause.content for token in ["检测中心", "税务部门", "研究院", "实验室"])
+        )
+        else 1,
         0 if clause.semantic_zone == SemanticZoneType.qualification else 1,
         0 if clause.field_name == "资格门槛明细" else 1,
         0
@@ -1529,6 +1571,11 @@ def _review_point_zones_are_weak_only(
 
 def _sanitize_formal_quote(title: str, quote: str) -> str:
     family_key = _formal_family_key(title)
+    if title in {
+        "履约保证金转质量保证金或长期无息占压",
+        "第三方检测费用无论结果均由中标人承担",
+    } and quote and evidence_supports_title(title, quote):
+        return quote
     if quote and not _formal_quote_is_noise_like(quote, family_key):
         return quote
     return "当前自动抽取未定位到可直接引用的原文。"
