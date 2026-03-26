@@ -484,6 +484,8 @@ def profile_activation_tags(profile: DocumentProfile) -> set[str]:
             tags.add("service")
         if domain_profile.profile_id == "mixed_procurement":
             tags.update({"structure", "consistency"})
+    if profile.procurement_kind == "unknown":
+        tags.difference_update({"goods", "service", "furniture", "structure"})
     if profile.procurement_kind == "goods":
         tags.add("goods")
     elif profile.procurement_kind == "service":
@@ -821,14 +823,6 @@ def _build_fallback_domain_candidates(
                 profile_id="mixed_procurement",
                 confidence=0.22,
                 reasons=["mixed_structure_signals", "保守回退到混合采购经验包"],
-            )
-        )
-    if any(token in text for token in ["家具", "课桌", "书柜", "会议桌", "茶几", "档案柜"]):
-        candidates.append(
-            DomainProfileCandidate(
-                profile_id="furniture",
-                confidence=0.3,
-                reasons=["家具关键词", "保守回退到家具经验包"],
             )
         )
     if any(clause.semantic_zone == SemanticZoneType.scoring for clause in extracted_clauses):

@@ -55,6 +55,56 @@ def test_build_document_profile_keeps_unknown_documents_on_conservative_activati
     assert "scoring" not in tags
 
 
+def test_unknown_document_can_pick_up_common_block_signals_without_goods_specific_activation() -> None:
+    clauses = [
+        ExtractedClause(
+            category="资格",
+            field_name="资格条件明细",
+            content="投标人须具备合法经营资格。",
+            source_anchor="line:3",
+            semantic_zone=SemanticZoneType.qualification,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="评分",
+            field_name="评分方法",
+            content="评分方法采用综合评分，样品与检测报告仅作佐证。",
+            source_anchor="line:6",
+            semantic_zone=SemanticZoneType.scoring,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="合同",
+            field_name="付款节点",
+            content="验收后按进度付款。",
+            source_anchor="line:9",
+            semantic_zone=SemanticZoneType.contract,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="模板",
+            field_name="声明函格式",
+            content="声明函模板仅供参考。",
+            source_anchor="line:12",
+            semantic_zone=SemanticZoneType.template,
+            effect_tags=[EffectTag.template, EffectTag.example],
+        ),
+    ]
+
+    profile = build_document_profile("本文件仅供说明相关事项，详见附件。", clauses)
+    tags = profile_activation_tags(profile)
+
+    assert profile.procurement_kind == "unknown"
+    assert "unknown_document" in profile.risk_activation_hints
+    assert "scoring" in tags
+    assert "contract" in tags
+    assert "template" in tags
+    assert "goods" not in tags
+    assert "service" not in tags
+    assert "furniture" not in tags
+    assert "structure" not in tags
+
+
 def test_build_document_profile_distinguishes_goods_service_and_mixed_profiles() -> None:
     goods_clauses = [
         ExtractedClause(

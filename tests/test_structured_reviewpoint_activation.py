@@ -33,6 +33,62 @@ def test_template_scoring_phrase_does_not_activate_scoring_tasks() -> None:
     assert "证书类评分分值偏高" not in titles
 
 
+def test_unknown_document_uses_common_block_signals_without_goods_specific_tasks() -> None:
+    clauses = [
+        ExtractedClause(
+            category="资格",
+            field_name="资格条件明细",
+            content="投标人须具备合法经营资格。",
+            source_anchor="line:3",
+            semantic_zone=SemanticZoneType.qualification,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="评分",
+            field_name="评分方法",
+            content="评分方法采用综合评分，样品与检测报告仅作佐证。",
+            source_anchor="line:6",
+            semantic_zone=SemanticZoneType.scoring,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="合同",
+            field_name="付款节点",
+            content="项目按进度付款。",
+            source_anchor="line:9",
+            semantic_zone=SemanticZoneType.contract,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="合同",
+            field_name="验收标准",
+            content="验收标准为合格。",
+            source_anchor="line:10",
+            semantic_zone=SemanticZoneType.contract,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="模板",
+            field_name="声明函格式",
+            content="声明函模板仅供参考。",
+            source_anchor="line:12",
+            semantic_zone=SemanticZoneType.template,
+            effect_tags=[EffectTag.template, EffectTag.example],
+        ),
+    ]
+
+    tasks = select_standard_review_tasks("本文件仅供说明相关事项，详见附件。", clauses)
+    titles = {item.title for item in tasks}
+
+    assert "资格条件与评分因素重复设门槛" in titles
+    assert "评审方法出现但评分标准不够清晰" in titles
+    assert "验收与付款/考核/满意度联动不当" in titles
+    assert "指定品牌/原厂限制" not in titles
+    assert "产地厂家商标限制" not in titles
+    assert "专利要求" not in titles
+    assert "刚性门槛型专利要求" not in titles
+
+
 def test_qualification_boundary_prefers_real_scoring_clause_over_template_phrase() -> None:
     definition = resolve_review_point_definition(
         "资格条件与评分因素重复设门槛",
