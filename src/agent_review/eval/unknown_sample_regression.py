@@ -43,6 +43,7 @@ class FileRegressionSummary:
     quality_gate_summary: dict[str, object]
     formal_summary: dict[str, object]
     review_point_summary: dict[str, object]
+    evaluation_summary: dict[str, object]
     error: str = ""
 
     def to_dict(self) -> dict[str, object]:
@@ -56,6 +57,7 @@ class FileRegressionSummary:
             "quality_gate_summary": self.quality_gate_summary,
             "formal_summary": self.formal_summary,
             "review_point_summary": self.review_point_summary,
+            "evaluation_summary": self.evaluation_summary,
             "error": self.error,
         }
 
@@ -69,6 +71,7 @@ class BatchRegressionSummary:
     failed_count: int
     items: list[FileRegressionSummary]
     aggregate: dict[str, object]
+    evaluation_summary: dict[str, object]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -78,6 +81,7 @@ class BatchRegressionSummary:
             "succeeded_count": self.succeeded_count,
             "failed_count": self.failed_count,
             "aggregate": self.aggregate,
+            "evaluation_summary": self.evaluation_summary,
             "items": [item.to_dict() for item in self.items],
         }
 
@@ -97,6 +101,7 @@ def run_unknown_sample_regression(options: RegressionRunOptions) -> BatchRegress
         failed_count=sum(1 for item in results if item.status != "ok"),
         items=results,
         aggregate=_build_aggregate_summary(results),
+        evaluation_summary=_build_batch_evaluation_summary(results),
     )
 
     if options.write_outputs:
@@ -148,6 +153,15 @@ def _run_single_file(path: Path, options: RegressionRunOptions) -> FileRegressio
             "items": formal_items[: options.max_candidates],
         },
         review_point_summary=_build_review_point_summary(review_points, applicability_checks),
+        evaluation_summary=_build_file_evaluation_summary(
+            parse_result,
+            extracted_clauses,
+            review_points,
+            applicability_checks,
+            quality_gates,
+            formal_summary,
+            domain_profile,
+        ),
         error=formal_error,
     )
 
@@ -252,6 +266,33 @@ def _build_review_point_summary(review_points, applicability_checks) -> dict[str
             point_id: applicability_map[point_id].summary
             for point_id in list(applicability_map)[:5]
         },
+    }
+
+
+def _build_file_evaluation_summary(
+    parse_result,
+    extracted_clauses,
+    review_points,
+    applicability_checks,
+    quality_gates,
+    formal_summary,
+    domain_profile,
+) -> dict[str, object]:
+    quality_counts = Counter(item.status.value for item in quality_gates)
+    applicable_count = sum(1 for item in applicability_checks if item.applicable)
+    formal_included_count = int(formal_summary.get("included_count", 0) or 0)
+    return {
+        "input_chars": len(parse_result.text),
+        "document_node_count": len(parse_result.document_nodes),
+        "clause_unit_count": len(parse_result.clause_units),
+        "extracted_clause_count": len(extracted_clauses),
+        "review_point_count": len(review_points),
+        "applicable_count": applicable_count,
+        "quality_gate_count": len(quality_gates),
+        "quality_gate_status_counts": _sorted_counter_dict(quality_counts),
+        "formal_included_count": formal_included_count,
+        "formal_mode": formal_summary.get("mode", "unknown"),
+        "domain_candidate_count": len(domain_profile.get("top_candidates", [])),
     }
 
 
@@ -365,6 +406,12 @@ def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, 
     for item in results:
         quality_gate_counter.update(item.quality_gate_summary.get("status_counts", {}))
     formal_mode_counter = Counter(item.formal_summary.get("mode", "unknown") for item in results)
+    evaluation_gate_counter = Counter()
+    for item in results:
+        evaluation_gate_counter.update(item.evaluation_summary.get("quality_gate_status_counts", {}))
+    average_input_chars = _average(item.evaluation_summary.get("input_chars", 0) for item in results)
+    average_review_points = _average(item.evaluation_summary.get("review_point_count", 0) for item in results)
+    average_quality_gates = _average(item.evaluation_summary.get("quality_gate_count", 0) for item in results)
     return {
         "procurement_kind_counts": _sorted_counter_dict(procurement_counter),
         "domain_profile_hit_counts": _sorted_counter_dict(domain_counter),
@@ -372,6 +419,43 @@ def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, 
         "formal_modes": _sorted_counter_dict(formal_mode_counter),
         "formal_error_count": sum(1 for item in results if item.error),
         "result_status_counts": _sorted_counter_dict(Counter(item.status for item in results)),
+        "evaluation": {
+            "average_input_chars": average_input_chars,
+            "average_review_point_count": average_review_points,
+            "average_quality_gate_count": average_quality_gates,
+            "quality_gate_status_counts": _sorted_counter_dict(evaluation_gate_counter),
+        },
+    }
+
+
+def _build_batch_evaluation_summary(results: list[FileRegressionSummary]) -> dict[str, object]:
+    quality_counts = Counter()
+    input_chars = []
+    review_points = []
+    quality_gate_counts = []
+    formal_included = []
+    for item in results:
+        evaluation = item.evaluation_summary
+        quality_counts.update(evaluation.get("quality_gate_status_counts", {}))
+        input_chars.append(evaluation.get("input_chars", 0))
+        review_points.append(evaluation.get("review_point_count", 0))
+        quality_gate_counts.append(evaluation.get("quality_gate_count", 0))
+        formal_included.append(evaluation.get("formal_included_count", 0))
+
+    total_quality_gates = sum(float(item) for item in quality_gate_counts)
+    total_manual_or_filtered = sum(
+        float(count) for key, count in quality_counts.items() if key in {"manual_confirmation", "filtered"}
+    )
+    return {
+        "file_count": len(results),
+        "average_input_chars": _average(input_chars),
+        "average_review_point_count": _average(review_points),
+        "average_quality_gate_count": _average(quality_gate_counts),
+        "average_formal_included_count": _average(formal_included),
+        "quality_gate_status_counts": _sorted_counter_dict(quality_counts),
+        "manual_or_filtered_rate": round(total_manual_or_filtered / total_quality_gates, 3)
+        if total_quality_gates
+        else 0.0,
     }
 
 
@@ -442,6 +526,14 @@ def _render_markdown(summary: BatchRegressionSummary) -> str:
     ]
     for key, value in summary.aggregate.items():
         lines.append(f"- {key}：{value}")
+    lines.extend(
+        [
+            "",
+            "## 评测闭环",
+            "",
+            f"- evaluation_summary：{summary.evaluation_summary}",
+        ]
+    )
     lines.append("")
     for item in summary.items:
         lines.extend(
@@ -453,6 +545,7 @@ def _render_markdown(summary: BatchRegressionSummary) -> str:
                 f"- 领域：{_compact_profile_candidates(item.domain_profile.get('top_candidates', []))}",
                 f"- quality gate：{item.quality_gate_summary.get('status_counts', {})}",
                 f"- formal：{item.formal_summary.get('mode', 'unknown')} / {item.formal_summary.get('count', 0)}",
+                f"- eval：{item.evaluation_summary}",
             ]
         )
         if item.error:
@@ -488,6 +581,13 @@ def _canonicalize_paths(paths: Sequence[Path]) -> list[Path]:
 
 def _sorted_counter_dict(counter: Counter[str]) -> dict[str, int]:
     return {key: counter[key] for key in sorted(counter)}
+
+
+def _average(values) -> float:
+    numbers = [float(item) for item in values]
+    if not numbers:
+        return 0.0
+    return round(sum(numbers) / len(numbers), 3)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

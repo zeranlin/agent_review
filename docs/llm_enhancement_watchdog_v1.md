@@ -20,6 +20,7 @@
 - `base_report.json` / `base_report.md`
 - `enhanced_report.json` / `enhanced_report.md`
 - `enhancement_trace.json`
+- `evaluation_summary.json`
 - `llm_tasks.json`
 - `review_point_trace.json`
 - `run_manifest.json`
@@ -35,3 +36,11 @@
 - `fallback_applied`
 - `llm_warnings`
 
+## 评测闭环
+
+`evaluation_summary.json` 用来做最小的增强闭环对比，优先看这几类字段：
+
+- `prompt_volume.task_char_counts`
+- `task_duration.task_seconds`
+- `dynamic_task_counts`
+- `quality_gates.status_counts`

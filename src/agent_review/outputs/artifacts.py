@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import re
 from pathlib import Path
 import json
 
@@ -12,6 +13,18 @@ from ..reporting import (
     render_markdown,
     render_opinion_letter,
     render_reviewer_report,
+)
+from ..llm.prompts import (
+    build_applicability_review_prompt,
+    build_clause_supplement_prompt,
+    build_consistency_review_prompt,
+    build_evidence_review_prompt,
+    build_review_point_second_review_prompt,
+    build_role_review_prompt,
+    build_scoring_review_prompt,
+    build_scenario_review_prompt,
+    build_specialist_review_prompt,
+    build_verdict_review_prompt,
 )
 
 
@@ -30,6 +43,7 @@ class ArtifactBundle:
     high_risk_review_path: str
     pending_confirmation_path: str
     enhancement_trace_path: str
+    evaluation_summary_path: str
     review_point_trace_path: str
     document_profile_path: str
     domain_profile_match_path: str
@@ -94,6 +108,11 @@ def write_review_artifacts(
         ),
         encoding="utf-8",
     )
+    evaluation_summary_path = target_dir / "evaluation_summary.json"
+    evaluation_summary_path.write_text(
+        json.dumps(_build_evaluation_summary(report), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     review_point_trace_path = target_dir / "review_point_trace.json"
     review_point_trace_path.write_text(
         json.dumps(_build_review_point_trace_payload(report), ensure_ascii=False, indent=2),
@@ -126,6 +145,7 @@ def write_review_artifacts(
         high_risk_review_path=high_risk_review_path,
         pending_confirmation_path=pending_confirmation_path,
         enhancement_trace_path=enhancement_trace_path,
+        evaluation_summary_path=evaluation_summary_path,
         review_point_trace_path=review_point_trace_path,
         document_profile_path=document_profile_path,
         domain_profile_match_path=domain_profile_match_path,
@@ -149,6 +169,7 @@ def write_review_artifacts(
         high_risk_review_path=str(high_risk_review_path),
         pending_confirmation_path=str(pending_confirmation_path),
         enhancement_trace_path=str(enhancement_trace_path),
+        evaluation_summary_path=str(evaluation_summary_path),
         review_point_trace_path=str(review_point_trace_path),
         document_profile_path=str(document_profile_path),
         domain_profile_match_path=str(domain_profile_match_path),
@@ -212,6 +233,7 @@ def _build_run_manifest(
     high_risk_review_path: Path,
     pending_confirmation_path: Path,
     enhancement_trace_path: Path,
+    evaluation_summary_path: Path,
     review_point_trace_path: Path,
     document_profile_path: Path,
     domain_profile_match_path: Path,
@@ -248,6 +270,7 @@ def _build_run_manifest(
                 "verdict_review": report.llm_semantic_review.verdict_review,
             },
         },
+        "evaluation_summary": _build_evaluation_summary(report),
         "parse_summary": {
             "parser_name": report.parse_result.parser_name,
             "source_format": report.parse_result.source_format,
@@ -285,6 +308,7 @@ def _build_run_manifest(
             "high_risk_review_checklist": str(high_risk_review_path),
             "pending_confirmation_items": str(pending_confirmation_path),
             "enhancement_trace": str(enhancement_trace_path),
+            "evaluation_summary": str(evaluation_summary_path),
             "review_point_trace": str(review_point_trace_path),
             "document_profile": str(document_profile_path),
             "domain_profile_match": str(domain_profile_match_path),
@@ -299,6 +323,7 @@ def _build_llm_tasks_payload(report: ReviewReport) -> dict[str, object]:
         "llm_enhanced": report.llm_enhanced,
         "warnings": report.llm_warnings,
         "tasks": [item.to_dict() for item in report.task_records if item.task_name.startswith("llm_")],
+        "evaluation_summary": _build_evaluation_summary(report),
     }
 
 
@@ -341,6 +366,74 @@ def _build_enhancement_trace_payload(
     if enhancement_trace:
         payload.update(enhancement_trace)
     return payload
+
+
+def _build_evaluation_summary(report: ReviewReport) -> dict[str, object]:
+    prompt_payloads = {
+        "scenario_review": build_scenario_review_prompt(report),
+        "scoring_review": build_scoring_review_prompt(report),
+        "clause_supplement": build_clause_supplement_prompt(report),
+        "role_review": build_role_review_prompt(report),
+        "evidence_review": build_evidence_review_prompt(report),
+        "applicability_review": build_applicability_review_prompt(report),
+        "review_point_second_review": build_review_point_second_review_prompt(report),
+        "specialist_review": build_specialist_review_prompt(report),
+        "consistency_review": build_consistency_review_prompt(report),
+        "verdict_review": build_verdict_review_prompt(report),
+    }
+    prompt_volume = {
+        "task_char_counts": {name: len(text) for name, text in prompt_payloads.items()},
+        "total_chars": sum(len(text) for text in prompt_payloads.values()),
+        "largest_task": max(prompt_payloads, key=lambda name: len(prompt_payloads[name]), default=""),
+    }
+
+    durations: dict[str, float] = {}
+    for item in report.task_records:
+        if not item.task_name.startswith("llm_"):
+            continue
+        duration = _extract_task_duration_seconds(item.detail)
+        if duration is not None:
+            durations[item.task_name] = duration
+
+    duration_values = list(durations.values())
+    duration_summary = {
+        "tasks_with_duration": len(durations),
+        "tasks_without_duration": sum(
+            1 for item in report.task_records if item.task_name.startswith("llm_") and item.task_name not in durations
+        ),
+        "task_seconds": durations,
+        "total_seconds": round(sum(duration_values), 3) if duration_values else 0.0,
+        "average_seconds": round(sum(duration_values) / len(duration_values), 3) if duration_values else 0.0,
+        "max_seconds": round(max(duration_values), 3) if duration_values else 0.0,
+    }
+
+    dynamic_task_counts = {
+        "scenario_review_task_count": len(report.llm_semantic_review.dynamic_review_tasks),
+        "scoring_review_task_count": len(report.llm_semantic_review.scoring_dynamic_review_tasks),
+        "total_dynamic_review_task_count": len(report.llm_semantic_review.dynamic_review_tasks)
+        + len(report.llm_semantic_review.scoring_dynamic_review_tasks),
+        "review_point_second_review_count": len(report.llm_semantic_review.review_point_second_reviews),
+        "specialist_finding_count": len(report.llm_semantic_review.specialist_findings),
+        "consistency_finding_count": len(report.llm_semantic_review.consistency_findings),
+    }
+
+    quality_summary = _build_quality_gate_summary(report)
+    return {
+        "document_name": report.file_info.document_name,
+        "review_mode": report.review_mode.value,
+        "llm_enhanced": report.llm_enhanced,
+        "prompt_volume": prompt_volume,
+        "task_duration": duration_summary,
+        "dynamic_task_counts": dynamic_task_counts,
+        "quality_gates": quality_summary,
+        "semantic_review": {
+            "clause_supplement_count": len(report.llm_semantic_review.clause_supplements),
+            "role_review_count": len(report.llm_semantic_review.role_review_notes),
+            "evidence_review_count": len(report.llm_semantic_review.evidence_review_notes),
+            "applicability_review_count": len(report.llm_semantic_review.applicability_review_notes),
+            "verdict_review_present": bool(report.llm_semantic_review.verdict_review),
+        },
+    }
 
 
 def _build_review_point_trace_payload(report: ReviewReport) -> dict[str, object]:
@@ -516,3 +609,13 @@ def _summarize_source_types(source_findings: list[str]) -> list[str]:
         if source_type and source_type not in ordered_types:
             ordered_types.append(source_type)
     return ordered_types
+
+
+def _extract_task_duration_seconds(detail: str) -> float | None:
+    match = re.search(r"耗时\s+([0-9]+(?:\.[0-9]+)?)\s+秒", detail or "")
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None

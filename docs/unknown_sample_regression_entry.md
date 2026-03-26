@@ -8,6 +8,7 @@
 - 领域 profile 候选
 - quality gate 摘要
 - formal 候选摘要
+- 评测闭环摘要：输入复杂度、review point 数量、quality gate 状态和 formal 结果
 
 它的设计目标是轻量、可执行，并且不会污染默认全量单测。
 
@@ -70,6 +71,13 @@ python tests/run_unknown_sample_regression.py \
 - `batch_summary.md`
 - `files/<序号>_<文件名>.json`
 
+其中 `batch_summary.json` 还包含每个样本的 `evaluation_summary`，便于快速对比：
+
+- 输入字符数和 clause 规模
+- review point 数量
+- quality gate 状态分布
+- formal 纳入数量
+
 仓库内置了一份 baseline manifest：
 
 - [unknown_sample_regression_manifest_v1.txt](/Users/linzeran/code/2026-zn/agent_review/docs/unknown_sample_regression_manifest_v1.txt)
@@ -88,6 +96,7 @@ PYTHONPATH=src python tests/run_unknown_sample_regression.py \
 
 - `docs/unknown_sample_regression_manifest_v1.txt` 负责冻结输入集合，变更时先说明原因再更新文件。
 - `batch_summary.json` 是主要对比对象，优先看 `input_count`、`succeeded_count`、`failed_count` 和 `aggregate`。
+- `evaluation_summary` 是辅助对比对象，优先看 `input_chars`、`review_point_count` 和 `quality_gate_status_counts`。
 - `files/*.json` 只作为单文件调试视图，用来定位某个样本的画像、领域候选、quality gate 和 formal 摘要是否漂移。
 - manifest、batch summary 和 files 输出都已经做了规范化排序，便于直接做 baseline diff。
 

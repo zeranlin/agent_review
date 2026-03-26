@@ -56,6 +56,19 @@ def _make_summary_item(path: Path, *, document_name: str, procurement_kind: str)
             "applicability_preview": [],
             "applicability_match": {},
         },
+        evaluation_summary={
+            "input_chars": 12,
+            "document_node_count": 1,
+            "clause_unit_count": 1,
+            "extracted_clause_count": 1,
+            "review_point_count": 1,
+            "applicable_count": 1,
+            "quality_gate_count": 1,
+            "quality_gate_status_counts": {"passed": 1},
+            "formal_included_count": 1,
+            "formal_mode": "actual",
+            "domain_candidate_count": 1,
+        },
     )
 
 
@@ -123,6 +136,8 @@ def test_unknown_sample_regression_writes_batch_summary_and_manifest(
     assert batch_summary["failed_count"] == 0
     assert batch_summary["aggregate"]["result_status_counts"] == {"ok": 2}
     assert batch_summary["aggregate"]["procurement_kind_counts"] == {"mixed": 1, "unknown": 1}
+    assert batch_summary["evaluation_summary"]["average_input_chars"] == 12.0
+    assert batch_summary["evaluation_summary"]["quality_gate_status_counts"] == {"passed": 2}
     assert batch_summary_md.startswith("# 未知品目真实样本回归摘要")
     assert "- 输入数量：2" in batch_summary_md
     assert manifest_text.splitlines()[-2:] == [str(input_b.resolve()), str(input_a.resolve())]
