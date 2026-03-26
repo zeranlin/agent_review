@@ -100,6 +100,28 @@ def test_unknown_document_uses_common_block_signals_without_goods_specific_tasks
     assert "货物项目混入大量服务履约内容" not in titles
 
 
+def test_unknown_document_routes_structure_noise_into_structure_tasks() -> None:
+    text = """
+    目录
+    第一章 招标公告
+    第二章 采购需求
+    第三章 投标文件格式、附件
+    中小企业声明函（格式）
+    法定代表人授权书（格式）
+    附件一 说明
+    附件二 见附件
+    """
+
+    profile = build_document_profile(text, [])
+    tasks = select_standard_review_tasks(text, [], document_profile=profile)
+    titles = {item.title for item in tasks}
+
+    assert profile.procurement_kind == "unknown"
+    assert "项目属性与声明函模板口径冲突" in titles
+    assert "项目属性与合同类型口径疑似不一致" in titles or "项目结构与合同类型口径疑似不一致" in titles
+    assert "一般模板残留" in titles
+
+
 def test_qualification_boundary_prefers_real_scoring_clause_over_template_phrase() -> None:
     definition = resolve_review_point_definition(
         "资格条件与评分因素重复设门槛",

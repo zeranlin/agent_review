@@ -65,7 +65,35 @@ def test_informationized_service_sample_does_not_activate_furniture_profile() ->
     assert profile.procurement_kind == "service"
     assert "service" in tags
     assert "furniture" not in tags
-    assert any(item.profile_id == "furniture" and item.confidence < 0.38 for item in profile.domain_profile_candidates)
+    assert all(item.profile_id != "furniture" or item.confidence < 0.38 for item in profile.domain_profile_candidates)
+
+
+def test_informationized_goods_sample_prefers_generic_goods_over_furniture() -> None:
+    clauses = [
+        ExtractedClause(
+            category="技术",
+            field_name="采购标的",
+            content="视频监控摄像机、存储服务器、平台软件及网络交换设备采购。",
+            source_anchor="line:8",
+            semantic_zone=SemanticZoneType.technical,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="评分",
+            field_name="评分项明细",
+            content="投标人提供检测报告、实施方案和交付说明。",
+            source_anchor="line:16",
+            semantic_zone=SemanticZoneType.scoring,
+            effect_tags=[EffectTag.binding],
+        ),
+    ]
+
+    profile = build_document_profile("项目属性：货物。本项目为信息化设备及平台建设。", clauses)
+    candidate_ids = [item.profile_id for item in profile.domain_profile_candidates]
+
+    assert profile.procurement_kind in {"goods", "mixed"}
+    assert "generic_goods" in candidate_ids
+    assert "furniture" not in candidate_ids[:2]
 
 
 def test_build_document_profile_keeps_unknown_documents_on_conservative_activation() -> None:

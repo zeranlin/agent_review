@@ -147,6 +147,37 @@ def test_document_profile_keeps_known_goods_documents_out_of_unknown_flags() -> 
     assert "unknown_attachment_driven_structure" not in profile.unknown_structure_flags
 
 
+def test_document_profile_does_not_surface_furniture_candidate_for_informationized_goods_sample() -> None:
+    text = """
+    项目属性：货物
+    采购标的：视频监控摄像机、存储服务器、网络交换机及平台软件。
+    投标人需提供实施方案、系统接口对接和数据迁移说明。
+    """
+
+    _, state = _build_profile_state(text, "it_goods_profile.txt")
+    profile = state.parse_result.document_profile
+
+    assert profile is not None
+    candidate_ids = [item.profile_id for item in profile.domain_profile_candidates[:3]]
+    assert "furniture" not in candidate_ids
+
+
+def test_document_profile_keeps_furniture_candidate_for_real_furniture_goods_sample() -> None:
+    text = """
+    项目属性：货物
+    本项目采购学生课桌椅、书柜、讲桌及配套家具。
+    供应商需完成安装、调试、验收和质保服务。
+    """
+
+    _, state = _build_profile_state(text, "furniture_goods_profile.txt")
+    profile = state.parse_result.document_profile
+
+    assert profile is not None
+    candidate_ids = [item.profile_id for item in profile.domain_profile_candidates[:3]]
+    assert "generic_goods" in candidate_ids
+    assert "furniture" in candidate_ids
+
+
 def test_document_profile_treats_catalog_template_and_appendix_as_non_body_structure() -> None:
     text = """
     目录

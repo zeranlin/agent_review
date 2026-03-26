@@ -229,7 +229,7 @@ RISK_LEXICON_PACKS: dict[str, RiskLexiconPack] = {
             "template_conflict": ["声明函", "格式", "示例"],
         },
         anti_terms_by_family={
-            "competition_restriction": ["软件", "医疗"],
+            "competition_restriction": ["软件", "医疗", "系统", "平台", "接口", "数据库", "信息化", "摄像机", "网络", "服务器"],
         },
     ),
 }
@@ -299,10 +299,10 @@ EVIDENCE_PATTERN_PACKS: dict[str, EvidencePatternPack] = {
                 expected_zones=["contract", "business"],
                 expected_effects=["binding"],
                 signal_groups=[
-                    ["安装"],
-                    ["验收"],
-                    ["质保", "售后"],
+                    ["家具", "课桌", "书桌", "档案柜", "会议桌", "茶几", "沙发", "床", "柜"],
+                    ["安装", "验收", "质保", "售后"],
                 ],
+                anti_signal_groups=[["系统", "平台", "接口", "数据库", "信息化", "摄像机", "网络", "服务器", "运维"]],
             ),
         ],
     ),
@@ -343,9 +343,13 @@ FALSE_POSITIVE_PACKS: dict[str, FalsePositivePack] = {
                 "代码",
                 "应用",
                 "算法",
+                "摄像机",
+                "服务器",
+                "网络",
+                "运维",
             ],
         },
-        penalty=0.14,
+        penalty=0.22,
     ),
 }
 
@@ -628,6 +632,12 @@ def _score_domain_profile(
         if furniture_vocab_hit and sum(1 for token in furniture_terms if token in text) >= 2:
             score += 0.12
             reasons.append("furniture_vocab_cluster")
+        if profile.procurement_kind != "goods":
+            score -= 0.12
+            reasons.append("furniture_non_goods_penalty")
+        if any(token in haystack for token in ["系统", "平台", "接口", "数据库", "信息化", "摄像机", "服务器", "网络", "运维"]):
+            score -= 0.14
+            reasons.append("furniture_it_anti_signal")
         if furniture_vocab_hit and _matches_any_pattern(
             EVIDENCE_PATTERN_PACKS[domain_profile.evidence_pattern_pack_id].primary_patterns,
             profile,

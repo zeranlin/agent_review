@@ -881,7 +881,6 @@ def _include_in_reviewer_issue_entries(adjudication) -> bool:
     return (
         adjudication.catalog_id in {"RP-CONTRACT-010"}
         and adjudication.evidence_sufficient
-        and adjudication.legal_basis_applicable
         and adjudication.quality_gate_status == QualityGateStatus.passed
     )
 

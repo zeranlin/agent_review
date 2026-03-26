@@ -226,8 +226,9 @@ def _build_domain_profile_candidates(
         candidates.append(DomainProfileCandidate("generic_goods", 0.38, kind_reasons))
         candidates.append(DomainProfileCandidate("generic_service", 0.36, kind_reasons))
 
-    if any(token in text for token in ["家具", "课桌", "书桌", "椅", "柜", "床", "讲桌"]):
-        candidates.append(DomainProfileCandidate("furniture", 0.92, ["命中家具类词汇"]))
+    furniture_candidate = _build_furniture_candidate(procurement_kind, text)
+    if furniture_candidate is not None:
+        candidates.append(furniture_candidate)
 
     if _zone_ratio(zone_stats, SemanticZoneType.scoring) > 0.15:
         candidates.append(DomainProfileCandidate("scoring_heavy", 0.71, ["评分区密度较高"]))
@@ -246,6 +247,33 @@ def _build_domain_profile_candidates(
         seen.add(item.profile_id)
         deduped.append(item)
     return deduped[:4]
+
+
+def _build_furniture_candidate(procurement_kind: str, text: str) -> DomainProfileCandidate | None:
+    strong_terms = ["家具", "课桌", "课桌椅", "书桌", "会议桌", "讲桌", "书柜", "档案柜", "沙发", "茶几"]
+    support_terms = ["桌椅", "桌", "椅", "柜", "床", "办公桌", "储物柜"]
+    anti_terms = ["系统", "平台", "接口", "数据库", "信息化", "软件", "摄像机", "服务器", "交换机", "网络", "运维"]
+
+    if procurement_kind not in {"goods", "mixed"}:
+        return None
+
+    strong_hits = [token for token in strong_terms if token in text]
+    support_hits = [token for token in support_terms if token in text]
+    anti_hits = [token for token in anti_terms if token in text]
+
+    if anti_hits and len(strong_hits) < 2:
+        return None
+
+    if len(strong_hits) >= 2:
+        confidence = 0.9 if procurement_kind == "goods" else 0.78
+        reasons = ["命中家具强词簇", f"家具词汇：{', '.join(strong_hits[:3])}"]
+        return DomainProfileCandidate("furniture", confidence, reasons)
+
+    if procurement_kind == "goods" and strong_hits and support_hits and not anti_hits:
+        reasons = ["货物属性下命中家具词汇组合", f"家具词汇：{', '.join((strong_hits + support_hits)[:3])}"]
+        return DomainProfileCandidate("furniture", 0.82, reasons)
+
+    return None
 
 
 def _build_structure_flags(

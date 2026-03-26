@@ -335,9 +335,9 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str) -> str:
         if any(token in text for token in ["是", "专门面向", "预留份额", "价格扣除", "进口产品", "允许分包"]):
             return "是"
     if field_name in {"预算金额", "最高限价", "面向中小企业采购金额", "分包比例"}:
-        match = re.search(r"(\d+(?:\.\d+)?)\s*%?", text)
-        if match:
-            value = match.group(1)
+        matches = re.findall(r"\d[\d,]*(?:\.\d+)?", text)
+        if matches:
+            value = max(matches, key=lambda token: (len(token.replace(",", "")), "." in token)).replace(",", "")
             return f"{value}%" if "比例" in field_name or "%" in text else value
     if field_name == "采购包数量":
         match = re.search(r"(\d+)", text)
@@ -593,7 +593,14 @@ def _brand_requirement_extractor(lines: list[str]) -> ExtractedClause | None:
 
 def _property_type_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
-        if not any(token in line for token in ["项目属性", "货物", "工程", "服务"]):
+        if not any(token in line for token in ["项目属性", "项目类型", "项目所属分类", "货物类", "工程类", "服务类"]):
+            continue
+        if (
+            "项目属性" not in line
+            and "项目类型" not in line
+            and "项目所属分类" not in line
+            and not any(token in line for token in ["货物类", "工程类", "服务类"])
+        ):
             continue
         value = ""
         if "货物" in line:
@@ -604,6 +611,23 @@ def _property_type_extractor(lines: list[str]) -> ExtractedClause | None:
             value = "工程"
         if value:
             return _build_clause(line, line_no, normalized_value=value, relation_tags=[value])
+    return None
+
+
+def _procurement_target_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        if "采购标的" not in line and "采购内容" not in line and "采购需求" not in line:
+            continue
+        if any(token in line for token in ["采购标的/服务清单", "采购标的/所投产品/货物（服务）清单"]):
+            continue
+        if "采购需求" in line and any(token in line for token in ["详见附件", "详见采购需求", "详见招标文件"]):
+            continue
+        if "采购需求" in line and not any(
+            token in line
+            for token in ["货物", "服务", "设备", "系统", "平台", "家具", "厨房", "窗帘", "物业", "运维", "供货", "安装"]
+        ):
+            continue
+        return _build_clause(line, line_no, relation_tags=["采购标的"])
     return None
 
 
@@ -911,7 +935,7 @@ def _package_count_extractor(lines: list[str]) -> ExtractedClause | None:
     package_lines: list[int] = []
     package_texts: list[str] = []
     for line_no, line in enumerate(lines, start=1):
-        if not any(token in line for token in ["采购包", "第1包", "第2包", "包组"]):
+        if not any(token in line for token in ["采购包", "第1包", "第2包", "包组", "不划分采购包", "不分包采购"]):
             continue
         package_lines.append(line_no)
         package_texts.append(line[:120])
@@ -1595,7 +1619,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("项目基本信息", "项目编号", _simple_keyword_extractor(["项目编号"])),
     ("项目基本信息", "采购方式", _procurement_method_extractor),
     ("项目基本信息", "采购方式适用理由", _procurement_method_reason_extractor),
-    ("项目基本信息", "采购标的", _simple_keyword_extractor(["采购标的", "采购内容", "采购需求"])),
+    ("项目基本信息", "采购标的", _procurement_target_extractor),
     ("项目基本信息", "品目名称", _simple_keyword_extractor(["品目名称"])),
     ("项目基本信息", "项目属性", _property_type_extractor),
     ("项目基本信息", "预算金额", _amount_extractor(["预算金额"])),

@@ -1227,6 +1227,29 @@ def test_extractors_can_capture_demand_survey_and_scoring_item_details() -> None
     assert "售后服务方案" in clause_map["评分项明细"].content
 
 
+def test_property_type_extractor_does_not_misread_engineer_as_project_type() -> None:
+    text = """
+    5.具有工信部门颁发的高级网络技术工程师证书，得1分。
+    项目类型：货物类
+    """
+    clauses = extract_clauses(text)
+    clause_map = {item.field_name: item for item in clauses}
+
+    assert clause_map["项目属性"].normalized_value == "货物"
+    assert "项目类型" in clause_map["项目属性"].content
+
+
+def test_procurement_target_extractor_ignores_generic_procurement_requirement_phrase() -> None:
+    text = """
+    采购需求：详见附件。
+    采购标的：视频监控摄像机及配套存储设备。
+    """
+    clauses = [item for item in extract_clauses(text) if item.field_name == "采购标的"]
+
+    assert len(clauses) == 1
+    assert "视频监控摄像机" in clauses[0].content
+
+
 def test_scoring_weight_point_can_distinguish_bid_stage_submission() -> None:
     text = """
     项目属性：货物

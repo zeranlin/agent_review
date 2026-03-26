@@ -467,7 +467,26 @@ def _assemble_package_split_evidence(
             ),
         ]
     )
-    return _assemble_bundle_for_definition(definition, relevant)
+    direct_clauses = _dedupe_clauses(
+        [
+            *[
+                clause
+                for clause in prioritized
+                if clause.field_name in {"采购包划分说明", "采购包数量", "采购内容构成", "采购标的"}
+            ],
+            *[
+                clause
+                for clause in relevant
+                if clause.field_name in {"采购包划分说明", "采购包数量", "采购内容构成", "采购标的"}
+            ][:2],
+        ]
+    )
+    supporting_clauses = [
+        clause
+        for clause in relevant
+        if clause not in direct_clauses
+    ]
+    return _assemble_custom_bundle(definition, direct_clauses, supporting_clauses)
 
 
 def _assemble_qualification_boundary_evidence(

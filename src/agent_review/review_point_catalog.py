@@ -1051,7 +1051,35 @@ def _build_active_task_tags(
     document_profile = document_profile or build_document_profile(text, extracted_clauses)
     structured_tags.update(profile_activation_tags(document_profile))
     structured_tags.update(document_profile.risk_activation_hints)
+    structured_tags.update(_profile_routing_tags(document_profile))
     return structured_tags
+
+
+def _profile_routing_tags(profile: DocumentProfile) -> set[str]:
+    tags: set[str] = set()
+    if profile.procurement_kind not in {"unknown", "mixed"}:
+        return tags
+
+    structure_flags = set(profile.structure_flags)
+    quality_flags = set(profile.quality_flags)
+    unknown_flags = set(profile.unknown_structure_flags)
+
+    if unknown_flags & {"unknown_catalog_navigation", "unknown_template_pollution", "unknown_attachment_driven_structure"}:
+        tags.add("structure")
+    if unknown_flags & {"unknown_template_pollution", "unknown_attachment_driven_structure"}:
+        tags.add("template")
+    if unknown_flags & {"unknown_catalog_navigation", "unknown_low_clause_support", "mixed_structure_uncertain"} or quality_flags & {
+        "catalog_navigation_high",
+        "non_body_structure_dominant",
+        "weak_source_support",
+    }:
+        tags.add("consistency")
+
+    if structure_flags & {"catalog_navigation_heavy", "directory_driven_structure"}:
+        tags.add("structure")
+    if structure_flags & {"heavy_template_pollution", "template_pollution"}:
+        tags.add("template")
+    return tags
 
 
 def _structured_active_task_tags(extracted_clauses: list[ExtractedClause]) -> set[str]:
