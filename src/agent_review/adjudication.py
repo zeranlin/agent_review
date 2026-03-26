@@ -97,7 +97,8 @@ def build_review_points_from_instances(
         if contract is None:
             continue
         evidence = []
-        for fact_id in instance.supporting_fact_ids[:3]:
+        ranked_fact_ids = _rank_instance_fact_ids(instance, instance.supporting_fact_ids, fact_index)
+        for fact_id in ranked_fact_ids[:3]:
             fact = fact_index.get(fact_id)
             if fact is None or not fact.object_text.strip():
                 continue
@@ -147,6 +148,44 @@ def build_review_points_from_instances(
             )
         )
     return review_points
+
+
+def _rank_instance_fact_ids(
+    instance: ReviewPointInstance,
+    fact_ids: list[str],
+    fact_index: dict[str, object],
+) -> list[str]:
+    def score(fact_id: str) -> tuple[int, int, int]:
+        fact = fact_index.get(fact_id)
+        if fact is None:
+            return (-1, -1, -1)
+        text = getattr(fact, "object_text", "")
+        score_value = 0
+        if instance.point_id == "RP-EVID-001":
+            if any(token in text for token in ["检测中心", "税务部门", "研究院", "实验室"]):
+                score_value += 8
+            if "出具" in text:
+                score_value += 4
+            if "第三方检测机构" in text:
+                score_value -= 3
+        elif instance.point_id == "RP-QUAL-004":
+            if any(token in text for token in ["同类项目业绩", "类似项目业绩"]):
+                score_value += 6
+            if any(token in text for token in ["深圳市", "广州市", "行业"]):
+                score_value += 3
+            if any(token in text for token in ["得分", "评分内容", "评分依据"]):
+                score_value += 2
+        elif instance.point_id == "RP-QUAL-003":
+            if any(token in text for token in ["高新技术企业", "纳税信用", "成立满", "科技型中小企业"]):
+                score_value += 4
+        line_hint = str(getattr(fact, "anchor", {}).get("line_hint", ""))
+        return (
+            score_value,
+            1 if line_hint.startswith("line:") else 0,
+            -len(text),
+        )
+
+    return sorted(fact_ids, key=score, reverse=True)
 
 
 def build_review_points_from_findings(
@@ -1174,9 +1213,40 @@ def _build_qualification_gate_cluster(
     clauses: list[ExtractedClause],
     report_text: str,
 ) -> str:
-    if title != "资格条件可能缺乏履约必要性或带有歧视性门槛":
+    if title not in {
+        "资格条件可能缺乏履约必要性或带有歧视性门槛",
+        "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复",
+    }:
         return ""
     ordered = sorted(clauses, key=lambda clause: _qualification_clause_priority_for_formal(title, clause))
+    if title == "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复":
+        performance_clause = next(
+            (
+                clause
+                for clause in ordered
+                if "同类业绩" in clause.content or "类似项目业绩" in clause.content
+            ),
+            None,
+        )
+        scoring_clause = next(
+            (
+                clause
+                for clause in ordered
+                if any(token in clause.content for token in ["得分", "评分内容", "评分依据"])
+            ),
+            None,
+        )
+        fragments: list[str] = []
+        for clause in [performance_clause, scoring_clause]:
+            if clause is None:
+                continue
+            quote = clause.content or clause_window_from_anchor(report_text, clause.source_anchor)
+            if not quote or _formal_quote_is_noise_like(quote, "qualification"):
+                continue
+            if quote not in fragments:
+                fragments.append(quote)
+        candidate = "；".join(fragments)
+        return candidate if candidate and evidence_supports_title(title, candidate) else candidate
     entity_clause = next(
         (
             clause
@@ -1228,6 +1298,10 @@ def _formal_family_key(title: str) -> str:
         return "contract"
     if any(token in title for token in ["扣款", "解约", "违约责任", "付款", "满意度", "考核"]):
         return "contract"
+    if any(token in title for token in ["质量保证金", "履约保证金", "第三方检测费用"]):
+        return "contract"
+    if any(token in title for token in ["最低报价门槛", "预算金额比例"]):
+        return "policy"
     if any(token in title for token in ["团队稳定", "人员更换", "采购人批准更换", "采购人审批录用", "容貌体形", "身高限制", "性别限制", "年龄限制"]):
         return "personnel"
     if any(token in title for token in ["专利"]):
@@ -1246,11 +1320,11 @@ def _formal_family_tokens(title: str) -> list[str]:
     if family == "score_weight":
         return ["评分", "证书", "认证", "检测报告", "财务", "分值", "分"]
     if family == "policy":
-        return ["中小企业", "价格扣除", "预算金额", "最高限价", "采购金额"]
+        return ["中小企业", "价格扣除", "预算金额", "最高限价", "采购金额", "最低报价门槛", "无效投标"]
     if family == "structure":
         return ["项目属性", "项目所属分类", "合同类型", "承揽合同", "人工管护", "货物", "服务"]
     if family == "contract":
-        return ["项目成果", "研究成果", "技术文档", "优胜原则", "验收", "质保", "保修", "付款", "尾款", "考核", "满意度", "扣款", "解约", "违约"]
+        return ["项目成果", "研究成果", "技术文档", "优胜原则", "验收", "质保", "保修", "付款", "尾款", "考核", "满意度", "扣款", "解约", "违约", "质量保证金", "履约保证金", "第三方检测费用"]
     if family == "personnel":
         return ["团队稳定", "人员更换", "采购人同意", "采购人批准", "关键岗位", "团队成员"]
     return []
@@ -1470,9 +1544,9 @@ def _formal_quote_is_noise_like(quote: str, family_key: str) -> bool:
         return True
     if _formal_quote_is_template_noise(normalized):
         return True
-    if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification"}:
+    if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification", "contract", "policy"}:
         return True
-    if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification"}:
+    if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification", "contract", "policy"}:
         return True
     if family_key == "contract" and not any(
         token in normalized for token in ["付款", "支付", "尾款", "验收", "考核", "满意度", "扣款", "违约", "解约", "解除合同", "质保", "保修"]

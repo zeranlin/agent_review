@@ -323,6 +323,33 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             summary="解除合同应有明确法定或约定条件，不宜使用过宽、过泛触发标准。",
         )
     ],
+    "履约保证金转质量保证金或长期无息占压": [
+        LegalBasis(
+            source_name="中华人民共和国民法典",
+            article_hint="合同编公平原则",
+            summary="履约担保、质保责任和资金占用安排应当合理、适度，不宜通过长期无息占压持续加重供应商负担。",
+        )
+    ],
+    "第三方检测费用无论结果均由中标人承担": [
+        LegalBasis(
+            source_name="中华人民共和国民法典",
+            article_hint="合同编公平原则",
+            summary="验收和检测费用承担应与责任来源、检测结果和触发条件相匹配，不宜无差别转嫁给供应商。",
+        )
+    ],
+    "以预算金额比例设最低报价门槛": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法",
+            article_hint="第二十二条、第二十五条",
+            summary="采购文件不得以不合理条件排斥或者限制潜在供应商，不宜以刚性最低报价比例直接否决投标。",
+        ),
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="评审与报价审查相关条款",
+            summary="对异常低价应当采用说明、核查等审查机制，不宜预设固定比例下限直接作无效投标处理。",
+            basis_type="部门规章",
+        ),
+    ],
     "尾款支付与考核条款联动风险": [
         LegalBasis(
             source_name="政府采购需求管理办法",

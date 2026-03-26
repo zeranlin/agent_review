@@ -10,6 +10,7 @@ import pytest
 from agent_review.applicability import build_applicability_checks
 from agent_review.adjudication import build_formal_adjudication
 from agent_review.engine import TenderReviewEngine
+from agent_review.extractors.legal_facts import extract_legal_facts_from_units
 from agent_review.extractors.clauses import extract_clauses
 from agent_review.header_info import resolve_header_info
 from agent_review.llm import QwenReviewEnhancer
@@ -295,6 +296,50 @@ def test_review_text_prefers_designated_institution_quote_for_evidence_source_re
 
     assert formal_map["RP-EVID-001"].included_in_formal is True
     assert "深圳市医疗器械检测中心" in formal_map["RP-EVID-001"].primary_quote
+
+
+def test_legal_fact_extraction_can_fallback_to_raw_text_for_misaligned_qualification_lines() -> None:
+    text = """
+    申请人的资格要求：
+    10.投标人须为全国科技型中小企业；
+    11.投标人须具备高新技术企业证书；
+    12.投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；
+    13.投标人须成立满5年以上，并提供营业执照复印件；
+    14.投标人须具备深圳市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。
+    """
+    facts = extract_legal_facts_from_units([], document_id="fallback-demo.txt", raw_text=text)
+    texts = {item.object_text for item in facts}
+
+    assert any("全国科技型中小企业" in item for item in texts)
+    assert any("高新技术企业证书" in item for item in texts)
+    assert any("纳税信用A级" in item for item in texts)
+    assert any("成立满5年以上" in item for item in texts)
+    assert any("深圳市医疗器械行业同类项目业绩不少于2个" in item for item in texts)
+
+
+def test_qualification_performance_dup_rule_no_longer_triggers_on_bare_scoring_text() -> None:
+    text = """
+    评分标准：
+    投标人具有ISO9001质量管理体系证书得5分。
+    投标人具有ISO14001环境管理体系认证证书得5分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="score_only_demo.txt")
+
+    assert not any(item.point_id == "RP-QUAL-004" for item in report.parse_result.review_point_instances)
+
+
+def test_review_text_surfaces_deposit_transfer_test_cost_and_price_floor_risks() -> None:
+    text = """
+    履约担保：合同总价的5%作为质量保证金，须以银行转账方式缴纳，质保期满后无息退还。
+    检测验证：验收时产生的第三方检测费用由中标人承担，无论检测结果是否合格。
+    投标报价不得低于预算金额的80%，低于此价格的投标将被视为无效投标。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="contract_price_demo.txt")
+    titles = {item.title for item in report.findings}
+
+    assert "履约保证金转质量保证金或长期无息占压" in titles
+    assert "第三方检测费用无论结果均由中标人承担" in titles
+    assert "以预算金额比例设最低报价门槛" in titles
 
 
 def test_review_task_planning_exposes_a_clear_contract_for_unknown_documents() -> None:

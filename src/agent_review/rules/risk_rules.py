@@ -120,6 +120,45 @@ def match_risk_rules(text: str) -> list[RiskHit]:
                 )
             )
             break
+    for line_no, line in enumerate(lines, start=1):
+        if "质量保证金" in line and any(token in line for token in ["履约担保", "履约保证金", "无息退还", "银行转账"]):
+            hits.append(
+                RiskHit(
+                    risk_group="D.合同与验收风险",
+                    rule_name="履约保证金转质量保证金或长期无息占压",
+                    severity=Severity.high,
+                    matched_text=line[:180],
+                    rationale="履约担保条款同时叠加银行转账、质量保证金和无息退还安排，需核查是否形成异常资金占压或责任转嫁。",
+                    source_anchor=f"line:{line_no}",
+                )
+            )
+            break
+    for line_no, line in enumerate(lines, start=1):
+        if "第三方检测费用" in line and "中标人承担" in line:
+            hits.append(
+                RiskHit(
+                    risk_group="D.合同与验收风险",
+                    rule_name="第三方检测费用无论结果均由中标人承担",
+                    severity=Severity.high,
+                    matched_text=line[:180],
+                    rationale="将第三方检测费用无论检测结果如何均由中标人承担，容易形成不对等风险转嫁和验收负担外扩。",
+                    source_anchor=f"line:{line_no}",
+                )
+            )
+            break
+    for line_no, line in enumerate(lines, start=1):
+        if "投标报价不得低于预算金额的" in line and "无效投标" in line:
+            hits.append(
+                RiskHit(
+                    risk_group="A.限制竞争风险",
+                    rule_name="以预算金额比例设最低报价门槛",
+                    severity=Severity.high,
+                    matched_text=line[:180],
+                    rationale="直接以预算金额比例设置最低报价门槛并据此否决投标，需核查是否以刚性价格下限替代异常低价审查机制。",
+                    source_anchor=f"line:{line_no}",
+                )
+            )
+            break
     certificate_score = 0.0
     for line in lines:
         if not any(token in line for token in ["资质证书", "管理体系认证情况", "认证证书"]):

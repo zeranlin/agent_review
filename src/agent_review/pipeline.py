@@ -292,9 +292,14 @@ class ReviewPipeline:
             state.legal_fact_candidates = extract_legal_facts_from_units(
                 state.parse_result.clause_units,
                 document_id=state.document_name,
+                raw_text=state.parse_result.text,
             )
         else:
-            state.legal_fact_candidates = []
+            state.legal_fact_candidates = extract_legal_facts_from_units(
+                [],
+                document_id=state.document_name,
+                raw_text=state.parse_result.text,
+            )
         state.parse_result.legal_fact_candidates = state.legal_fact_candidates
         fact_types = _ordered_unique(item.fact_type for item in state.legal_fact_candidates)
         preview = ",".join(fact_types[:4])
