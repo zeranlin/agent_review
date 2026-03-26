@@ -70,6 +70,54 @@ def test_cli_enhanced_mode_falls_back_on_timeout_and_records_trace(
     assert enhancement_trace["base_mode"] == "fast"
     assert enhancement_trace["final_mode"] == "enhanced"
     assert enhancement_trace["requested_mode"] == "enhanced"
+    assert enhancement_trace["budget_seconds"] == 0.01
+    assert enhancement_trace["deadline_at"]
+    assert enhancement_trace["remaining_budget_seconds"] == 0.0
 
     assert "增强链状态: 已回退到基础结果" in enhanced_markdown
     assert manifest["artifact_paths"]["enhancement_trace"] == str(enhancement_trace_path)
+
+
+def test_cli_enhanced_mode_uses_default_llm_timeout_budget(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    input_path = tmp_path / "demo.txt"
+    input_path.write_text("项目概况\n采购需求详见附件。", encoding="utf-8")
+
+    recorded_timeouts: list[float | None] = []
+
+    class RecordingEnhancer:
+        def __init__(self, timeout: float | None = None) -> None:
+            recorded_timeouts.append(timeout)
+
+        def enhance(self, report):
+            return replace(report, summary="增强完成", llm_enhanced=True)
+
+    artifacts_dir = tmp_path / "runs"
+    monkeypatch.setattr("agent_review.cli.QwenReviewEnhancer", RecordingEnhancer)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent_review",
+            "--input",
+            str(input_path),
+            "--mode",
+            "enhanced",
+            "--artifacts-dir",
+            str(artifacts_dir),
+            "--format",
+            "markdown",
+        ],
+    )
+
+    assert main() == 0
+    capsys.readouterr()
+
+    enhancement_trace = json.loads((artifacts_dir / "enhancement_trace.json").read_text(encoding="utf-8"))
+    assert recorded_timeouts == [1800.0]
+    assert enhancement_trace["budget_seconds"] == 1800.0
+    assert enhancement_trace["deadline_at"]
+    assert enhancement_trace["remaining_budget_seconds"] >= 0

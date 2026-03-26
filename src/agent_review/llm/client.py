@@ -14,7 +14,7 @@ class QwenLocalConfig:
     base_url: str
     model: str
     api_key: str
-    timeout: float = 60.0
+    timeout: float = 1800.0
 
     @classmethod
     def from_env_or_default(cls) -> "QwenLocalConfig":
@@ -22,7 +22,7 @@ class QwenLocalConfig:
             base_url=os.getenv("AGENT_REVIEW_LLM_BASE_URL", "http://112.111.54.86:10011/v1"),
             model=os.getenv("AGENT_REVIEW_LLM_MODEL", "qwen3.5-27b"),
             api_key=os.getenv("AGENT_REVIEW_LLM_API_KEY", "123"),
-            timeout=float(os.getenv("AGENT_REVIEW_LLM_TIMEOUT", "60")),
+            timeout=float(os.getenv("AGENT_REVIEW_LLM_TIMEOUT", "1800")),
         )
 
 

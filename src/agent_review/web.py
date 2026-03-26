@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
 from email.policy import default
 from html import escape
@@ -37,10 +38,13 @@ class ReviewJob:
     reviewer_report_path: str = ""
     reviewer_report_markdown: str = ""
     error: str = ""
+    llm_budget_seconds: float = 1800.0
+    started_at: str = ""
+    deadline_at: str = ""
 
 
 class ReviewWebApp:
-    def __init__(self, llm_timeout: float = 300.0) -> None:
+    def __init__(self, llm_timeout: float = 1800.0) -> None:
         self.llm_timeout = llm_timeout
         self._jobs: dict[str, ReviewJob] = {}
         self._lock = threading.Lock()
@@ -72,11 +76,20 @@ class ReviewWebApp:
         job_dir = self._base_dir / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
         upload_path = job_dir / filename
+        started_at = datetime.now(timezone.utc)
+        deadline_at = started_at + timedelta(seconds=self.llm_timeout)
 
         with upload_path.open("wb") as output_file:
             output_file.write(payload)
 
-        job = ReviewJob(job_id=job_id, filename=filename, upload_path=str(upload_path))
+        job = ReviewJob(
+            job_id=job_id,
+            filename=filename,
+            upload_path=str(upload_path),
+            llm_budget_seconds=self.llm_timeout,
+            started_at=started_at.isoformat(timespec="seconds"),
+            deadline_at=deadline_at.isoformat(timespec="seconds"),
+        )
         with self._lock:
             self._jobs[job_id] = job
 
@@ -124,18 +137,27 @@ class ReviewWebApp:
 
     @staticmethod
     def _ensure_complete_enhanced_run(report: ReviewReport) -> None:
-        task_statuses = {item.task_name: item.status for item in report.task_records}
+        task_map = {item.task_name: item for item in report.task_records}
         missing = [
             name
             for name in REQUIRED_LLM_TASKS
-            if task_statuses.get(name) != TaskStatus.completed
+            if task_map.get(name) is None or task_map[name].status != TaskStatus.completed
         ]
         if missing:
-            detail = ", ".join(
-                f"{name}={task_statuses.get(name, TaskStatus.pending).value if isinstance(task_statuses.get(name, TaskStatus.pending), TaskStatus) else str(task_statuses.get(name, 'pending'))}"
-                for name in REQUIRED_LLM_TASKS
-            )
-            raise RuntimeError(f"增强审查未完整完成：{detail}")
+            raise RuntimeError(f"增强审查未完整完成：{ReviewWebApp._format_llm_task_state_summary(report)}")
+
+    @staticmethod
+    def _format_llm_task_state_summary(report: ReviewReport) -> str:
+        task_map = {item.task_name: item for item in report.task_records}
+        segments: list[str] = []
+        for name in REQUIRED_LLM_TASKS:
+            record = task_map.get(name)
+            if record is None:
+                segments.append(f"{name}=missing（未生成任务记录）")
+                continue
+            detail = record.detail.strip() or "无详情"
+            segments.append(f"{name}={record.status.value}（{detail}）")
+        return "; ".join(segments)
 
     def _render_home(self) -> str:
         return f"""<!doctype html>
@@ -175,6 +197,8 @@ class ReviewWebApp:
     <section class="card center">
       <h1>审核中...</h1>
       <p class="muted">{escape(job.filename)}</p>
+      <p class="muted">开始于：{escape(job.started_at or '未知')}</p>
+      <p class="muted">LLM 预算：{escape(f'{job.llm_budget_seconds:.0f}')} 秒，截止：{escape(job.deadline_at or '未知')}</p>
     </section>
   </main>
 </body>
@@ -198,6 +222,8 @@ class ReviewWebApp:
         <a class="link-btn" href="/">继续上传</a>
       </div>
       <p class="muted">报告文件：{escape(job.reviewer_report_path)}</p>
+      <p class="muted">开始于：{escape(job.started_at or '未知')}</p>
+      <p class="muted">LLM 预算：{escape(f'{job.llm_budget_seconds:.0f}')} 秒，截止：{escape(job.deadline_at or '未知')}</p>
       <article class="report-content">{report_html}</article>
     </section>
   </main>
@@ -410,7 +436,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the minimal web demo for tender review.")
     parser.add_argument("--host", default="127.0.0.1", help="监听地址。")
     parser.add_argument("--port", type=int, default=8765, help="监听端口。")
-    parser.add_argument("--llm-timeout", type=float, default=300.0, help="LLM 单次调用超时时间（秒）。")
+    parser.add_argument("--llm-timeout", type=float, default=1800.0, help="LLM 单次调用超时时间（秒），默认 1800。")
     return parser
 
 

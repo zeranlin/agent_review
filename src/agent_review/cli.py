@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from queue import Empty, Queue
 import sys
 from threading import Thread
@@ -53,8 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--llm-timeout",
         type=float,
-        default=60.0,
-        help="LLM 单次调用超时时间（秒）。",
+        default=1800.0,
+        help="LLM 单次调用超时时间（秒），默认 1800。",
     )
     return parser
 
@@ -63,6 +64,8 @@ def _run_enhancement_with_watchdog(base_report, enhancer, timeout_seconds: float
     enhancement_input = replace(deepcopy(base_report), review_mode=ReviewMode.enhanced)
     result_queue: Queue[tuple[str, object]] = Queue(maxsize=1)
     started_at = monotonic()
+    started_clock = datetime.now(timezone.utc)
+    deadline_at = started_clock + timedelta(seconds=timeout_seconds)
 
     def _worker() -> None:
         try:
@@ -76,7 +79,10 @@ def _run_enhancement_with_watchdog(base_report, enhancer, timeout_seconds: float
         kind, payload = result_queue.get(timeout=timeout_seconds)
     except Empty:
         elapsed_seconds = monotonic() - started_at
-        warning = f"LLM 增强在 {timeout_seconds:.1f} 秒内未完成，已回退到基础报告。"
+        warning = (
+            f"LLM 增强在 {timeout_seconds:.1f} 秒预算内未完成，"
+            f"截止 {deadline_at.isoformat(timespec='seconds')}，已回退到基础报告。"
+        )
         fallback_report = _build_fallback_enhanced_report(base_report, warning, status="timed_out")
         return fallback_report, _build_enhancement_trace(
             base_report=base_report,
@@ -84,13 +90,17 @@ def _run_enhancement_with_watchdog(base_report, enhancer, timeout_seconds: float
             outcome="timed_out",
             timeout_seconds=timeout_seconds,
             elapsed_seconds=elapsed_seconds,
+            started_at=started_clock,
             warning=warning,
         )
 
     elapsed_seconds = monotonic() - started_at
     if kind == "error":
         error = payload if isinstance(payload, Exception) else Exception(str(payload))
-        warning = f"LLM 增强执行失败，已回退到基础报告：{error}"
+        warning = (
+            f"LLM 增强执行失败（预算 {timeout_seconds:.1f} 秒，"
+            f"截止 {deadline_at.isoformat(timespec='seconds')}），已回退到基础报告：{error}"
+        )
         fallback_report = _build_fallback_enhanced_report(base_report, warning, status="failed")
         return fallback_report, _build_enhancement_trace(
             base_report=base_report,
@@ -98,12 +108,16 @@ def _run_enhancement_with_watchdog(base_report, enhancer, timeout_seconds: float
             outcome="failed",
             timeout_seconds=timeout_seconds,
             elapsed_seconds=elapsed_seconds,
+            started_at=started_clock,
             warning=warning,
             error=error,
         )
 
     if not isinstance(payload, ReviewReport):
-        warning = "LLM 增强返回了非预期结果，已回退到基础报告。"
+        warning = (
+            f"LLM 增强返回了非预期结果（预算 {timeout_seconds:.1f} 秒，"
+            f"截止 {deadline_at.isoformat(timespec='seconds')}），已回退到基础报告。"
+        )
         fallback_report = _build_fallback_enhanced_report(base_report, warning, status="failed")
         return fallback_report, _build_enhancement_trace(
             base_report=base_report,
@@ -111,6 +125,7 @@ def _run_enhancement_with_watchdog(base_report, enhancer, timeout_seconds: float
             outcome="failed",
             timeout_seconds=timeout_seconds,
             elapsed_seconds=elapsed_seconds,
+            started_at=started_clock,
             warning=warning,
             error=TypeError("unexpected enhancer result"),
         )
@@ -119,7 +134,10 @@ def _run_enhancement_with_watchdog(base_report, enhancer, timeout_seconds: float
     enhanced_report = _attach_enhancement_stage(
         report,
         status="completed",
-        detail=f"LLM 增强在 {elapsed_seconds:.2f} 秒内完成。",
+        detail=(
+            f"LLM 增强在 {elapsed_seconds:.2f} 秒内完成，"
+            f"预算 {timeout_seconds:.1f} 秒，截止 {deadline_at.isoformat(timespec='seconds')}。"
+        ),
     )
     return enhanced_report, _build_enhancement_trace(
         base_report=base_report,
@@ -127,6 +145,7 @@ def _run_enhancement_with_watchdog(base_report, enhancer, timeout_seconds: float
         outcome="completed",
         timeout_seconds=timeout_seconds,
         elapsed_seconds=elapsed_seconds,
+        started_at=started_clock,
     )
 
 
@@ -164,18 +183,25 @@ def _build_enhancement_trace(
     outcome: str,
     timeout_seconds: float,
     elapsed_seconds: float,
+    started_at: datetime,
+    fallback_applied: bool | None = None,
     warning: str | None = None,
     error: Exception | None = None,
 ) -> dict[str, object]:
+    deadline_at = started_at + timedelta(seconds=timeout_seconds)
     return {
         "document_name": report.file_info.document_name,
         "requested_mode": "enhanced",
         "base_mode": base_report.review_mode.value,
         "final_mode": report.review_mode.value,
         "outcome": outcome,
+        "budget_seconds": timeout_seconds,
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "deadline_at": deadline_at.isoformat(timespec="seconds"),
         "timeout_seconds": timeout_seconds,
         "elapsed_seconds": round(elapsed_seconds, 3),
-        "fallback_applied": outcome != "completed",
+        "remaining_budget_seconds": round(max(0.0, timeout_seconds - elapsed_seconds), 3),
+        "fallback_applied": (outcome != "completed") if fallback_applied is None else fallback_applied,
         "llm_enhanced": report.llm_enhanced,
         "llm_warnings": report.llm_warnings,
         "warning": warning or "",
@@ -213,22 +239,15 @@ def main() -> int:
             report=base_report,
             base_report=base_report,
             output_dir=args.artifacts_dir,
-            enhancement_trace={
-                "document_name": base_report.file_info.document_name,
-                "requested_mode": "enhanced",
-                "base_mode": base_report.review_mode.value,
-                "final_mode": base_report.review_mode.value,
-                "outcome": "pending",
-                "timeout_seconds": args.llm_timeout,
-                "elapsed_seconds": 0.0,
-                "fallback_applied": False,
-                "llm_enhanced": base_report.llm_enhanced,
-                "llm_warnings": base_report.llm_warnings,
-                "warning": "",
-                "error": "",
-                "task_records": [],
-                "stage_records": [],
-            },
+            enhancement_trace=_build_enhancement_trace(
+                base_report=base_report,
+                report=base_report,
+                outcome="pending",
+                timeout_seconds=args.llm_timeout,
+                elapsed_seconds=0.0,
+                started_at=datetime.now(timezone.utc),
+                fallback_applied=False,
+            ),
         )
     if enhanced_enabled:
         enhancer = QwenReviewEnhancer(timeout=args.llm_timeout)

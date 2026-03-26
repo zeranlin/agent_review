@@ -12,6 +12,7 @@ from agent_review.adjudication import build_formal_adjudication
 from agent_review.engine import TenderReviewEngine
 from agent_review.extractors.clauses import extract_clauses
 from agent_review.llm import QwenReviewEnhancer
+from agent_review.llm import QwenLocalConfig
 from agent_review.models import (
     AdoptionStatus,
     ApplicabilityCheck,
@@ -956,6 +957,33 @@ def test_qwen_enhancer_can_merge_semantic_review_outputs() -> None:
     assert "证据提示" in markdown
     assert "反证模板" in markdown
     assert "## LLM审查点二审" in markdown
+
+
+def test_qwen_local_config_defaults_to_longer_timeout_budget(monkeypatch) -> None:
+    monkeypatch.delenv("AGENT_REVIEW_LLM_TIMEOUT", raising=False)
+
+    config = QwenLocalConfig.from_env_or_default()
+
+    assert config.timeout == 1800.0
+
+
+def test_qwen_review_enhancer_second_review_detail_includes_budget_context() -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    评分标准：样品10分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    assert report.review_points
+
+    enhanced_report = QwenReviewEnhancer(client=FakeSecondReviewOverrideClient(), timeout=12.0).enhance(report)
+    record = next(item for item in enhanced_report.task_records if item.task_name == "llm_review_point_second_review")
+
+    assert record.status == TaskStatus.completed
+    assert "预算 12.0 秒" in record.detail
+    assert "截止" in record.detail
+    assert "分批二审完成" in record.detail
 
 
 def test_llm_second_review_can_downgrade_formal_adjudication() -> None:
@@ -2696,3 +2724,9 @@ def test_review_web_requires_all_high_value_llm_tasks_completed() -> None:
 
     with pytest.raises(RuntimeError):
         ReviewWebApp._ensure_complete_enhanced_run(report)
+
+
+def test_review_web_defaults_to_1800_second_llm_budget() -> None:
+    app = ReviewWebApp()
+
+    assert app.llm_timeout == 1800.0

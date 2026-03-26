@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 
 from ..adjudication import (
@@ -93,11 +94,17 @@ class QwenReviewEnhancer:
     ) -> None:
         if client is not None:
             self.client = client
+            self.timeout_seconds = float(
+                timeout
+                if timeout is not None
+                else getattr(getattr(client, "config", None), "timeout", 1800.0)
+            )
         else:
             config = QwenLocalConfig.from_env_or_default()
             if timeout is not None:
                 config.timeout = timeout
             self.client = OpenAICompatibleClient(config)
+            self.timeout_seconds = float(config.timeout)
         self.task_mode = task_mode
 
     def enhance(self, report: ReviewReport) -> ReviewReport:
@@ -223,14 +230,6 @@ class QwenReviewEnhancer:
         if applicability_error:
             warnings.append(applicability_error)
 
-        second_review_payload, second_review_error = self._run_task(
-            task_name="llm_review_point_second_review",
-            task_records=task_records,
-            system_prompt=REVIEW_POINT_SECOND_REVIEW_SYSTEM_PROMPT,
-            user_prompt="",
-            skip_when=True,
-            skip_detail="使用分批二审执行器。",
-        )
         second_review_payload, second_review_error = self._run_second_review_batches(
             working_report,
             task_records,
@@ -397,14 +396,16 @@ class QwenReviewEnhancer:
         skip_detail: str,
     ) -> tuple[dict | None, str | None]:
         record = _find_task_record(task_records, task_name)
+        started_at = datetime.now(timezone.utc)
+        timing_context = _build_task_timing_context(started_at, self.timeout_seconds)
         if skip_when:
             record.status = TaskStatus.skipped
-            record.detail = skip_detail
+            record.detail = _format_task_detail(skip_detail or "任务已跳过。", timing_context)
             record.item_count = 0
             return None, None
 
         record.status = TaskStatus.running
-        record.detail = "任务执行中。"
+        record.detail = _format_task_detail("任务执行中。", timing_context)
         try:
             raw = self.client.generate_text(
                 system_prompt=system_prompt,
@@ -412,12 +413,20 @@ class QwenReviewEnhancer:
             )
             parsed = _parse_json_response(raw)
             record.status = TaskStatus.completed
-            record.detail = "任务已完成。"
+            elapsed_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
+            record.detail = _format_task_detail(
+                "任务已完成。",
+                timing_context,
+                elapsed_seconds=elapsed_seconds,
+            )
             record.item_count = _count_task_items(task_name, parsed)
             return parsed, None
         except Exception as exc:
             record.status = _infer_task_status(exc)
-            record.detail = str(exc)
+            record.detail = _format_task_detail(
+                f"任务执行失败：{exc}",
+                timing_context,
+            )
             record.item_count = 0
             return None, f"{task_name} 未生效：{exc}"
 
@@ -429,21 +438,29 @@ class QwenReviewEnhancer:
     ) -> tuple[list[ReviewPointSecondReview] | None, str | None]:
         task_name = "llm_review_point_second_review"
         record = _find_task_record(task_records, task_name)
+        started_at = datetime.now(timezone.utc)
+        timing_context = _build_task_timing_context(started_at, self.timeout_seconds)
         if (not self._is_task_enabled(task_name)) or (not report.review_points):
             record.status = TaskStatus.skipped
-            record.detail = self._skip_detail(task_name, "当前无 ReviewPoint，跳过审查点二审。")
+            record.detail = _format_task_detail(
+                self._skip_detail(task_name, "当前无 ReviewPoint，跳过审查点二审。"),
+                timing_context,
+            )
             record.item_count = 0
             return None, None
 
         selected_points = _select_second_review_points(report)
         if not selected_points:
             record.status = TaskStatus.skipped
-            record.detail = "当前无可用于二审的 ReviewPoint。"
+            record.detail = _format_task_detail("当前无可用于二审的 ReviewPoint。", timing_context)
             record.item_count = 0
             return None, None
 
         record.status = TaskStatus.running
-        record.detail = f"按批次执行审查点二审，共 {len(selected_points)} 个审查点。"
+        record.detail = _format_task_detail(
+            f"按批次执行审查点二审，共 {len(selected_points)} 个审查点。",
+            timing_context,
+        )
         parsed_reviews: list[ReviewPointSecondReview] = []
         errors: list[str] = []
 
@@ -462,16 +479,24 @@ class QwenReviewEnhancer:
                 errors.append(str(exc))
 
         if parsed_reviews:
-            record.status = TaskStatus.completed if not errors else TaskStatus.completed
+            record.status = TaskStatus.completed
+            elapsed_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
             record.detail = (
-                f"分批二审完成，成功 {len(parsed_reviews)} 条。"
+                _format_task_detail(
+                    f"分批二审完成，成功 {len(parsed_reviews)} 条。",
+                    timing_context,
+                    elapsed_seconds=elapsed_seconds,
+                )
                 + (f" 部分批次失败：{'; '.join(errors[:2])}" if errors else "")
             )
             record.item_count = len(parsed_reviews)
             return parsed_reviews, None if not errors else f"{task_name} 部分批次未生效：{'; '.join(errors[:2])}"
 
         record.status = _infer_task_status(Exception(errors[0] if errors else "no second review results"))
-        record.detail = errors[0] if errors else "二审未返回结果。"
+        record.detail = _format_task_detail(
+            errors[0] if errors else "二审未返回结果。",
+            timing_context,
+        )
         record.item_count = 0
         return None, f"{task_name} 未生效：{record.detail}"
 
@@ -498,6 +523,23 @@ def _find_task_record(task_records: list[TaskRecord], task_name: str) -> TaskRec
     task_record = TaskRecord(task_name=task_name, status=TaskStatus.pending, detail="等待执行。")
     task_records.append(task_record)
     return task_record
+
+
+def _build_task_timing_context(started_at: datetime, timeout_seconds: float) -> str:
+    deadline_at = started_at + timedelta(seconds=timeout_seconds)
+    return f"预算 {timeout_seconds:.1f} 秒，截止 {deadline_at.isoformat(timespec='seconds')}"
+
+
+def _format_task_detail(
+    headline: str,
+    timing_context: str,
+    *,
+    elapsed_seconds: float | None = None,
+) -> str:
+    parts = [headline.rstrip("。"), timing_context]
+    if elapsed_seconds is not None:
+        parts.append(f"耗时 {elapsed_seconds:.2f} 秒")
+    return "。".join(parts) + "。"
 
 
 def _count_task_items(task_name: str, parsed: dict) -> int:
