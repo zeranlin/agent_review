@@ -518,6 +518,8 @@ class ExtractedClause:
     normalized_value: str = ""
     relation_tags: list[str] = field(default_factory=list)
     clause_role: ClauseRole = ClauseRole.unknown
+    semantic_zone: SemanticZoneType = SemanticZoneType.mixed_or_uncertain
+    effect_tags: list[EffectTag] = field(default_factory=list)
     adoption_status: AdoptionStatus = AdoptionStatus.rule_based
     review_note: str = ""
 
@@ -525,6 +527,8 @@ class ExtractedClause:
         payload = asdict(self)
         payload["relation_tags"] = list(self.relation_tags)
         payload["clause_role"] = self.clause_role.value
+        payload["semantic_zone"] = self.semantic_zone.value
+        payload["effect_tags"] = [item.value for item in self.effect_tags]
         payload["adoption_status"] = self.adoption_status.value
         return payload
 

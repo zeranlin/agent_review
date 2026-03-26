@@ -26,6 +26,8 @@ def extract_clauses(text: str) -> list[ExtractedClause]:
                 normalized_value=clause.normalized_value,
                 relation_tags=clause.relation_tags,
                 clause_role=classify_clause_role(clause.content),
+                semantic_zone=SemanticZoneType.mixed_or_uncertain,
+                effect_tags=[],
             )
         )
     return clauses
@@ -59,6 +61,8 @@ def extract_clauses_from_units(clause_units: list[ClauseUnit]) -> list[Extracted
         for unit in filtered_units:
             if clause.content and clause.content in unit.text:
                 clause.source_anchor = unit.anchor.line_hint or _anchor_to_hint(unit)
+                clause.semantic_zone = unit.zone_type
+                clause.effect_tags = list(unit.effect_tags)
                 break
         else:
             for unit_text, anchor in unit_anchor_map.items():

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from .models import ClauseRole, QualityGateStatus, ReviewPoint, ReviewQualityGate
+from .models import ClauseRole, ExtractedClause, QualityGateStatus, ReviewPoint, ReviewQualityGate
+from .ontology import EffectTag
 
 
-def build_review_quality_gates(review_points: list[ReviewPoint]) -> list[ReviewQualityGate]:
+def build_review_quality_gates(
+    review_points: list[ReviewPoint],
+    extracted_clauses: list[ExtractedClause],
+) -> list[ReviewQualityGate]:
     results: list[ReviewQualityGate] = []
     seen_by_key: dict[str, str] = {}
     for point in review_points:
@@ -28,6 +32,11 @@ def build_review_quality_gates(review_points: list[ReviewPoint]) -> list[ReviewQ
         if weak_roles:
             status = QualityGateStatus.filtered
             reasons.append("当前审查点证据主要来自模板、定义或附件引用等弱来源。")
+
+        weak_effect_only = _point_effects_are_weak_only(point, extracted_clauses)
+        if weak_effect_only:
+            status = QualityGateStatus.filtered
+            reasons.append("当前审查点证据主要来自模板、示例或引用性条款，暂不进入正式意见。")
 
         dedupe_key = f"{point.catalog_id}|{_primary_quote(point)}"
         if dedupe_key in seen_by_key:
@@ -56,3 +65,34 @@ def _primary_quote(point: ReviewPoint) -> str:
     if not evidence:
         return point.title
     return evidence[0].quote
+
+
+def _point_effects_are_weak_only(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+) -> bool:
+    matched = _matched_clauses(point, extracted_clauses)
+    if not matched:
+        return False
+    all_tags = {tag for clause in matched for tag in clause.effect_tags}
+    if not all_tags:
+        return False
+    weak_tags = {
+        EffectTag.template,
+        EffectTag.example,
+        EffectTag.reference_only,
+    }
+    return all(tag in weak_tags for tag in all_tags) and EffectTag.binding not in all_tags
+
+
+def _matched_clauses(point: ReviewPoint, extracted_clauses: list[ExtractedClause]) -> list[ExtractedClause]:
+    evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
+    quotes = {item.quote for item in evidence if item.quote}
+    anchors = {item.section_hint for item in evidence if item.section_hint}
+    return [
+        clause
+        for clause in extracted_clauses
+        if clause.source_anchor in anchors
+        or clause.content in quotes
+        or any(quote and quote[:40] in clause.content for quote in quotes)
+    ]

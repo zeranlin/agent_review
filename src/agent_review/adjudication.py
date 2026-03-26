@@ -36,6 +36,7 @@ from .quality import (
 )
 from .review_point_catalog import resolve_review_point_definition, select_standard_review_tasks, snapshot_catalog_for_points
 from .review_quality_gate import build_review_quality_gates
+from .ontology import EffectTag
 
 
 def build_review_points(
@@ -303,6 +304,7 @@ def build_formal_adjudication(
             parse_tables or [],
         )
         roles = _resolve_review_point_roles(point, extracted_clauses, quote)
+        effect_tags = _resolve_review_point_effect_tags(point, extracted_clauses, quote)
         has_direct = bool(point.evidence_bundle.direct_evidence)
         strong_anchor = bool(section_hint) and section_hint not in {
             "未明确定位",
@@ -321,6 +323,14 @@ def build_formal_adjudication(
             }
             for role in roles
         )
+        weak_effect_only = bool(effect_tags) and all(
+            tag in {
+                EffectTag.template,
+                EffectTag.example,
+                EffectTag.reference_only,
+            }
+            for tag in effect_tags
+        ) and EffectTag.binding not in effect_tags
         legal_basis_applicable = bool(point.legal_basis) and (
             applicability.applicable if applicability is not None else True
         )
@@ -331,6 +341,7 @@ def build_formal_adjudication(
             and quote != "当前自动抽取未定位到可直接引用的原文。"
             and evidence_supports_title(point.title, quote)
             and not weak_role_only
+            and not weak_effect_only
         )
 
         applicability_summary = applicability.summary if applicability else "未进行适法性检查。"
@@ -352,7 +363,7 @@ def build_formal_adjudication(
             rationale = "当前审查点已识别到问题方向，但证据或适法性尚不足，应进入人工确认。"
         elif not evidence_sufficient:
             disposition = FormalDisposition.manual_confirmation
-            rationale = "当前审查点缺少足够强的直接证据、有效锚点或实质性条款角色，不宜直接定性。"
+            rationale = "当前审查点缺少足够强的直接证据、有效锚点、实质性条款角色或正式效力，不宜直接定性。"
         elif not legal_basis_applicable:
             disposition = FormalDisposition.manual_confirmation
             rationale = "当前审查点虽有证据，但尚未完成法规适用挂接，应先补充适法性判断。"
@@ -403,8 +414,11 @@ def build_point_applicability_checks(
     return build_applicability_checks(review_points, extracted_clauses)
 
 
-def build_point_quality_gates(review_points: list[ReviewPoint]) -> list[ReviewQualityGate]:
-    return build_review_quality_gates(review_points)
+def build_point_quality_gates(
+    review_points: list[ReviewPoint],
+    extracted_clauses: list[ExtractedClause],
+) -> list[ReviewQualityGate]:
+    return build_review_quality_gates(review_points, extracted_clauses)
 
 
 def build_evidence_bundle(
@@ -771,7 +785,13 @@ def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text:
         quote = item.quote.strip()
         line_quote = clause_window_from_anchor(report_text, item.section_hint) or line_text_from_anchor(report_text, item.section_hint) or quote
         text = f"{quote} {line_quote}"
+        raw_support = bool(quote) and evidence_supports_title(title, quote)
+        line_support = bool(line_quote) and evidence_supports_title(title, line_quote)
         title_score = 0
+        if raw_support:
+            title_score += 8
+        elif line_support:
+            title_score += 3
         if title in {"方案评分量化不足", "评分分档主观性与量化充分性复核"}:
             if any(token in text for token in ["完全满足且优于", "完全满足项目要求", "不完全满足项目要求", "缺陷", "扣分"]):
                 title_score += 3
@@ -833,8 +853,10 @@ def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text:
                 title_score += 3
         return (
             title_score,
+            1 if raw_support else 0,
+            1 if line_support else 0,
             1 if item.section_hint and item.section_hint.startswith("line:") else 0,
-            len(line_quote),
+            len(quote),
         )
 
     return sorted(evidence, key=score, reverse=True)
@@ -855,15 +877,27 @@ def _build_formal_evidence_cluster(
         line_quote = clause_window_from_anchor(report_text, item.section_hint) or line_text_from_anchor(report_text, item.section_hint) or item.quote.strip()
         if not line_quote:
             continue
-        if not evidence_supports_title(title, line_quote):
-            if family_key != "scoring":
-                continue
         if cluster and line_quote in cluster:
+            continue
+        if not evidence_supports_title(title, line_quote) and family_key == "scoring":
+            continue
+        candidate_cluster = "；".join(cluster + [line_quote])
+        if family_key in {"contract", "structure", "policy", "score_weight"}:
+            cluster.append(line_quote)
+            if evidence_supports_title(title, candidate_cluster):
+                break
+            if len(cluster) >= 2:
+                break
+            continue
+        if not evidence_supports_title(title, line_quote):
             continue
         cluster.append(line_quote)
         if len(cluster) >= 2:
             break
-    return "；".join(cluster)
+    cluster_text = "；".join(cluster)
+    if cluster_text and evidence_supports_title(title, cluster_text):
+        return cluster_text
+    return ""
 
 
 def _formal_family_key(title: str) -> str:
@@ -978,3 +1012,29 @@ def _resolve_review_point_roles(
     if inferred != ClauseRole.unknown:
         return [inferred]
     return []
+
+
+def _resolve_review_point_effect_tags(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+    quote: str,
+) -> list[EffectTag]:
+    tags: list[EffectTag] = []
+    anchors = {
+        item.section_hint
+        for item in (point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence)
+        if item.section_hint
+    }
+    for clause in extracted_clauses:
+        if clause.source_anchor in anchors:
+            tags.extend(clause.effect_tags)
+            continue
+        if quote and (clause.content == quote or quote in clause.content or clause.content in quote):
+            tags.extend(clause.effect_tags)
+    dedup: list[EffectTag] = []
+    seen: set[EffectTag] = set()
+    for tag in tags:
+        if tag not in seen:
+            dedup.append(tag)
+            seen.add(tag)
+    return dedup

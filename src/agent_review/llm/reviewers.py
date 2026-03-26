@@ -562,7 +562,7 @@ def _merge_dynamic_tasks_into_report(
         merged_points,
         report.extracted_clauses,
     )
-    quality_gates = build_point_quality_gates(merged_points)
+    quality_gates = build_point_quality_gates(merged_points, report.extracted_clauses)
     return replace(
         report,
         review_points=merged_points,

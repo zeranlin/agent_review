@@ -20,7 +20,7 @@ from .consistency import (
     check_consistency,
     collect_relative_strengths,
 )
-from .extractors import classify_extracted_clauses, extract_clauses
+from .extractors import classify_extracted_clauses, extract_clauses, extract_clauses_from_units
 from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_review_points, annotate_risk_hits
 from .merge import (
     build_specialist_tables,
@@ -55,7 +55,13 @@ from .models import (
 )
 from .quality import derive_conclusion_by_evidence
 from .rules import build_recommendations, execute_rule_registry
-from .structure import build_file_info, build_scope_statement, detect_file_type, locate_sections
+from .structure import (
+    build_file_info,
+    build_scope_statement,
+    detect_file_type,
+    enrich_parse_result_structure,
+    locate_sections,
+)
 
 
 @dataclass(slots=True)
@@ -169,6 +175,7 @@ class ReviewPipeline:
         )
 
     def _stage_document_structure(self, state: ReviewPipelineState) -> None:
+        state.parse_result = enrich_parse_result_structure(state.parse_result)
         file_type = detect_file_type(state.normalized_text)
         state.file_info = build_file_info(state.document_name, state.normalized_text, file_type)
         state.scope_statement = build_scope_statement(state.file_info)
@@ -183,13 +190,25 @@ class ReviewPipeline:
         )
 
     def _stage_clause_extraction(self, state: ReviewPipelineState) -> None:
-        state.extracted_clauses = extract_clauses(state.normalized_text)
+        if state.parse_result.clause_units:
+            unit_clauses = extract_clauses_from_units(state.parse_result.clause_units)
+            fallback_clauses = extract_clauses(state.normalized_text)
+            state.extracted_clauses = _merge_extracted_clauses(unit_clauses, fallback_clauses)
+        else:
+            state.extracted_clauses = extract_clauses(state.normalized_text)
         state.stage_records.append(
             RunStageRecord(
                 stage_name="clause_extraction",
                 status="completed",
                 item_count=len(state.extracted_clauses),
-                detail=f"抽取 {len(state.extracted_clauses)} 条结构化条款。",
+                detail=(
+                    f"抽取 {len(state.extracted_clauses)} 条结构化条款。"
+                    + (
+                        "当前优先基于 ClauseUnit 抽取，并由全文抽取补位。"
+                        if state.parse_result.clause_units
+                        else "当前基于全文回退抽取。"
+                    )
+                ),
             )
         )
 
@@ -320,7 +339,7 @@ class ReviewPipeline:
         )
 
     def _stage_review_quality_gate(self, state: ReviewPipelineState) -> None:
-        state.quality_gates = build_point_quality_gates(state.review_points)
+        state.quality_gates = build_point_quality_gates(state.review_points, state.extracted_clauses)
         passed_count = sum(1 for item in state.quality_gates if item.status.value == "passed")
         state.stage_records.append(
             RunStageRecord(
@@ -381,6 +400,27 @@ class ReviewPipeline:
 
 def build_parse_result_for_text(text: str, document_name: str) -> ParseResult:
     suffix = Path(document_name).suffix.lower().lstrip(".") or "txt"
+    raw_blocks = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        metadata = {
+            "heading_candidate": bool(stripped == "目录" or stripped.startswith("第") or stripped.startswith("一、") or stripped.startswith("（")),
+            "catalog_candidate": bool(stripped == "目录"),
+            "numbering_level_guess": 1 if stripped.startswith("第") else 2 if stripped.startswith("一、") else 3 if stripped.startswith("（") else 0,
+        }
+        from .models import RawBlock, SourceAnchor
+
+        raw_blocks.append(
+            RawBlock(
+                block_id=f"p-{index}",
+                block_type="paragraph",
+                text=stripped,
+                anchor=SourceAnchor(source_path=document_name, block_no=index, paragraph_no=index, line_hint=f"line:{index}"),
+                metadata=metadata,
+            )
+        )
     return ParseResult(
         parser_name="text",
         source_path=document_name,
@@ -389,8 +429,24 @@ def build_parse_result_for_text(text: str, document_name: str) -> ParseResult:
         text=text,
         pages=[ParsedPage(page_index=1, text=text, source="text")],
         tables=[],
+        raw_blocks=raw_blocks,
         warnings=[],
     )
+
+
+def _merge_extracted_clauses(
+    primary: list,
+    fallback: list,
+) -> list:
+    merged: list = []
+    seen: set[tuple[str, str, str]] = set()
+    for clause in primary + fallback:
+        key = (clause.field_name, clause.source_anchor, clause.content[:120])
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(clause)
+    return merged
 
 
 def _review_dimension(text: str, dimension: ReviewDimension) -> list[Finding]:
