@@ -10,6 +10,7 @@ from .catalog import (
     ZoneStat,
     build_document_profile,
     get_domain_profile,
+    match_domain_profiles,
     profile_activation_tags,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "ZoneStat",
     "build_document_profile",
     "get_domain_profile",
+    "match_domain_profiles",
     "profile_activation_tags",
 ]

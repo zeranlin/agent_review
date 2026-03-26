@@ -168,6 +168,14 @@ RISK_FAMILY_TAG_MAP: dict[str, list[str]] = {
     "prudential": ["prudential"],
 }
 
+ACTIVATION_CONFIDENCE_THRESHOLDS: dict[str, float] = {
+    "unknown": 0.58,
+    "mixed": 0.44,
+    "engineering": 0.4,
+    "goods": 0.38,
+    "service": 0.38,
+}
+
 
 RISK_LEXICON_PACKS: dict[str, RiskLexiconPack] = {
     "generic_goods_lexicon": RiskLexiconPack(
@@ -273,14 +281,21 @@ EVIDENCE_PATTERN_PACKS: dict[str, EvidencePatternPack] = {
                 risk_family="scoring_quantification",
                 expected_zones=["scoring", "technical"],
                 expected_effects=["binding"],
-                signal_groups=[["样品", "检测报告", "环保", "封边条", "甲醛"]],
+                signal_groups=[
+                    ["家具", "课桌", "书桌", "档案柜", "会议桌", "茶几", "沙发", "床", "柜"],
+                    ["样品", "检测报告", "环保", "封边条", "甲醛"],
+                ],
             ),
             EvidencePattern(
                 pattern_id="furniture_contract_pattern",
                 risk_family="contract_performance",
                 expected_zones=["contract", "business"],
                 expected_effects=["binding"],
-                signal_groups=[["安装", "验收", "质保", "售后"]],
+                signal_groups=[
+                    ["安装"],
+                    ["验收"],
+                    ["质保", "售后"],
+                ],
             ),
         ],
     ),
@@ -445,14 +460,17 @@ def match_domain_profiles(
                 reasons=reasons,
             )
         )
+    if not candidates:
+        candidates = _build_fallback_domain_candidates(profile, text, extracted_clauses)
     candidates.sort(key=lambda item: item.confidence, reverse=True)
     return candidates[:limit]
 
 
 def profile_activation_tags(profile: DocumentProfile) -> set[str]:
     tags: set[str] = set()
+    threshold = _activation_confidence_threshold(profile)
     for candidate in profile.domain_profile_candidates:
-        if candidate.confidence < 0.38:
+        if candidate.confidence < threshold:
             continue
         domain_profile = DOMAIN_PROFILES.get(candidate.profile_id)
         if not domain_profile:
@@ -472,6 +490,8 @@ def profile_activation_tags(profile: DocumentProfile) -> set[str]:
         tags.add("service")
     elif profile.procurement_kind == "mixed":
         tags.update({"structure", "consistency"})
+    elif profile.procurement_kind == "unknown":
+        tags.add("unknown")
     if "heavy_scoring_tables" in profile.structure_flags:
         tags.add("scoring")
     if "heavy_contract_terms" in profile.structure_flags:
@@ -480,6 +500,8 @@ def profile_activation_tags(profile: DocumentProfile) -> set[str]:
         tags.add("template")
     if "heavy_appendix_reference" in profile.structure_flags:
         tags.add("template")
+    if "mixed_structure_signals" in profile.structure_flags:
+        tags.update({"structure", "consistency"})
     return tags
 
 
@@ -739,10 +761,14 @@ def _build_representative_anchors(extracted_clauses: list[ExtractedClause]) -> l
 
 def _build_profile_activation_hints(profile: DocumentProfile) -> list[str]:
     hints: set[str] = set(profile_activation_tags(profile))
+    if profile.procurement_kind == "unknown":
+        hints.add("unknown_document")
     if profile.procurement_kind == "mixed":
         hints.update({"structure", "consistency"})
     if "heavy_template_pollution" in profile.structure_flags:
         hints.add("template")
+    if profile.unknown_structure_flags:
+        hints.update(profile.unknown_structure_flags)
     return sorted(hints)
 
 
@@ -762,3 +788,63 @@ def _families_to_tags(families: list[str]) -> set[str]:
     for family in families:
         tags.update(RISK_FAMILY_TAG_MAP.get(family, []))
     return tags
+
+
+def _activation_confidence_threshold(profile: DocumentProfile) -> float:
+    return ACTIVATION_CONFIDENCE_THRESHOLDS.get(profile.procurement_kind, 0.38)
+
+
+def _build_fallback_domain_candidates(
+    profile: DocumentProfile,
+    text: str,
+    extracted_clauses: list[ExtractedClause],
+) -> list[DomainProfileCandidate]:
+    candidates: list[DomainProfileCandidate] = []
+    if profile.procurement_kind == "unknown":
+        candidates.append(
+            DomainProfileCandidate(
+                profile_id="generic_goods",
+                confidence=0.2,
+                reasons=["unknown_procurement_kind", "保守回退到通用货物经验包"],
+            )
+        )
+        candidates.append(
+            DomainProfileCandidate(
+                profile_id="generic_service",
+                confidence=0.18,
+                reasons=["unknown_procurement_kind", "保守回退到通用服务经验包"],
+            )
+        )
+    if "mixed_structure_signals" in profile.structure_flags:
+        candidates.append(
+            DomainProfileCandidate(
+                profile_id="mixed_procurement",
+                confidence=0.22,
+                reasons=["mixed_structure_signals", "保守回退到混合采购经验包"],
+            )
+        )
+    if any(token in text for token in ["家具", "课桌", "书柜", "会议桌", "茶几", "档案柜"]):
+        candidates.append(
+            DomainProfileCandidate(
+                profile_id="furniture",
+                confidence=0.3,
+                reasons=["家具关键词", "保守回退到家具经验包"],
+            )
+        )
+    if any(clause.semantic_zone == SemanticZoneType.scoring for clause in extracted_clauses):
+        candidates.append(
+            DomainProfileCandidate(
+                profile_id="generic_goods",
+                confidence=0.16,
+                reasons=["评分区信号弱", "回退到通用货物经验包"],
+            )
+        )
+
+    deduped: list[DomainProfileCandidate] = []
+    seen: set[str] = set()
+    for candidate in sorted(candidates, key=lambda item: item.confidence, reverse=True):
+        if candidate.profile_id in seen:
+            continue
+        seen.add(candidate.profile_id)
+        deduped.append(candidate)
+    return deduped
