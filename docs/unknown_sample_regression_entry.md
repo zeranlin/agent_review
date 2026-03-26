@@ -70,6 +70,27 @@ python tests/run_unknown_sample_regression.py \
 - `batch_summary.md`
 - `files/<序号>_<文件名>.json`
 
+仓库内置了一份 baseline manifest：
+
+- [unknown_sample_regression_manifest_v1.txt](/Users/linzeran/code/2026-zn/agent_review/docs/unknown_sample_regression_manifest_v1.txt)
+
+可直接运行：
+
+```bash
+PYTHONPATH=src python tests/run_unknown_sample_regression.py \
+  --manifest docs/unknown_sample_regression_manifest_v1.txt \
+  --output-dir runs/unknown_sample_regression_baseline_v1
+```
+
+## 最小基线治理
+
+这个回归线只保留最小治理面，避免把 unknown 样本回归做成一条新的重业务主链：
+
+- `docs/unknown_sample_regression_manifest_v1.txt` 负责冻结输入集合，变更时先说明原因再更新文件。
+- `batch_summary.json` 是主要对比对象，优先看 `input_count`、`succeeded_count`、`failed_count` 和 `aggregate`。
+- `files/*.json` 只作为单文件调试视图，用来定位某个样本的画像、领域候选、quality gate 和 formal 摘要是否漂移。
+- manifest、batch summary 和 files 输出都已经做了规范化排序，便于直接做 baseline diff。
+
 ## 行为约束
 
 1. 默认运行模式是 `fast`，适合先批量扫样本。

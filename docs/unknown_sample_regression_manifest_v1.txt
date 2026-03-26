@@ -1,0 +1,15 @@
+# unknown sample regression baseline v1
+# 10 个真实样本，用于跨品目观察画像、领域候选、quality gate 和 formal 漂移
+# 最小治理约束：这是冻结输入集合；如需增删样本，请同步更新说明文档并复核 batch_summary 差异。
+# 输出回归时优先对比 batch_summary.json，其次看 files/*.json 的单文件差异。
+
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/家具/东北师范大学附属中学深圳学校家具采购.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/信息化设备/案例一.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/信息化设备/案例二.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/信息化设备/案例三.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/物业管理/[SZCG2025000887-A]深圳市南山区人民法院物业管理服务项目.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/物业管理/[BACG2025000216-A]深圳市宝安区西湾小学蘅芳校区物业管理服务.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/装具/[LGCG2025000140-A]龙岗区骨科医院二期开办窗帘采购.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/装具/[LHCG2024000157-A]深圳市美术学校宿舍床及床垫采购项目.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/用具/[LHCG2025000165-A]深圳市北斗小学食堂扩容改造提升工程设备采购.docx
+/Users/linzeran/code/2026-zn/test_target/sz-q/深圳10个品目批注文件/用具/[LHCG2026000015-A]深圳市滨河实验学校新建工程厨房设备及餐桌椅采购项目.docx
