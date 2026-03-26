@@ -158,6 +158,7 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     assert isinstance(report.relative_strengths, list)
     assert [item.stage_name for item in report.stage_records] == [
         "document_structure",
+        "document_profiling",
         "clause_extraction",
         "clause_role_classification",
         "review_task_planning",

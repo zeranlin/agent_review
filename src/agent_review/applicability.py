@@ -294,17 +294,24 @@ def _is_noise_like_clause(clause: ExtractedClause) -> bool:
     normalized = re.sub(r"\s+", " ", text)
     if _looks_like_legal_citation(normalized):
         return True
-    if _looks_like_table_splice(normalized) and clause.semantic_zone not in {
-        SemanticZoneType.scoring,
-        SemanticZoneType.qualification,
-    }:
+    if _looks_like_table_splice(normalized) and not _table_or_list_splice_can_be_effective(clause):
         return True
-    if _looks_like_list_splice(normalized) and clause.semantic_zone not in {
-        SemanticZoneType.scoring,
-        SemanticZoneType.qualification,
-    }:
+    if _looks_like_list_splice(normalized) and not _table_or_list_splice_can_be_effective(clause):
         return True
     return False
+
+
+def _table_or_list_splice_can_be_effective(clause: ExtractedClause) -> bool:
+    if clause.semantic_zone in {
+        SemanticZoneType.scoring,
+        SemanticZoneType.qualification,
+    }:
+        return True
+    return (
+        clause.semantic_zone == SemanticZoneType.mixed_or_uncertain
+        and clause.clause_role == ClauseRole.qualification_or_scoring
+        and bool(clause.relation_tags)
+    )
 
 
 def _looks_like_legal_citation(text: str) -> bool:

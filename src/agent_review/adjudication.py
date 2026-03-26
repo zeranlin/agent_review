@@ -744,6 +744,9 @@ def _resolve_review_point_evidence(
     if not resolved_quote:
         resolved_quote = "当前自动抽取未定位到可直接引用的原文。"
 
+    if family_key == "score_weight":
+        resolved_quote = _augment_score_weight_quote_from_evidence(resolved_quote, raw_quote)
+
     return section_hint, _sanitize_formal_quote(point.title, resolved_quote)
 
 
@@ -998,6 +1001,32 @@ def _score_scoring_row_candidate(text: str, title: str) -> int:
     if "分" in text:
         score += 1
     return score
+
+
+def _augment_score_weight_quote_from_evidence(resolved_quote: str, raw_quote: str) -> str:
+    if not resolved_quote or not raw_quote or " / " not in raw_quote:
+        return resolved_quote
+
+    normalized_quote = re.sub(r"\s+", " ", resolved_quote).strip()
+    additions: list[str] = []
+    token_score_map = {
+        "ITSS": "ITSS证书（2分）",
+        "软件企业认定证书": "软件企业认定证书（5分）",
+        "财务报告": "财务报告（2分）",
+        "利润率": "利润率（10分）",
+    }
+    for part in [item.strip() for item in raw_quote.split("/") if item.strip()]:
+        for token, snippet in token_score_map.items():
+            if token not in part:
+                continue
+            if token in normalized_quote or snippet in normalized_quote:
+                break
+            additions.append(snippet)
+            break
+
+    if not additions:
+        return resolved_quote
+    return "；".join([normalized_quote, *dict.fromkeys(additions)])
 
 
 def _resolve_review_point_roles(

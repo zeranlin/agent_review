@@ -209,6 +209,28 @@ def main() -> int:
 
     enhancement_trace = None
     if enhanced_enabled:
+        write_review_artifacts(
+            report=base_report,
+            base_report=base_report,
+            output_dir=args.artifacts_dir,
+            enhancement_trace={
+                "document_name": base_report.file_info.document_name,
+                "requested_mode": "enhanced",
+                "base_mode": base_report.review_mode.value,
+                "final_mode": base_report.review_mode.value,
+                "outcome": "pending",
+                "timeout_seconds": args.llm_timeout,
+                "elapsed_seconds": 0.0,
+                "fallback_applied": False,
+                "llm_enhanced": base_report.llm_enhanced,
+                "llm_warnings": base_report.llm_warnings,
+                "warning": "",
+                "error": "",
+                "task_records": [],
+                "stage_records": [],
+            },
+        )
+    if enhanced_enabled:
         enhancer = QwenReviewEnhancer(timeout=args.llm_timeout)
         report, enhancement_trace = _run_enhancement_with_watchdog(
             base_report,
