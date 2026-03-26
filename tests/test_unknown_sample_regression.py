@@ -194,14 +194,40 @@ def test_unknown_sample_regression_writes_batch_summary_and_manifest(
     assert batch_summary["failed_count"] == 0
     assert batch_summary["aggregate"]["result_status_counts"] == {"ok": 2}
     assert batch_summary["aggregate"]["procurement_kind_counts"] == {"mixed": 1, "unknown": 1}
+    assert batch_summary["aggregate"]["routing_mode_counts"] == {"standard": 1, "unknown_conservative": 1}
     assert batch_summary["evaluation_summary"]["average_input_chars"] == 12.0
     assert batch_summary["evaluation_summary"]["quality_gate_status_counts"] == {"passed": 2}
     assert batch_summary["evaluation_summary"]["average_total_prompt_chars"] == 100.0
     assert batch_summary["evaluation_summary"]["average_planned_catalog_count"] == 2.0
+    assert batch_summary["aggregate"]["evaluation"]["parser_semantic_assist_activated_count"] == 1
+    assert batch_summary["aggregate"]["evaluation"]["parser_semantic_assist_applied_count"] == 1
+    assert batch_summary["aggregate"]["evaluation"]["average_target_zone_count"] == 2.0
+    assert batch_summary["aggregate"]["evaluation"]["average_matched_extraction_field_count"] == 2.0
+    assert batch_summary["aggregate"]["evaluation"]["average_base_hit_field_count"] == 1.0
+    assert batch_summary["aggregate"]["evaluation"]["average_required_hit_field_count"] == 1.0
+    assert batch_summary["aggregate"]["evaluation"]["average_optional_hit_field_count"] == 0.0
+    assert batch_summary["aggregate"]["evaluation"]["average_unknown_fallback_hit_field_count"] == 0.0
+    assert batch_summary["aggregate"]["evaluation"]["average_clause_unit_targeted_count"] == 2.0
+    assert batch_summary["aggregate"]["evaluation"]["average_text_fallback_clause_count"] == 0.0
+    assert batch_summary["evaluation_summary"]["routing_mode_counts"] == {"standard": 1, "unknown_conservative": 1}
+    assert batch_summary["evaluation_summary"]["parser_semantic_assist_activated_count"] == 1
+    assert batch_summary["evaluation_summary"]["parser_semantic_assist_applied_count"] == 1
+    assert batch_summary["evaluation_summary"]["average_target_zone_count"] == 2.0
+    assert batch_summary["evaluation_summary"]["average_matched_extraction_field_count"] == 2.0
+    assert batch_summary["evaluation_summary"]["average_base_hit_field_count"] == 1.0
+    assert batch_summary["evaluation_summary"]["average_required_hit_field_count"] == 1.0
+    assert batch_summary["evaluation_summary"]["average_optional_hit_field_count"] == 0.0
+    assert batch_summary["evaluation_summary"]["average_unknown_fallback_hit_field_count"] == 0.0
+    assert batch_summary["evaluation_summary"]["average_clause_unit_targeted_count"] == 2.0
+    assert batch_summary["evaluation_summary"]["average_text_fallback_clause_count"] == 0.0
     assert batch_summary["evaluation_summary"]["llm_task_status_counts"] == {"completed": 2}
     assert batch_summary["aggregate"]["evaluation"]["largest_prompt_name_counts"] == {"scenario_review": 2}
     assert batch_summary_md.startswith("# 未知品目真实样本回归摘要")
     assert "- 输入数量：2" in batch_summary_md
+    assert "- routing_mode_counts：" in batch_summary_md
+    assert "- parser_semantic_assist：activated=1, applied=1" in batch_summary_md
+    assert "- planning_hits：target_zones=2.0, matched_fields=2.0, base_hits=1.0, required_hits=1.0, optional_hits=0.0, unknown_fallback_hits=0.0" in batch_summary_md
+    assert "- clause_targeting：clause_unit_targeted=2.0, text_fallback_clause=0.0" in batch_summary_md
     assert manifest_text.splitlines()[-2:] == [str(input_b.resolve()), str(input_a.resolve())]
     assert manifest_json["label"] == "baseline"
     assert manifest_json["count"] == 2

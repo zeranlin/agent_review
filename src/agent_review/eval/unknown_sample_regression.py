@@ -398,6 +398,7 @@ def _formal_item_to_dict(item) -> dict[str, object]:
 
 def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, object]:
     procurement_counter = Counter(item.document_profile.get("procurement_kind", "unknown") for item in results)
+    routing_mode_counter = Counter(item.document_profile.get("routing_mode", "unknown") for item in results)
     domain_counter = Counter(
         candidate["profile_id"]
         for item in results
@@ -410,12 +411,18 @@ def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, 
     evaluation_gate_counter = Counter()
     largest_prompt_counter = Counter()
     llm_task_status_counter = Counter()
+    parser_semantic_assist_activated_count = 0
+    parser_semantic_assist_applied_total = 0
     for item in results:
         evaluation_gate_counter.update(item.evaluation_summary.get("quality_gate_status_counts", {}))
         largest_prompt = item.evaluation_summary.get("prompt_volume", {}).get("largest_task", "")
         if largest_prompt:
             largest_prompt_counter.update([largest_prompt])
         llm_task_status_counter.update(item.evaluation_summary.get("llm_task_status_counts", {}))
+        parser_semantic_assist = item.evaluation_summary.get("parser_semantic_assist", {})
+        if parser_semantic_assist.get("activated"):
+            parser_semantic_assist_activated_count += 1
+        parser_semantic_assist_applied_total += int(parser_semantic_assist.get("applied_count", 0))
     average_input_chars = _average(item.evaluation_summary.get("input_chars", 0) for item in results)
     average_review_points = _average(item.evaluation_summary.get("review_point_count", 0) for item in results)
     average_quality_gates = _average(item.evaluation_summary.get("quality_gate_count", 0) for item in results)
@@ -426,8 +433,41 @@ def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, 
         item.evaluation_summary.get("review_planning_contract", {}).get("planned_catalog_count", 0)
         for item in results
     )
+    average_target_zones = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("target_zone_count", 0)
+        for item in results
+    )
+    average_matched_fields = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("matched_extraction_field_count", 0)
+        for item in results
+    )
+    average_base_hit_fields = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("base_hit_field_count", 0)
+        for item in results
+    )
+    average_required_hit_fields = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("required_hit_field_count", 0)
+        for item in results
+    )
+    average_optional_hit_fields = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("optional_hit_field_count", 0)
+        for item in results
+    )
+    average_unknown_fallback_hit_fields = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("unknown_fallback_hit_field_count", 0)
+        for item in results
+    )
+    average_clause_unit_targeted = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("clause_unit_targeted_count", 0)
+        for item in results
+    )
+    average_text_fallback_clauses = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("text_fallback_clause_count", 0)
+        for item in results
+    )
     return {
         "procurement_kind_counts": _sorted_counter_dict(procurement_counter),
+        "routing_mode_counts": _sorted_counter_dict(routing_mode_counter),
         "domain_profile_hit_counts": _sorted_counter_dict(domain_counter),
         "quality_gate_status_counts": _sorted_counter_dict(quality_gate_counter),
         "formal_modes": _sorted_counter_dict(formal_mode_counter),
@@ -439,6 +479,16 @@ def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, 
             "average_quality_gate_count": average_quality_gates,
             "average_total_prompt_chars": average_prompt_chars,
             "average_planned_catalog_count": average_planned_catalogs,
+            "parser_semantic_assist_activated_count": parser_semantic_assist_activated_count,
+            "parser_semantic_assist_applied_count": parser_semantic_assist_applied_total,
+            "average_target_zone_count": average_target_zones,
+            "average_matched_extraction_field_count": average_matched_fields,
+            "average_base_hit_field_count": average_base_hit_fields,
+            "average_required_hit_field_count": average_required_hit_fields,
+            "average_optional_hit_field_count": average_optional_hit_fields,
+            "average_unknown_fallback_hit_field_count": average_unknown_fallback_hit_fields,
+            "average_clause_unit_targeted_count": average_clause_unit_targeted,
+            "average_text_fallback_clause_count": average_text_fallback_clauses,
             "quality_gate_status_counts": _sorted_counter_dict(evaluation_gate_counter),
             "largest_prompt_name_counts": _sorted_counter_dict(largest_prompt_counter),
             "llm_task_status_counts": _sorted_counter_dict(llm_task_status_counter),
@@ -450,6 +500,7 @@ def _build_batch_evaluation_summary(results: list[FileRegressionSummary]) -> dic
     quality_counts = Counter()
     llm_task_status_counts = Counter()
     largest_prompt_name_counts = Counter()
+    routing_mode_counts = Counter()
     input_chars = []
     review_points = []
     quality_gate_counts = []
@@ -460,11 +511,21 @@ def _build_batch_evaluation_summary(results: list[FileRegressionSummary]) -> dic
     required_demand_counts = []
     optional_demand_counts = []
     fallback_demand_counts = []
+    target_zone_counts = []
+    matched_field_counts = []
+    base_hit_field_counts = []
+    required_hit_field_counts = []
+    optional_hit_field_counts = []
+    unknown_fallback_hit_field_counts = []
+    clause_unit_targeted_counts = []
+    text_fallback_clause_counts = []
     dynamic_task_totals = []
     llm_total_seconds = []
     llm_average_seconds = []
     llm_warning_counts = []
     llm_enhanced_count = 0
+    parser_semantic_assist_activated_count = 0
+    parser_semantic_assist_applied_count = 0
     for item in results:
         evaluation = item.evaluation_summary
         quality_counts.update(evaluation.get("quality_gate_status_counts", {}))
@@ -478,17 +539,32 @@ def _build_batch_evaluation_summary(results: list[FileRegressionSummary]) -> dic
         formal_included.append(evaluation.get("formal_included_count", 0))
         prompt_chars.append(evaluation.get("prompt_volume", {}).get("total_chars", 0))
         planning = evaluation.get("review_planning_contract", {})
+        routing_mode = planning.get("routing_mode", "")
+        if routing_mode:
+            routing_mode_counts.update([routing_mode])
         planned_catalog_counts.append(planning.get("planned_catalog_count", 0))
         base_demand_counts.append(planning.get("base_extraction_demand_count", 0))
         required_demand_counts.append(planning.get("required_task_extraction_demand_count", 0))
         optional_demand_counts.append(planning.get("optional_enhancement_extraction_demand_count", 0))
         fallback_demand_counts.append(planning.get("unknown_fallback_extraction_demand_count", 0))
+        target_zone_counts.append(planning.get("target_zone_count", 0))
+        matched_field_counts.append(planning.get("matched_extraction_field_count", 0))
+        base_hit_field_counts.append(planning.get("base_hit_field_count", 0))
+        required_hit_field_counts.append(planning.get("required_hit_field_count", 0))
+        optional_hit_field_counts.append(planning.get("optional_hit_field_count", 0))
+        unknown_fallback_hit_field_counts.append(planning.get("unknown_fallback_hit_field_count", 0))
+        clause_unit_targeted_counts.append(planning.get("clause_unit_targeted_count", 0))
+        text_fallback_clause_counts.append(planning.get("text_fallback_clause_count", 0))
         dynamic_task_totals.append(
             evaluation.get("dynamic_task_counts", {}).get("total_dynamic_review_task_count", 0)
         )
         llm_total_seconds.append(evaluation.get("task_duration", {}).get("total_seconds", 0))
         llm_average_seconds.append(evaluation.get("task_duration", {}).get("average_seconds", 0))
         llm_warning_counts.append(evaluation.get("llm_warning_count", 0))
+        parser_semantic_assist = evaluation.get("parser_semantic_assist", {})
+        if parser_semantic_assist.get("activated"):
+            parser_semantic_assist_activated_count += 1
+        parser_semantic_assist_applied_count += int(parser_semantic_assist.get("applied_count", 0))
         if evaluation.get("llm_enhanced"):
             llm_enhanced_count += 1
 
@@ -508,11 +584,22 @@ def _build_batch_evaluation_summary(results: list[FileRegressionSummary]) -> dic
         "average_required_task_extraction_demand_count": _average(required_demand_counts),
         "average_optional_enhancement_extraction_demand_count": _average(optional_demand_counts),
         "average_unknown_fallback_extraction_demand_count": _average(fallback_demand_counts),
+        "average_target_zone_count": _average(target_zone_counts),
+        "average_matched_extraction_field_count": _average(matched_field_counts),
+        "average_base_hit_field_count": _average(base_hit_field_counts),
+        "average_required_hit_field_count": _average(required_hit_field_counts),
+        "average_optional_hit_field_count": _average(optional_hit_field_counts),
+        "average_unknown_fallback_hit_field_count": _average(unknown_fallback_hit_field_counts),
+        "average_clause_unit_targeted_count": _average(clause_unit_targeted_counts),
+        "average_text_fallback_clause_count": _average(text_fallback_clause_counts),
         "average_dynamic_review_task_count": _average(dynamic_task_totals),
         "average_llm_total_seconds": _average(llm_total_seconds),
         "average_llm_task_seconds": _average(llm_average_seconds),
         "average_llm_warning_count": _average(llm_warning_counts),
         "llm_enhanced_count": llm_enhanced_count,
+        "routing_mode_counts": _sorted_counter_dict(routing_mode_counts),
+        "parser_semantic_assist_activated_count": parser_semantic_assist_activated_count,
+        "parser_semantic_assist_applied_count": parser_semantic_assist_applied_count,
         "quality_gate_status_counts": _sorted_counter_dict(quality_counts),
         "llm_task_status_counts": _sorted_counter_dict(llm_task_status_counts),
         "largest_prompt_name_counts": _sorted_counter_dict(largest_prompt_name_counts),
@@ -594,6 +681,10 @@ def _render_markdown(summary: BatchRegressionSummary) -> str:
             "",
             "## 评测闭环",
             "",
+            f"- routing_mode_counts：{summary.evaluation_summary.get('routing_mode_counts', {})}",
+            f"- parser_semantic_assist：activated={summary.evaluation_summary.get('parser_semantic_assist_activated_count', 0)}, applied={summary.evaluation_summary.get('parser_semantic_assist_applied_count', 0)}",
+            f"- planning_hits：target_zones={summary.evaluation_summary.get('average_target_zone_count', 0.0)}, matched_fields={summary.evaluation_summary.get('average_matched_extraction_field_count', 0.0)}, base_hits={summary.evaluation_summary.get('average_base_hit_field_count', 0.0)}, required_hits={summary.evaluation_summary.get('average_required_hit_field_count', 0.0)}, optional_hits={summary.evaluation_summary.get('average_optional_hit_field_count', 0.0)}, unknown_fallback_hits={summary.evaluation_summary.get('average_unknown_fallback_hit_field_count', 0.0)}",
+            f"- clause_targeting：clause_unit_targeted={summary.evaluation_summary.get('average_clause_unit_targeted_count', 0.0)}, text_fallback_clause={summary.evaluation_summary.get('average_text_fallback_clause_count', 0.0)}",
             f"- evaluation_summary：{summary.evaluation_summary}",
         ]
     )
