@@ -212,6 +212,33 @@ def test_review_task_planning_builds_standard_tasks_without_polluting_findings()
     assert not any(item.title == "服务项目声明函类型疑似错用货物模板" for item in report.findings)
 
 
+def test_review_task_planning_exposes_a_clear_contract_for_unknown_documents() -> None:
+    text = """
+    目录
+    第一章 招标公告
+    第二章 采购需求
+    第三章 投标文件格式、附件
+    中小企业声明函（格式）
+    法定代表人授权书（格式）
+    附件一 说明
+    附件二 见附件
+    """
+    report = TenderReviewEngine().review_text(text, document_name="unknown.txt")
+    planning_stage = next(item for item in report.stage_records if item.stage_name == "review_task_planning")
+    contract = report.review_planning_contract
+    serialized = report.to_dict()["review_planning_contract"]
+
+    assert contract is not None
+    assert contract.procurement_kind == "unknown"
+    assert "unknown" in contract.route_tags
+    assert any(tag in contract.route_tags for tag in ["structure", "template", "consistency"])
+    assert contract.planned_catalog_ids
+    assert contract.extraction_demands
+    assert "抽取需求" in planning_stage.detail
+    assert serialized["procurement_kind"] == "unknown"
+    assert serialized["planned_catalog_ids"] == contract.planned_catalog_ids
+
+
 def test_unknown_document_routes_to_common_tasks_without_goods_specific_review_points() -> None:
     text = """
     本文件仅供说明相关事项，详见附件。

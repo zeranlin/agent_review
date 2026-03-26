@@ -15,6 +15,7 @@ from .adjudication import (
     convert_review_points_to_findings,
     merge_review_points,
 )
+from .domain_profiles import profile_activation_tags
 from .checklist import DEFAULT_DIMENSIONS
 from .consistency import (
     check_consistency,
@@ -41,9 +42,11 @@ from .models import (
     ParseResult,
     ParsedPage,
     Recommendation,
+    ReviewPlanningContract,
     ReviewDimension,
     ReviewMode,
     ReviewReport,
+    ReviewPoint,
     ReviewWorkItem,
     ReviewQualityGate,
     RuleSelection,
@@ -56,6 +59,7 @@ from .models import (
 )
 from .quality import derive_conclusion_by_evidence
 from .rules import build_recommendations, execute_rule_registry
+from .review_point_catalog import resolve_review_point_definition
 from .structure import (
     build_file_info,
     build_document_profile,
@@ -86,6 +90,7 @@ class ReviewPipelineState:
     reviewed_dimensions: list[str] = field(default_factory=list)
     review_points: list = field(default_factory=list)
     review_point_catalog: list = field(default_factory=list)
+    review_planning_contract: ReviewPlanningContract | None = None
     applicability_checks: list[ApplicabilityCheck] = field(default_factory=list)
     quality_gates: list[ReviewQualityGate] = field(default_factory=list)
     formal_adjudication: list = field(default_factory=list)
@@ -156,6 +161,7 @@ class ReviewPipeline:
             source_documents=state.source_documents,
             review_points=state.review_points,
             review_point_catalog=state.review_point_catalog,
+            review_planning_contract=state.review_planning_contract,
             applicability_checks=state.applicability_checks,
             quality_gates=state.quality_gates,
             formal_adjudication=state.formal_adjudication,
@@ -251,15 +257,18 @@ class ReviewPipeline:
             document_profile=state.document_profile,
         )
         state.review_points.extend(planned_points)
+        state.review_planning_contract = _build_review_planning_contract(state.document_profile, planned_points)
         profile_summary = state.document_profile.procurement_kind if state.document_profile else "unknown"
         activation_hint_summary = ",".join(state.document_profile.risk_activation_hints[:3]) if state.document_profile else ""
+        demand_count = len(state.review_planning_contract.extraction_demands) if state.review_planning_contract else 0
         state.stage_records.append(
             RunStageRecord(
                 stage_name="review_task_planning",
                 status="completed",
                 item_count=len(planned_points),
                 detail=(
-                    f"已基于 {profile_summary} 画像与 activation hints 规划 {len(planned_points)} 个待执行审查点。"
+                    f"已基于 {profile_summary} 画像与 activation hints 规划 {len(planned_points)} 个待执行审查点，"
+                    f"形成 {demand_count} 项抽取需求。"
                     + (f" 关键提示：{activation_hint_summary}。" if activation_hint_summary else "")
                 ),
             )
@@ -675,3 +684,83 @@ def _build_pending_confirmation_items(
         seen.add(key)
         deduped.append(item)
     return deduped
+
+
+def _build_review_planning_contract(
+    document_profile: DocumentProfile | None,
+    review_points: list[ReviewPoint],
+) -> ReviewPlanningContract | None:
+    if document_profile is None:
+        return None
+    route_tags = _ordered_unique(
+        list(profile_activation_tags(document_profile))
+        + list(document_profile.risk_activation_hints)
+        + _route_tags_from_profile(document_profile)
+    )
+    routing_flags = _ordered_unique(
+        list(document_profile.structure_flags)
+        + list(document_profile.quality_flags)
+        + list(document_profile.unknown_structure_flags)
+    )
+    planned_catalog_ids = _ordered_unique(point.catalog_id for point in review_points)
+    priority_dimensions = _ordered_unique(point.dimension for point in review_points)
+    extraction_demands = _collect_extraction_demands(review_points)
+    summary = (
+        f"已将 {document_profile.procurement_kind} 画像转成 {len(planned_catalog_ids)} 个待执行审查点，"
+        f"并显式暴露 {len(extraction_demands)} 项抽取需求。"
+    )
+    return ReviewPlanningContract(
+        document_id=document_profile.document_id,
+        procurement_kind=document_profile.procurement_kind,
+        route_tags=route_tags,
+        routing_flags=routing_flags,
+        planned_catalog_ids=planned_catalog_ids,
+        priority_dimensions=priority_dimensions,
+        extraction_demands=extraction_demands,
+        summary=summary,
+    )
+
+
+def _route_tags_from_profile(document_profile: DocumentProfile) -> list[str]:
+    tags: list[str] = []
+    if document_profile.procurement_kind == "unknown":
+        tags.extend(["unknown", "structure"])
+    if document_profile.quality_flags:
+        if any(flag in document_profile.quality_flags for flag in ["template_ratio_high", "template_appendix_mix_high"]):
+            tags.append("template")
+        if any(flag in document_profile.quality_flags for flag in ["catalog_navigation_high", "weak_source_support", "non_body_structure_dominant"]):
+            tags.append("consistency")
+    if any(flag in document_profile.structure_flags for flag in ["heavy_scoring_tables", "scoring_dense_structure"]):
+        tags.append("scoring")
+    if any(flag in document_profile.structure_flags for flag in ["heavy_contract_terms"]):
+        tags.append("contract")
+    if any(flag in document_profile.structure_flags for flag in ["heavy_template_pollution", "template_pollution"]):
+        tags.append("template")
+    if any(flag in document_profile.structure_flags for flag in ["heavy_appendix_reference", "attachment_driven_structure", "catalog_navigation_heavy", "directory_driven_structure"]):
+        tags.append("structure")
+    return tags
+
+
+def _collect_extraction_demands(review_points: list[ReviewPoint]) -> list[str]:
+    demands: list[str] = []
+    for point in review_points:
+        definition = resolve_review_point_definition(point.title, point.dimension, point.severity)
+        for condition in definition.required_conditions + definition.exclusion_conditions:
+            for field_name in condition.clause_fields:
+                if field_name and field_name not in demands:
+                    demands.append(field_name)
+        for field_name in definition.enhancement_fields:
+            if field_name and field_name not in demands:
+                demands.append(field_name)
+    return demands
+
+
+def _ordered_unique(items) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        ordered.append(item)
+    return ordered
