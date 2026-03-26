@@ -8,14 +8,15 @@
 
 **一个在隔离环境中运行的“招标文件风险点审查引擎”。**
 
-它的核心不是“规则脚本集合”，而是 6 个协同工作的引擎：
+它的核心不是“规则脚本集合”，而是 7 个协同工作的引擎：
 
 1. **结构化抽取引擎**：把项目属性、评分项、合同类型、金额口径、政策条款等抽成稳定事实。
-2. **动态审查任务引擎**：在标准审查任务之外，结合 LLM 对陌生文件动态生成本次应审风险母题。
-3. **证据链组装引擎**：围绕每个审查点组织直接证据、辅助证据、冲突证据、反证和缺失证据。
-4. **要件链判断引擎**：判断风险点的必要要件是否成立、是否被排除或被反证阻断。
-5. **LLM 二审引擎**：负责场景理解、强度判断、误报压制和主证据复核。
-6. **formal 风险输出引擎**：只输出证据足够、适法性足够的正式高风险点，其余进入“建议复核”。
+2. **文档画像引擎**：先生成 `DocumentProfile`，判断文件像什么、当前结构是否陌生、有哪些领域候选可用于后续增强。
+3. **动态审查任务引擎**：在标准审查任务之外，结合规则和 LLM 对陌生文件动态生成本次应审风险母题。
+4. **证据链组装引擎**：围绕每个审查点组织直接证据、辅助证据、冲突证据、反证和缺失证据。
+5. **要件链判断引擎**：判断风险点的必要要件是否成立、是否被排除或被反证阻断。
+6. **LLM 二审引擎**：负责场景理解、强度判断、误报压制和主证据复核。
+7. **formal 风险输出引擎**：只输出证据足够、适法性足够的正式高风险点，其余进入“建议复核”。
 
 当前版本重点解决以下问题：
 
@@ -25,6 +26,7 @@
 - 让业务流程、系统架构和审查维度与 SOP 对齐
 - 提供一个最小可运行 CLI，便于后续扩展为多智能体审查系统
 - 在面对陌生采购品目和新场景时，通过 LLM 前移理解文件，而不是被固定规则库边界卡死
+- 在遇到未知招标文件时，先做画像与领域候选匹配，再决定本次任务激活和增强深度
 
 ## 为什么这样设计
 
@@ -54,17 +56,23 @@ src/agent_review/
   engine.py                 # 审查编排入口
   models.py                 # 结构化审查模型
   pipeline.py               # stage pipeline 与共享运行状态
+  domain_profiles/          # DomainProfile 目录、词汇与证据模式
   merge.py                  # 结果去重与归并
   reporting.py              # Markdown/JSON 报告渲染
   cli.py                    # 本地命令行入口
+  llm/                      # 本地 LLM 客户端、任务与增强器
   parsers/                  # 输入与解析层
   structure/                # 文件类型识别、章节定位、范围声明
   extractors/               # 条款抽取层
   rules/                    # 风险规则、注册中心与建议映射
   consistency/              # 一致性检查与结论裁决
   outputs/                  # 报告、专项表和运行索引输出
+  web.py                    # 最小 Web 审查演示壳
 tests/
-  test_engine.py            # 轻量校验测试
+  test_engine.py            # 主链与审查行为回归
+  test_document_profile.py  # 文档画像回归
+  test_domain_profiles.py   # 领域 profile 回归
+  test_cli.py               # CLI / enhanced watchdog 回归
 AGENTS.md                   # 仓库内智能体协作规则
 pyproject.toml              # 包配置与测试配置
 ```
@@ -88,33 +96,51 @@ pyproject.toml              # 包配置与测试配置
 当前执行链已进一步收敛为明确的 stage pipeline：
 
 1. `document_structure`
-2. `clause_extraction`
-3. `clause_role_classification`
-4. `review_task_planning`
-5. `dimension_review`
-6. `rule_evaluation`
-7. `consistency_review`
-8. `review_point_assembly`
-9. `applicability_check`
-10. `review_quality_gate`
-11. `formal_adjudication`
-12. `finalize_report`
+2. `document_profiling`
+3. `clause_extraction`
+4. `clause_role_classification`
+5. `review_task_planning`
+6. `dimension_review`
+7. `rule_evaluation`
+8. `consistency_review`
+9. `review_point_assembly`
+10. `applicability_check`
+11. `review_quality_gate`
+12. `formal_adjudication`
+13. `finalize_report`
 
 对应的整体处理逻辑是：
 
 1. 文件解析
 2. 文档结构识别
-3. 结构化条款抽取
-4. 条款角色识别
-5. 标准审查任务规划
-6. LLM 场景识别与动态审查任务生成
-7. 任务专属事实采集与证据组装
-8. 适法性要件链判断
-9. 质量关卡与误报压制
-10. LLM 二审
-11. formal 风险输出
+3. 文档画像与领域候选匹配
+4. 结构化条款抽取
+5. 条款角色识别
+6. 标准审查任务规划
+7. 规则与画像共同激活任务
+8. 任务专属事实采集与证据组装
+9. 适法性要件链判断
+10. 质量关卡与误报压制
+11. LLM 二审
+12. formal 风险输出
 
 这样 `engine.py` 只负责装配输入源、触发 pipeline 和控制 LLM 增强，规则扩展和结果归并不再散落在主编排代码里。
+
+其中新增的 `document_profiling` 会先生成 `DocumentProfile`，用于回答几个基础问题：
+
+- 这份文件更像货物、服务、混合采购还是未知结构
+- 当前文本是否存在重模板污染、重评分表、结构异常等特征
+- 当前文件可能匹配哪些 `DomainProfile`
+- 哪些激活标签应进入后续 `review_task_planning` 和目录选择
+
+当前第一批最小可用 `DomainProfile` 包括：
+
+- `generic_goods`
+- `generic_service`
+- `mixed_procurement`
+- `furniture`
+
+这里的 `DomainProfile` 不是“每来一个新品目就做一个专项分支”，而是仓库沉淀的领域经验包，只负责增强词汇、证据模式和任务激活，不直接代替事实判断或法律定性。
 
 其中新增的 `clause_role_classification` 会对条款标注角色，例如采购约束条款、投标文件模板、政策说明、定义说明、附件引用等，用于后续降低模板误报。
 
@@ -144,6 +170,7 @@ pyproject.toml              # 包配置与测试配置
 - 一致性层优先产出 `ReviewPoint`
 - `Finding` 不再作为这两层的第一产物，而是在汇总阶段由 `ReviewPoint` 统一回写，以兼容既有报告、意见书和 JSON 输出
 - `formal_adjudication` 直接围绕 `ReviewPoint + EvidenceBundle + ApplicabilityCheck + ReviewQualityGate` 做正式裁决，不再依赖回写后的 `Finding`
+- 运行产物会单独输出 `review_point_trace.json`，便于按审查点追踪“来源 -> 证据 -> 适法性 -> 质量关卡 -> formal 去向”
 
 当前规则执行采用“双层规则架构”：
 
@@ -151,6 +178,13 @@ pyproject.toml              # 包配置与测试配置
 - 场景增强规则：根据项目属性、合同特征和少量场景标签做增强检查
 
 这意味着场景识别不会成为是否审查的总开关，只会影响专项规则的增强深度。
+
+当前“未知文件优先”处理思路也已经接入主线：
+
+- 即便文件结构陌生，仍先跑通用主链，不因未知结构直接放弃审查
+- 未知结构会被记录到 `DocumentProfile.unknown_structure_flags`
+- 画像结果会保留领域候选，供任务激活、LLM 增强和后续规则沉淀使用
+- 对未知结构中的高不确定性结论，系统更倾向输出 `missing_evidence`、`manual_review_required` 或待确认项，而不是武断定性
 
 当前也已支持“多文件联合审查”入口，可把正文、采购需求附件、评分细则、合同草案一起送入同一审查上下文。系统会：
 
@@ -262,12 +296,15 @@ agent-review-web --host 127.0.0.1 --port 8765 --llm-timeout 300
 
 当前版本已提供一个最小可用的 LLM 增强层，默认不启用。
 
-启用后，LLM 会围绕 7 个关键节点做语义增强，包括：
+启用后，LLM 会围绕 10 个关键节点做语义增强，包括：
 
+- 场景审查，识别当前文件的风险母题和动态审查任务
+- 评分审查，识别评分类母题和评分专属动态任务
 - 条款抽取后的语义补全，补抓规则未显式抽出的隐含条款事实
 - ReviewPoint 的条款角色复核，识别模板、定义说明、附件引用等角色误判
 - ReviewPoint 的证据复核，识别证据是否充分、是否仍缺关键直接证据
 - ReviewPoint 的适法性复核，识别法规要件是否真正成立
+- ReviewPoint 二审，围绕高价值风险点复核是否纳入 formal
 - 专项规则后的语义复核，补抓近似但未命中的专项风险
 - 一致性矩阵后的深层冲突分析，补抓跨章节、跨表格、跨措辞的隐性矛盾
 - 高风险结论前的裁决复核，提示是否仍存在未被规则覆盖的实质性风险
@@ -288,7 +325,7 @@ agent-review-web --host 127.0.0.1 --port 8765 --llm-timeout 300
 运行模式：
 
 - `fast`：只跑确定性主链路，快速生成基础报告
-- `enhanced`：先生成基础报告，再调用 LLM 增强总体结论和修改建议
+- `enhanced`：先生成基础报告并落盘，再调用 LLM 增强；若超时、失败或返回异常，会自动回退到基础报告，但仍保留完整运行产物与 `enhancement_trace`
 
 启用方式：
 
@@ -309,14 +346,30 @@ PYTHONPATH=src python -m agent_review.cli --input examples/sample_tender.txt --f
 - Base URL: `http://112.111.54.86:10011/v1`
 - Model: `qwen3.5-27b`
 
-## 双产物输出
+## 运行产物
 
-每次运行默认都会输出两份产物到 `runs/<文件名>/`：
+每次运行默认都会输出运行产物到 `runs/<文件名>/`，典型包括：
 
 - `base_report.json`
 - `base_report.md`
 - `enhanced_report.json`
 - `enhanced_report.md`
+- `reviewer_report.md`
+- `opinion_letter.md`
+- `formal_review_opinion.md`
+- `run_manifest.json`
+- `llm_tasks.json`
+- `review_point_trace.json`
+- `enhancement_trace.json`
+- `high_risk_review_checklist.json`
+- `pending_confirmation_items.json`
+- 若干专项表 JSON
+
+其中：
+
+- `review_point_trace.json` 用于按审查点追踪“来源 -> 证据 -> 适法性 -> 质量关卡 -> formal 去向”
+- `enhancement_trace.json` 用于记录 enhanced 模式是否完成、是否超时回退、LLM 任务与 watchdog 状态
+- `pending_confirmation_items.json` 用于汇总所有“需人工确认”的语义补充结果和基础人工复核项
 - `opinion_letter.md`
 - `formal_review_opinion.md`
 - `run_manifest.json`
