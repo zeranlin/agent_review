@@ -37,6 +37,7 @@ from .models import (
     FileInfo,
     Finding,
     FindingType,
+    DocumentProfile,
     ParseResult,
     ParsedPage,
     Recommendation,
@@ -57,6 +58,7 @@ from .quality import derive_conclusion_by_evidence
 from .rules import build_recommendations, execute_rule_registry
 from .structure import (
     build_file_info,
+    build_document_profile,
     build_scope_statement,
     detect_file_type,
     enrich_parse_result_structure,
@@ -71,6 +73,7 @@ class ReviewPipelineState:
     normalized_text: str
     source_documents: list[SourceDocument] = field(default_factory=list)
     file_info: FileInfo | None = None
+    document_profile: DocumentProfile | None = None
     scope_statement: str = ""
     section_index: list[SectionIndex] = field(default_factory=list)
     extracted_clauses: list = field(default_factory=list)
@@ -101,6 +104,7 @@ class ReviewPipeline:
         self.dimensions = dimensions or DEFAULT_DIMENSIONS
         self.stages = (
             self._stage_document_structure,
+            self._stage_document_profiling,
             self._stage_clause_extraction,
             self._stage_clause_role_classification,
             self._stage_review_task_planning,
@@ -186,6 +190,22 @@ class ReviewPipeline:
                 status="completed",
                 item_count=len(state.section_index),
                 detail=f"识别文件类型并定位 {len(state.section_index)} 个章节锚点。",
+            )
+        )
+
+    def _stage_document_profiling(self, state: ReviewPipelineState) -> None:
+        state.document_profile = build_document_profile(state.parse_result, state.document_name)
+        state.parse_result.document_profile = state.document_profile
+        candidate_count = len(state.document_profile.domain_profile_candidates)
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="document_profiling",
+                status="completed",
+                item_count=candidate_count,
+                detail=(
+                    f"完成文档画像，识别 {state.document_profile.procurement_kind} 倾向，"
+                    f"形成 {candidate_count} 个领域候选。"
+                ),
             )
         )
 

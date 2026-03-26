@@ -437,6 +437,107 @@ class ClauseUnit:
 
 
 @dataclass(slots=True)
+class DomainProfileCandidate:
+    profile_id: str
+    confidence: float = 0.0
+    reasons: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ZoneStat:
+    zone_type: SemanticZoneType
+    node_count: int = 0
+    unit_count: int = 0
+    ratio: float = 0.0
+
+    def to_dict(self) -> dict[str, object]:
+        payload = asdict(self)
+        payload["zone_type"] = self.zone_type.value
+        return payload
+
+
+@dataclass(slots=True)
+class EffectStat:
+    effect_tag: EffectTag
+    unit_count: int = 0
+    ratio: float = 0.0
+
+    def to_dict(self) -> dict[str, object]:
+        payload = asdict(self)
+        payload["effect_tag"] = self.effect_tag.value
+        return payload
+
+
+@dataclass(slots=True)
+class ClauseSemanticStat:
+    clause_semantic_type: ClauseSemanticType
+    unit_count: int = 0
+    ratio: float = 0.0
+
+    def to_dict(self) -> dict[str, object]:
+        payload = asdict(self)
+        payload["clause_semantic_type"] = self.clause_semantic_type.value
+        return payload
+
+
+@dataclass(slots=True)
+class DomainProfile:
+    profile_id: str
+    display_name: str
+    version: str = "v1"
+    applies_to_procurement_kinds: list[str] = field(default_factory=list)
+    trigger_keywords: list[str] = field(default_factory=list)
+    negative_keywords: list[str] = field(default_factory=list)
+    risk_lexicon_pack_id: str = ""
+    evidence_pattern_pack_id: str = ""
+    false_positive_pack_id: str = ""
+    preferred_risk_families: list[str] = field(default_factory=list)
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class DocumentProfile:
+    document_id: str
+    source_path: str
+    procurement_kind: str = "unknown"
+    procurement_kind_confidence: float = 0.0
+    domain_profile_candidates: list[DomainProfileCandidate] = field(default_factory=list)
+    dominant_zones: list[ZoneStat] = field(default_factory=list)
+    effect_distribution: list[EffectStat] = field(default_factory=list)
+    clause_semantic_distribution: list[ClauseSemanticStat] = field(default_factory=list)
+    structure_flags: list[str] = field(default_factory=list)
+    risk_activation_hints: list[str] = field(default_factory=list)
+    quality_flags: list[str] = field(default_factory=list)
+    unknown_structure_flags: list[str] = field(default_factory=list)
+    representative_anchors: list[str] = field(default_factory=list)
+    summary: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "document_id": self.document_id,
+            "source_path": self.source_path,
+            "procurement_kind": self.procurement_kind,
+            "procurement_kind_confidence": self.procurement_kind_confidence,
+            "domain_profile_candidates": [item.to_dict() for item in self.domain_profile_candidates],
+            "dominant_zones": [item.to_dict() for item in self.dominant_zones],
+            "effect_distribution": [item.to_dict() for item in self.effect_distribution],
+            "clause_semantic_distribution": [item.to_dict() for item in self.clause_semantic_distribution],
+            "structure_flags": self.structure_flags,
+            "risk_activation_hints": self.risk_activation_hints,
+            "quality_flags": self.quality_flags,
+            "unknown_structure_flags": self.unknown_structure_flags,
+            "representative_anchors": self.representative_anchors,
+            "summary": self.summary,
+        }
+
+
+@dataclass(slots=True)
 class ParseResult:
     parser_name: str
     source_path: str
@@ -451,6 +552,7 @@ class ParseResult:
     semantic_zones: list[SemanticZone] = field(default_factory=list)
     effect_tag_results: list[EffectTagResult] = field(default_factory=list)
     clause_units: list[ClauseUnit] = field(default_factory=list)
+    document_profile: DocumentProfile | None = None
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -468,6 +570,7 @@ class ParseResult:
             "semantic_zones": [item.to_dict() for item in self.semantic_zones],
             "effect_tag_results": [item.to_dict() for item in self.effect_tag_results],
             "clause_units": [item.to_dict() for item in self.clause_units],
+            "document_profile": self.document_profile.to_dict() if self.document_profile else None,
             "warnings": self.warnings,
         }
 
