@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from .domain_profiles import build_document_profile, profile_activation_tags
 from .models import ClauseRole, ExtractedClause, ReviewPoint, ReviewPointCondition, ReviewPointDefinition, Severity
 from .ontology import ClauseSemanticType, EffectTag, SemanticZoneType
 
@@ -1033,8 +1034,12 @@ def _build_active_task_tags(text: str, extracted_clauses: list[ExtractedClause])
             structured_tags.add("consistency")
         if _has_prudential_signals(extracted_clauses, text):
             structured_tags.add("prudential")
-        return structured_tags
-    return _legacy_active_task_tags(text, extracted_clauses)
+    else:
+        structured_tags.update(_legacy_active_task_tags(text, extracted_clauses))
+
+    document_profile = build_document_profile(text, extracted_clauses)
+    structured_tags.update(profile_activation_tags(document_profile))
+    return structured_tags
 
 
 def _structured_active_task_tags(extracted_clauses: list[ExtractedClause]) -> set[str]:
