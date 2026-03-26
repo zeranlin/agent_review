@@ -1065,7 +1065,7 @@ def _structured_active_task_tags(extracted_clauses: list[ExtractedClause]) -> se
             "人员评分要求",
             "方案评分扣分模式",
         },
-        expected_zones={SemanticZoneType.scoring, SemanticZoneType.mixed_or_uncertain},
+        expected_zones={SemanticZoneType.scoring, SemanticZoneType.business, SemanticZoneType.mixed_or_uncertain},
         allowed_roles={ClauseRole.qualification_or_scoring, ClauseRole.contract_term, ClauseRole.unknown},
         allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},
     ):
@@ -1235,8 +1235,10 @@ def _has_prudential_signals(extracted_clauses: list[ExtractedClause], text: str)
 def _definition_matches_active_tags(definition: ReviewPointDefinition, active_tags: set[str]) -> bool:
     if not definition.scenario_tags:
         return True
-    if definition.catalog_id in {"RP-QUAL-001", "RP-QUAL-002"}:
+    if definition.catalog_id == "RP-QUAL-001":
         return "qualification" in active_tags and "scoring" in active_tags
+    if definition.catalog_id == "RP-QUAL-002":
+        return "scoring" in active_tags or "qualification" in active_tags
     return any(tag in active_tags for tag in definition.scenario_tags)
 
 

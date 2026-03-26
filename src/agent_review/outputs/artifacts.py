@@ -30,6 +30,8 @@ class ArtifactBundle:
     pending_confirmation_path: str
     enhancement_trace_path: str
     review_point_trace_path: str
+    document_profile_path: str
+    domain_profile_match_path: str
     specialist_table_paths: dict[str, dict[str, str]]
 
 
@@ -96,6 +98,16 @@ def write_review_artifacts(
         json.dumps(_build_review_point_trace_payload(report), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    document_profile_path = target_dir / "document_profile.json"
+    document_profile_path.write_text(
+        json.dumps(_build_document_profile_payload(report), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    domain_profile_match_path = target_dir / "domain_profile_match.json"
+    domain_profile_match_path.write_text(
+        json.dumps(_build_domain_profile_match_payload(report), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     manifest_path = target_dir / "run_manifest.json"
     manifest_payload = _build_run_manifest(
         target_dir=target_dir,
@@ -114,6 +126,8 @@ def write_review_artifacts(
         pending_confirmation_path=pending_confirmation_path,
         enhancement_trace_path=enhancement_trace_path,
         review_point_trace_path=review_point_trace_path,
+        document_profile_path=document_profile_path,
+        domain_profile_match_path=domain_profile_match_path,
     )
     manifest_path.write_text(
         json.dumps(manifest_payload, ensure_ascii=False, indent=2),
@@ -135,6 +149,8 @@ def write_review_artifacts(
         pending_confirmation_path=str(pending_confirmation_path),
         enhancement_trace_path=str(enhancement_trace_path),
         review_point_trace_path=str(review_point_trace_path),
+        document_profile_path=str(document_profile_path),
+        domain_profile_match_path=str(domain_profile_match_path),
         specialist_table_paths=specialist_table_paths,
     )
 
@@ -196,6 +212,8 @@ def _build_run_manifest(
     pending_confirmation_path: Path,
     enhancement_trace_path: Path,
     review_point_trace_path: Path,
+    document_profile_path: Path,
+    domain_profile_match_path: Path,
 ) -> dict[str, object]:
     formal_items = [item for item in report.formal_adjudication if item.included_in_formal]
     return {
@@ -236,6 +254,7 @@ def _build_run_manifest(
             "table_count": len(report.parse_result.tables),
             "warnings": report.parse_result.warnings,
         },
+        "document_profile": _build_document_profile_payload(report),
         "rule_selection": report.rule_selection.to_dict(),
         "review_point_summary": {
             "count": len(report.review_points),
@@ -265,6 +284,8 @@ def _build_run_manifest(
             "pending_confirmation_items": str(pending_confirmation_path),
             "enhancement_trace": str(enhancement_trace_path),
             "review_point_trace": str(review_point_trace_path),
+            "document_profile": str(document_profile_path),
+            "domain_profile_match": str(domain_profile_match_path),
         },
     }
 
@@ -338,6 +359,29 @@ def _build_review_point_trace_payload(report: ReviewReport) -> dict[str, object]
             )
             for point in report.review_points
         ],
+    }
+
+
+def _build_document_profile_payload(report: ReviewReport) -> dict[str, object]:
+    profile = report.parse_result.document_profile
+    return {
+        "document_name": report.file_info.document_name,
+        "review_mode": report.review_mode.value,
+        "document_profile": profile.to_dict() if profile else None,
+    }
+
+
+def _build_domain_profile_match_payload(report: ReviewReport) -> dict[str, object]:
+    profile = report.parse_result.document_profile
+    candidates = profile.domain_profile_candidates if profile else []
+    return {
+        "document_name": report.file_info.document_name,
+        "review_mode": report.review_mode.value,
+        "procurement_kind": profile.procurement_kind if profile else "unknown",
+        "unknown_structure_flags": profile.unknown_structure_flags if profile else [],
+        "risk_activation_hints": profile.risk_activation_hints if profile else [],
+        "count": len(candidates),
+        "items": [item.to_dict() for item in candidates],
     }
 
 

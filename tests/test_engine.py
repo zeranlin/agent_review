@@ -1564,6 +1564,8 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.pending_confirmation_path).exists()
     assert Path(bundle.enhancement_trace_path).exists()
     assert Path(bundle.review_point_trace_path).exists()
+    assert Path(bundle.document_profile_path).exists()
+    assert Path(bundle.domain_profile_match_path).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["base"]).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["final"]).exists()
 
@@ -1575,9 +1577,12 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert manifest["artifact_paths"]["reviewer_report"] == bundle.reviewer_report_path
     assert manifest["artifact_paths"]["enhancement_trace"] == bundle.enhancement_trace_path
     assert manifest["artifact_paths"]["review_point_trace"] == bundle.review_point_trace_path
+    assert manifest["artifact_paths"]["document_profile"] == bundle.document_profile_path
+    assert manifest["artifact_paths"]["domain_profile_match"] == bundle.domain_profile_match_path
     assert manifest["stage_records"]
     assert "core_modules" in manifest["rule_selection"]
     assert "enhancement_modules" in manifest["rule_selection"]
+    assert "document_profile" in manifest
     llm_tasks_payload = json.loads(Path(bundle.llm_tasks_path).read_text(encoding="utf-8"))
     assert all(item["task_name"].startswith("llm_") for item in llm_tasks_payload["tasks"])
     pending_payload = json.loads(Path(bundle.pending_confirmation_path).read_text(encoding="utf-8"))
@@ -1588,6 +1593,10 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     trace_payload = json.loads(Path(bundle.review_point_trace_path).read_text(encoding="utf-8"))
     assert trace_payload["count"] == len(enhanced_report.review_points)
     assert trace_payload["items"]
+    profile_payload = json.loads(Path(bundle.document_profile_path).read_text(encoding="utf-8"))
+    assert profile_payload["document_profile"]["procurement_kind"]
+    domain_match_payload = json.loads(Path(bundle.domain_profile_match_path).read_text(encoding="utf-8"))
+    assert domain_match_payload["count"] >= 1
 
 
 def test_write_review_artifacts_outputs_review_point_trace(tmp_path: Path) -> None:
