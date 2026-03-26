@@ -6,11 +6,21 @@ from datetime import datetime
 from pathlib import Path
 
 from .quality import clause_window_from_anchor, evidence_supports_title
-from .models import FindingType, QualityGateStatus, ReviewReport
+from .models import FindingType, QualityGateStatus, ReviewMode, ReviewReport
 
 
 def render_json(report: ReviewReport) -> str:
     return json.dumps(report.to_dict(), ensure_ascii=False, indent=2)
+
+
+def _build_llm_enhancement_status(report: ReviewReport) -> str | None:
+    if report.review_mode != ReviewMode.enhanced and not report.llm_warnings:
+        return None
+    if report.llm_enhanced:
+        return "已成功完成"
+    if report.llm_warnings:
+        return "已回退到基础结果"
+    return "已请求增强，但未形成有效增强结果"
 
 
 def render_formal_review_opinion(report: ReviewReport) -> str:
@@ -95,8 +105,11 @@ def render_reviewer_report(report: ReviewReport) -> str:
         "",
         "**一、审查结论**",
         f"经审查，该采购需求文件{_reviewer_conclusion_sentence(report)}",
-        "",
     ]
+    enhancement_status = _build_llm_enhancement_status(report)
+    if enhancement_status:
+        lines.append(f"LLM增强状态：{enhancement_status}")
+    lines.append("")
 
     if not issue_entries:
         lines.extend(
@@ -202,13 +215,20 @@ def render_markdown(report: ReviewReport) -> str:
 
     lines.extend(
         [
-        "## 总体结论",
-        "",
-        f"- 结论等级: {report.overall_conclusion.value}",
-        f"- 摘要: {report.summary}",
-        f"- LLM增强: {'是' if report.llm_enhanced else '否'}",
-        "",
-        "## 高风险问题",
+            "## 总体结论",
+            "",
+            f"- 结论等级: {report.overall_conclusion.value}",
+            f"- 摘要: {report.summary}",
+            f"- LLM增强: {'是' if report.llm_enhanced else '否'}",
+        ]
+    )
+    enhancement_status = _build_llm_enhancement_status(report)
+    if enhancement_status:
+        lines.append(f"- 增强链状态: {enhancement_status}")
+    lines.extend(
+        [
+            "",
+            "## 高风险问题",
         ]
     )
 
@@ -521,6 +541,13 @@ def render_opinion_letter(report: ReviewReport) -> str:
             "",
             f"经按既定规则链路、专项检查、一致性检查及必要的 LLM 语义复核进行审查，初步结论为：{report.overall_conclusion.value}。",
             f"摘要如下：{report.summary}",
+        ]
+    )
+    enhancement_status = _build_llm_enhancement_status(report)
+    if enhancement_status:
+        lines.append(f"LLM增强状态：{enhancement_status}")
+    lines.extend(
+        [
             "",
             "## 四、主要审查意见",
             "",

@@ -1561,6 +1561,8 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert Path(bundle.llm_tasks_path).exists()
     assert Path(bundle.high_risk_review_path).exists()
     assert Path(bundle.pending_confirmation_path).exists()
+    assert Path(bundle.enhancement_trace_path).exists()
+    assert Path(bundle.review_point_trace_path).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["base"]).exists()
     assert Path(bundle.specialist_table_paths["sme_policy"]["final"]).exists()
 
@@ -1570,6 +1572,8 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert manifest["artifact_paths"]["opinion_letter"] == bundle.opinion_letter_path
     assert manifest["artifact_paths"]["formal_review_opinion"] == bundle.formal_review_opinion_path
     assert manifest["artifact_paths"]["reviewer_report"] == bundle.reviewer_report_path
+    assert manifest["artifact_paths"]["enhancement_trace"] == bundle.enhancement_trace_path
+    assert manifest["artifact_paths"]["review_point_trace"] == bundle.review_point_trace_path
     assert manifest["stage_records"]
     assert "core_modules" in manifest["rule_selection"]
     assert "enhancement_modules" in manifest["rule_selection"]
@@ -1577,6 +1581,36 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert all(item["task_name"].startswith("llm_") for item in llm_tasks_payload["tasks"])
     pending_payload = json.loads(Path(bundle.pending_confirmation_path).read_text(encoding="utf-8"))
     assert "items" in pending_payload
+    enhancement_payload = json.loads(Path(bundle.enhancement_trace_path).read_text(encoding="utf-8"))
+    assert enhancement_payload["final_mode"] == enhanced_report.review_mode.value
+    assert enhancement_payload["llm_enhanced"] == enhanced_report.llm_enhanced
+    trace_payload = json.loads(Path(bundle.review_point_trace_path).read_text(encoding="utf-8"))
+    assert trace_payload["count"] == len(enhanced_report.review_points)
+    assert trace_payload["items"]
+
+
+def test_write_review_artifacts_outputs_review_point_trace(tmp_path: Path) -> None:
+    text = """
+    项目属性：服务
+    中小企业声明函：制造商声明
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    enhanced_report = TenderReviewEngine(
+        review_enhancer=FakeEnhancer(),
+        review_mode=ReviewMode.enhanced,
+    ).review_text(text, document_name="demo.txt")
+
+    bundle = write_review_artifacts(enhanced_report, base_report, tmp_path)
+    trace_payload = json.loads(Path(bundle.review_point_trace_path).read_text(encoding="utf-8"))
+
+    point_map = {item["catalog_id"]: item for item in trace_payload["items"]}
+    assert "RP-SME-001" in point_map
+    assert point_map["RP-SME-001"]["source_types"]
+    assert point_map["RP-SME-001"]["evidence"]["direct_count"] >= 1
+    assert point_map["RP-SME-001"]["applicability"]["catalog_id"] == "RP-SME-001"
+    assert point_map["RP-SME-001"]["quality_gate"]["point_id"]
+    assert point_map["RP-SME-001"]["formal_adjudication"]["catalog_id"] == "RP-SME-001"
 
 
 def test_write_review_artifacts_outputs_specialist_table_files(tmp_path: Path) -> None:

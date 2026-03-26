@@ -28,6 +28,8 @@ class ArtifactBundle:
     llm_tasks_path: str
     high_risk_review_path: str
     pending_confirmation_path: str
+    enhancement_trace_path: str
+    review_point_trace_path: str
     specialist_table_paths: dict[str, dict[str, str]]
 
 
@@ -35,6 +37,7 @@ def write_review_artifacts(
     report: ReviewReport,
     base_report: ReviewReport,
     output_dir: str | Path | None = None,
+    enhancement_trace: dict[str, object] | None = None,
 ) -> ArtifactBundle:
     document_stem = Path(report.file_info.document_name).stem
     target_dir = Path(output_dir or Path.cwd() / "runs" / document_stem).expanduser().resolve()
@@ -75,6 +78,24 @@ def write_review_artifacts(
         json.dumps(_build_work_items_payload(report.pending_confirmation_items), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    enhancement_trace_path = target_dir / "enhancement_trace.json"
+    enhancement_trace_path.write_text(
+        json.dumps(
+            _build_enhancement_trace_payload(
+                report=report,
+                base_report=base_report,
+                enhancement_trace=enhancement_trace,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    review_point_trace_path = target_dir / "review_point_trace.json"
+    review_point_trace_path.write_text(
+        json.dumps(_build_review_point_trace_payload(report), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     manifest_path = target_dir / "run_manifest.json"
     manifest_payload = _build_run_manifest(
         target_dir=target_dir,
@@ -91,6 +112,8 @@ def write_review_artifacts(
         llm_tasks_path=llm_tasks_path,
         high_risk_review_path=high_risk_review_path,
         pending_confirmation_path=pending_confirmation_path,
+        enhancement_trace_path=enhancement_trace_path,
+        review_point_trace_path=review_point_trace_path,
     )
     manifest_path.write_text(
         json.dumps(manifest_payload, ensure_ascii=False, indent=2),
@@ -110,6 +133,8 @@ def write_review_artifacts(
         llm_tasks_path=str(llm_tasks_path),
         high_risk_review_path=str(high_risk_review_path),
         pending_confirmation_path=str(pending_confirmation_path),
+        enhancement_trace_path=str(enhancement_trace_path),
+        review_point_trace_path=str(review_point_trace_path),
         specialist_table_paths=specialist_table_paths,
     )
 
@@ -169,6 +194,8 @@ def _build_run_manifest(
     llm_tasks_path: Path,
     high_risk_review_path: Path,
     pending_confirmation_path: Path,
+    enhancement_trace_path: Path,
+    review_point_trace_path: Path,
 ) -> dict[str, object]:
     formal_items = [item for item in report.formal_adjudication if item.included_in_formal]
     return {
@@ -236,6 +263,8 @@ def _build_run_manifest(
             "llm_tasks": str(llm_tasks_path),
             "high_risk_review_checklist": str(high_risk_review_path),
             "pending_confirmation_items": str(pending_confirmation_path),
+            "enhancement_trace": str(enhancement_trace_path),
+            "review_point_trace": str(review_point_trace_path),
         },
     }
 
@@ -255,3 +284,106 @@ def _build_work_items_payload(items) -> dict[str, object]:
         "count": len(items),
         "items": [item.to_dict() for item in items],
     }
+
+
+def _build_enhancement_trace_payload(
+    report: ReviewReport,
+    base_report: ReviewReport,
+    enhancement_trace: dict[str, object] | None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "document_name": report.file_info.document_name,
+        "requested_mode": report.review_mode.value,
+        "base_mode": base_report.review_mode.value,
+        "final_mode": report.review_mode.value,
+        "status": (
+            "completed"
+            if report.llm_enhanced
+            else ("fallback" if report.llm_warnings else "not_requested")
+        ),
+        "fallback_applied": bool(report.llm_warnings and not report.llm_enhanced),
+        "llm_enhanced": report.llm_enhanced,
+        "warnings": report.llm_warnings,
+        "task_records": [
+            item.to_dict()
+            for item in report.task_records
+            if item.task_name.startswith("llm_")
+        ],
+        "stage_records": [
+            item.to_dict()
+            for item in report.stage_records
+            if item.stage_name.startswith("llm_")
+        ],
+    }
+    if enhancement_trace:
+        payload.update(enhancement_trace)
+    return payload
+
+
+def _build_review_point_trace_payload(report: ReviewReport) -> dict[str, object]:
+    applicability_map = {item.point_id: item for item in report.applicability_checks}
+    quality_gate_map = {item.point_id: item for item in report.quality_gates}
+    formal_map = {item.point_id: item for item in report.formal_adjudication}
+    return {
+        "document_name": report.file_info.document_name,
+        "review_mode": report.review_mode.value,
+        "llm_enhanced": report.llm_enhanced,
+        "count": len(report.review_points),
+        "items": [
+            _build_review_point_trace_item(
+                point=point,
+                applicability=applicability_map.get(point.point_id),
+                quality_gate=quality_gate_map.get(point.point_id),
+                formal_adjudication=formal_map.get(point.point_id),
+            )
+            for point in report.review_points
+        ],
+    }
+
+
+def _build_review_point_trace_item(
+    *,
+    point,
+    applicability,
+    quality_gate,
+    formal_adjudication,
+) -> dict[str, object]:
+    direct_evidence = point.evidence_bundle.direct_evidence
+    supporting_evidence = point.evidence_bundle.supporting_evidence
+    return {
+        "point_id": point.point_id,
+        "catalog_id": point.catalog_id,
+        "title": point.title,
+        "dimension": point.dimension,
+        "severity": point.severity.value,
+        "status": point.status.value,
+        "source_findings": point.source_findings,
+        "source_types": _summarize_source_types(point.source_findings),
+        "rationale": point.rationale,
+        "evidence": {
+            "level": point.evidence_bundle.evidence_level.value,
+            "score": point.evidence_bundle.evidence_score,
+            "direct_count": len(direct_evidence),
+            "supporting_count": len(supporting_evidence),
+            "conflicting_count": len(point.evidence_bundle.conflicting_evidence),
+            "rebuttal_count": len(point.evidence_bundle.rebuttal_evidence),
+            "missing_note_count": len(point.evidence_bundle.missing_evidence_notes),
+            "primary_quotes": [item.quote for item in direct_evidence[:3]],
+            "supporting_quotes": [item.quote for item in supporting_evidence[:2]],
+            "missing_notes": point.evidence_bundle.missing_evidence_notes[:3],
+            "clause_roles": [item.value for item in point.evidence_bundle.clause_roles],
+            "sufficiency_summary": point.evidence_bundle.sufficiency_summary,
+        },
+        "applicability": applicability.to_dict() if applicability is not None else None,
+        "quality_gate": quality_gate.to_dict() if quality_gate is not None else None,
+        "formal_adjudication": formal_adjudication.to_dict() if formal_adjudication is not None else None,
+    }
+
+
+def _summarize_source_types(source_findings: list[str]) -> list[str]:
+    ordered_types: list[str] = []
+    for item in source_findings:
+        source_type = item.split(":", 1)[0].strip() if item else ""
+        if source_type and source_type not in ordered_types:
+            ordered_types.append(source_type)
+    return ordered_types
