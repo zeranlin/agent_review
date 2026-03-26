@@ -118,3 +118,46 @@ def test_applicability_does_not_close_on_template_only_policy_clauses() -> None:
     assert checks[0].applicable is False
     assert checks[0].requirement_chain_complete is False
     assert any("弱来源" in item.detail for item in checks[0].requirement_results)
+
+
+def test_applicability_ignores_citation_like_policy_noise() -> None:
+    point = ReviewPoint(
+        point_id="RP-SME-CITE",
+        catalog_id="RP-SME-001",
+        title="专门面向中小企业却仍保留价格扣除",
+        dimension="中小企业政策风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.suspected,
+        rationale="当前仅在法规引用中出现中小企业和价格扣除字样。",
+        evidence_bundle=EvidenceBundle(),
+        legal_basis=[],
+        source_findings=[],
+    )
+    clauses = [
+        ExtractedClause(
+            category="法规引用",
+            field_name="是否专门面向中小企业",
+            content="一、《中华人民共和国政府采购法》第二十二条 供应商应当具备下列条件之一。",
+            source_anchor="line:21",
+            normalized_value="是",
+            clause_role=ClauseRole.policy_explanation,
+            semantic_zone=SemanticZoneType.policy_explanation,
+            effect_tags=[EffectTag.reference_only],
+        ),
+        ExtractedClause(
+            category="法规引用",
+            field_name="是否仍保留价格扣除条款",
+            content="二、《财政部文件》规定价格扣除按政策执行。",
+            source_anchor="line:22",
+            normalized_value="是",
+            clause_role=ClauseRole.policy_explanation,
+            semantic_zone=SemanticZoneType.policy_explanation,
+            effect_tags=[EffectTag.reference_only],
+        ),
+    ]
+
+    checks = build_applicability_checks([point], clauses)
+
+    assert checks[0].applicable is False
+    assert checks[0].requirement_chain_complete is False
+    assert any("弱来源" in item.detail for item in checks[0].requirement_results)

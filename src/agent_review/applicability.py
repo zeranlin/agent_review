@@ -275,6 +275,8 @@ def _is_effective_clause(clause: ExtractedClause) -> bool:
         SemanticZoneType.public_copy_or_noise,
     }:
         return False
+    if _is_noise_like_clause(clause):
+        return False
     weak_tags = {
         EffectTag.template,
         EffectTag.example,
@@ -283,6 +285,48 @@ def _is_effective_clause(clause: ExtractedClause) -> bool:
         EffectTag.public_copy_noise,
     }
     return not clause.effect_tags or any(tag not in weak_tags for tag in clause.effect_tags)
+
+
+def _is_noise_like_clause(clause: ExtractedClause) -> bool:
+    text = (clause.content or clause.normalized_value or "").strip()
+    if not text:
+        return True
+    normalized = re.sub(r"\s+", " ", text)
+    if _looks_like_legal_citation(normalized):
+        return True
+    if _looks_like_table_splice(normalized) and clause.semantic_zone not in {
+        SemanticZoneType.scoring,
+        SemanticZoneType.qualification,
+    }:
+        return True
+    if _looks_like_list_splice(normalized) and clause.semantic_zone not in {
+        SemanticZoneType.scoring,
+        SemanticZoneType.qualification,
+    }:
+        return True
+    return False
+
+
+def _looks_like_legal_citation(text: str) -> bool:
+    return bool(
+        ("《" in text and "》" in text and "第" in text and "条" in text)
+        or re.search(r"^\s*[一二三四五六七八九十0-9]+、《", text)
+        or "依据" in text and "第" in text and "条" in text
+    )
+
+
+def _looks_like_table_splice(text: str) -> bool:
+    if text.count("|") >= 2 or text.count(" | ") >= 2:
+        return True
+    numeric_tokens = re.findall(r"\d+", text)
+    return len(text) >= 80 and len(numeric_tokens) >= 4 and any(
+        token in text for token in ["项目名称", "品目", "规格", "数量", "单价", "分值", "教工宿舍", "拒绝进口"]
+    )
+
+
+def _looks_like_list_splice(text: str) -> bool:
+    separator_count = text.count("；") + text.count(";")
+    return len(text) >= 100 and separator_count >= 3
 
 
 def _template_field_only(clause_fields: list[str]) -> bool:

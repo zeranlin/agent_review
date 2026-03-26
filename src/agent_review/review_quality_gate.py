@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .models import ClauseRole, ExtractedClause, QualityGateStatus, ReviewPoint, ReviewQualityGate
 from .ontology import EffectTag, SemanticZoneType
 
@@ -18,6 +20,10 @@ def build_review_quality_gates(
         if point.evidence_bundle.evidence_level.value == "missing":
             status = QualityGateStatus.manual_confirmation
             reasons.append("当前审查点缺少直接证据。")
+
+        if _point_evidence_is_noise_only(point, extracted_clauses):
+            status = QualityGateStatus.filtered
+            reasons.append("当前审查点主证据更像法规引用、表格残片或清单串接，暂不进入正式意见。")
 
         weak_roles = point.evidence_bundle.clause_roles and all(
             role in {
@@ -117,3 +123,76 @@ def _point_zones_are_weak_only(
         SemanticZoneType.public_copy_or_noise,
     }
     return all(clause.semantic_zone in weak_zones for clause in matched)
+
+
+def _point_evidence_is_noise_only(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+) -> bool:
+    family_key = _formal_family_key(point.title)
+    evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
+    if evidence and all(_quote_looks_like_noise(item.quote, family_key) for item in evidence if item.quote):
+        return True
+    matched = _matched_clauses(point, extracted_clauses)
+    if matched and all(_clause_looks_like_noise(clause, family_key) for clause in matched):
+        return True
+    return False
+
+
+def _clause_looks_like_noise(clause: ExtractedClause, family_key: str) -> bool:
+    text = (clause.content or clause.normalized_value or "").strip()
+    if not text:
+        return True
+    normalized = re.sub(r"\s+", " ", text)
+    if _quote_looks_like_legal_citation(normalized):
+        return True
+    if _quote_looks_like_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    if _quote_looks_like_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    return False
+
+
+def _quote_looks_like_noise(quote: str, family_key: str) -> bool:
+    normalized = re.sub(r"\s+", " ", quote).strip()
+    if not normalized:
+        return True
+    if normalized == "当前自动抽取未定位到可直接引用的原文。":
+        return True
+    if _quote_looks_like_legal_citation(normalized):
+        return True
+    if _quote_looks_like_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    if _quote_looks_like_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    return False
+
+
+def _quote_looks_like_legal_citation(text: str) -> bool:
+    return bool(
+        ("《" in text and "》" in text and "第" in text and "条" in text)
+        or re.search(r"^\s*[一二三四五六七八九十0-9]+、《", text)
+        or ("依据" in text and "第" in text and "条" in text)
+    )
+
+
+def _quote_looks_like_table_splice(text: str) -> bool:
+    if text.count("|") >= 2 or text.count(" | ") >= 2:
+        return True
+    numeric_tokens = re.findall(r"\d+", text)
+    return len(text) >= 80 and len(numeric_tokens) >= 4 and any(
+        token in text for token in ["项目名称", "品目", "规格", "数量", "单价", "分值", "教工宿舍", "拒绝进口"]
+    )
+
+
+def _quote_looks_like_list_splice(text: str) -> bool:
+    separator_count = text.count("；") + text.count(";")
+    return len(text) >= 100 and separator_count >= 3
+
+
+def _formal_family_key(title: str) -> str:
+    if any(token in title for token in ["方案评分", "评分分档", "评分量化"]):
+        return "scoring"
+    if any(token in title for token in ["证书", "检测报告", "财务指标"]):
+        return "score_weight"
+    return "generic"

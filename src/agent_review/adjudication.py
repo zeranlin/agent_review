@@ -304,6 +304,8 @@ def build_formal_adjudication(
             report_text,
             parse_tables or [],
         )
+        family_key = _formal_family_key(point.title)
+        noise_like_quote = _formal_quote_is_noise_like(quote, family_key)
         roles = _resolve_review_point_roles(point, extracted_clauses, quote)
         effect_tags = _resolve_review_point_effect_tags(point, extracted_clauses, quote)
         has_direct = bool(point.evidence_bundle.direct_evidence)
@@ -342,6 +344,7 @@ def build_formal_adjudication(
             and quote
             and quote != "当前自动抽取未定位到可直接引用的原文。"
             and evidence_supports_title(point.title, quote)
+            and not noise_like_quote
             and not weak_role_only
             and not weak_effect_only
             and not weak_zone_only
@@ -364,6 +367,9 @@ def build_formal_adjudication(
         elif point.status == ReviewPointStatus.manual_confirmation:
             disposition = FormalDisposition.manual_confirmation
             rationale = "当前审查点已识别到问题方向，但证据或适法性尚不足，应进入人工确认。"
+        elif noise_like_quote:
+            disposition = FormalDisposition.manual_confirmation
+            rationale = "当前主证据更像法规引用、表格残片或清单串接，建议人工确认后再正式定性。"
         elif not evidence_sufficient:
             disposition = FormalDisposition.manual_confirmation
             rationale = "当前审查点缺少足够强的直接证据、有效锚点、实质性条款角色或正式效力，不宜直接定性。"
@@ -700,6 +706,7 @@ def _resolve_review_point_evidence(
     quote_cluster = _build_formal_evidence_cluster(point.title, ranked, report_text, section_hint)
     raw_quote = primary.quote.strip()
     line_quote = clause_window_from_anchor(report_text, section_hint)
+    resolved_quote = ""
 
     if raw_quote and " / " in raw_quote:
         parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
@@ -709,37 +716,35 @@ def _resolve_review_point_evidence(
             if matched:
                 supplemental.append(matched)
         if supplemental:
-            return section_hint, "；".join(dict.fromkeys(supplemental))
+            resolved_quote = "；".join(dict.fromkeys(supplemental))
 
-    if table_quote and family_key in {"scoring", "score_weight"}:
-        return section_hint, table_quote
+    if not resolved_quote and table_quote and family_key in {"scoring", "score_weight"}:
+        resolved_quote = table_quote
 
-    if family_key in {"scoring", "score_weight"}:
+    if not resolved_quote and family_key in {"scoring", "score_weight"}:
         scoring_row = _reconstruct_scoring_row_window(
             quote_cluster or line_quote or raw_quote,
             point.title,
         )
         if scoring_row and evidence_supports_title(point.title, scoring_row):
-            return section_hint, scoring_row
+            resolved_quote = scoring_row
 
-    if family_key == "personnel":
+    if not resolved_quote and family_key == "personnel":
         if quote_cluster and evidence_supports_title(point.title, quote_cluster):
-            return section_hint, quote_cluster
-        if line_quote and evidence_supports_title(point.title, line_quote):
-            return section_hint, line_quote
-        return section_hint, "当前自动抽取未定位到可直接引用的原文。"
+            resolved_quote = quote_cluster
+        elif line_quote and evidence_supports_title(point.title, line_quote):
+            resolved_quote = line_quote
 
-    if quote_cluster:
-        return section_hint, quote_cluster
+    if not resolved_quote and quote_cluster:
+        resolved_quote = quote_cluster
 
-    if raw_quote and " / " in raw_quote:
-        parts = [part.strip() for part in raw_quote.split("/") if part.strip()]
-        supplemental = [matched for part in parts if (matched := search_line_by_keyword(report_text, part, prefer_window=True))]
-        if supplemental:
-            return section_hint, "；".join(dict.fromkeys(supplemental))
-    if raw_quote:
-        return section_hint, raw_quote
-    return section_hint, "当前自动抽取未定位到可直接引用的原文。"
+    if not resolved_quote and raw_quote:
+        resolved_quote = raw_quote
+
+    if not resolved_quote:
+        resolved_quote = "当前自动抽取未定位到可直接引用的原文。"
+
+    return section_hint, _sanitize_formal_quote(point.title, resolved_quote)
 
 
 def _find_table_row_quote(
@@ -784,7 +789,9 @@ def _find_table_row_quote(
 
 
 def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text: str) -> list[Evidence]:
-    def score(item: Evidence) -> tuple[int, int, int]:
+    family_key = _formal_family_key(title)
+
+    def score(item: Evidence) -> tuple[int, int, int, int, int]:
         quote = item.quote.strip()
         line_quote = clause_window_from_anchor(report_text, item.section_hint) or line_text_from_anchor(report_text, item.section_hint) or quote
         text = f"{quote} {line_quote}"
@@ -795,6 +802,7 @@ def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text:
             title_score += 8
         elif line_support:
             title_score += 3
+        title_score -= _formal_noise_penalty(text, family_key)
         if title in {"方案评分量化不足", "评分分档主观性与量化充分性复核"}:
             if any(token in text for token in ["完全满足且优于", "完全满足项目要求", "不完全满足项目要求", "缺陷", "扣分"]):
                 title_score += 3
@@ -859,7 +867,7 @@ def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text:
             1 if raw_support else 0,
             1 if line_support else 0,
             1 if item.section_hint and item.section_hint.startswith("line:") else 0,
-            len(quote),
+            -len(quote),
         )
 
     return sorted(evidence, key=score, reverse=True)
@@ -879,6 +887,8 @@ def _build_formal_evidence_cluster(
                 continue
         line_quote = clause_window_from_anchor(report_text, item.section_hint) or line_text_from_anchor(report_text, item.section_hint) or item.quote.strip()
         if not line_quote:
+            continue
+        if _formal_quote_is_noise_like(line_quote, family_key):
             continue
         if cluster and line_quote in cluster:
             continue
@@ -1081,11 +1091,94 @@ def _review_point_zones_are_weak_only(
 ) -> bool:
     matched = _resolve_point_matched_clauses(point, extracted_clauses, quote)
     if not matched:
-        return False
+        return _formal_quote_is_noise_like(quote, _formal_family_key(point.title))
     weak_zones = {
         SemanticZoneType.template,
         SemanticZoneType.appendix_reference,
         SemanticZoneType.catalog_or_navigation,
         SemanticZoneType.public_copy_or_noise,
     }
-    return all(clause.semantic_zone in weak_zones for clause in matched)
+    return all(clause.semantic_zone in weak_zones for clause in matched) or _formal_quote_is_noise_like(
+        quote,
+        _formal_family_key(point.title),
+    )
+
+
+def _sanitize_formal_quote(title: str, quote: str) -> str:
+    family_key = _formal_family_key(title)
+    if quote and not _formal_quote_is_noise_like(quote, family_key):
+        return quote
+    return "当前自动抽取未定位到可直接引用的原文。"
+
+
+def _formal_quote_is_noise_like(quote: str, family_key: str) -> bool:
+    normalized = re.sub(r"\s+", " ", quote).strip()
+    if not normalized:
+        return True
+    if normalized == "当前自动抽取未定位到可直接引用的原文。":
+        return True
+    if _formal_quote_is_legal_citation(normalized):
+        return True
+    if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    return False
+
+
+def _formal_noise_penalty(text: str, family_key: str) -> int:
+    penalty = 0
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return 8
+    if _formal_quote_is_legal_citation(normalized):
+        penalty += 8
+    if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        penalty += 6
+    if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        penalty += 4
+    if family_key not in {"scoring", "score_weight"} and len(normalized) > 140:
+        penalty += 2
+    return penalty
+
+
+def _formal_quote_is_legal_citation(text: str) -> bool:
+    return bool(
+        ("《" in text and "》" in text and "第" in text and "条" in text)
+        or re.search(r"^\s*[一二三四五六七八九十0-9]+、《", text)
+        or ("依据" in text and "第" in text and "条" in text)
+    )
+
+
+def _formal_quote_is_table_splice(text: str) -> bool:
+    if text.count("|") >= 2 or text.count(" | ") >= 2:
+        return True
+    numeric_tokens = re.findall(r"\d+", text)
+    return len(text) >= 80 and len(numeric_tokens) >= 4 and any(
+        token in text for token in ["项目名称", "品目", "规格", "数量", "单价", "分值", "教工宿舍", "拒绝进口"]
+    )
+
+
+def _formal_quote_is_list_splice(text: str) -> bool:
+    separator_count = text.count("；") + text.count(";")
+    return len(text) >= 100 and separator_count >= 3
+
+
+def _formal_family_key(title: str) -> str:
+    if any(token in title for token in ["方案评分", "评分分档", "评分量化"]):
+        return "scoring"
+    if any(token in title for token in ["证书", "检测报告", "财务指标"]):
+        return "score_weight"
+    if any(token in title for token in ["中小企业", "价格扣除", "采购金额口径"]):
+        return "policy"
+    if any(token in title for token in ["项目属性", "合同类型", "持续性作业服务", "采购内容"]):
+        return "structure"
+    if any(token in title for token in ["模板", "成果", "验收标准", "质保", "保修"]):
+        return "contract"
+    if any(token in title for token in ["团队稳定", "人员更换", "采购人批准更换", "采购人审批录用", "容貌体形", "身高限制", "性别限制", "年龄限制"]):
+        return "personnel"
+    if any(token in title for token in ["专利"]):
+        return "restrictive"
+    if any(token in title for token in ["模板残留", "成果模板"]):
+        return "template"
+    return "generic"
