@@ -8,6 +8,7 @@ from .adjudication import (
     build_point_applicability_checks,
     build_point_quality_gates,
     build_review_point_catalog_snapshot,
+    build_review_points_from_instances,
     build_review_points_from_task_library,
     build_review_points_from_consistency_checks,
     build_review_points_from_findings,
@@ -358,6 +359,7 @@ class ReviewPipeline:
             state.normalized_text,
             state.extracted_clauses,
             document_profile=state.document_profile,
+            review_point_instances=state.review_point_instances,
         )
         state.review_points.extend(planned_points)
         state.review_planning_contract = _build_review_planning_contract(
@@ -542,6 +544,12 @@ class ReviewPipeline:
         )
 
     def _stage_review_point_assembly(self, state: ReviewPipelineState) -> None:
+        state.review_points.extend(
+            build_review_points_from_instances(
+                state.review_point_instances,
+                state.legal_fact_candidates,
+            )
+        )
         state.review_points = annotate_review_points(merge_review_points(state.review_points))
         state.review_point_catalog = build_review_point_catalog_snapshot(
             state.review_points,

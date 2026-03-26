@@ -12,7 +12,7 @@ from .models import (
     ReviewPoint,
     ReviewPointInstance,
 )
-from .review_point_catalog import resolve_review_point_definition
+from .review_point_catalog import get_review_point_definition_by_catalog_id, resolve_review_point_definition
 from .ontology import ConstraintType, EffectTag, LegalEffectType, LegalPrincipleTag, RestrictionAxis, SemanticZoneType
 
 
@@ -33,7 +33,11 @@ def build_applicability_checks(
         if item.point_id.strip()
     }
     for point in review_points:
-        definition = resolve_review_point_definition(point.title, point.dimension, point.severity)
+        definition = get_review_point_definition_by_catalog_id(point.catalog_id) or resolve_review_point_definition(
+            point.title,
+            point.dimension,
+            point.severity,
+        )
         instance = instance_index.get(definition.catalog_id)
         haystack = _build_haystack(point, clause_mapping)
         effective_haystack = _build_haystack(point, effective_mapping)

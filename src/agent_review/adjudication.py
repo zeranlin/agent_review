@@ -58,11 +58,13 @@ def build_review_points_from_task_library(
     report_text: str,
     extracted_clauses: list[ExtractedClause],
     document_profile: DocumentProfile | None = None,
+    review_point_instances: list[ReviewPointInstance] | None = None,
 ) -> list[ReviewPoint]:
     task_definitions = select_standard_review_tasks(
         report_text,
         extracted_clauses,
         document_profile=document_profile,
+        review_point_instances=review_point_instances,
     )
     review_points: list[ReviewPoint] = []
     for index, definition in enumerate(task_definitions, start=1):
@@ -79,6 +81,69 @@ def build_review_points_from_task_library(
                 evidence_bundle=evidence_bundle,
                 legal_basis=[],
                 source_findings=[f"task_library:{definition.catalog_id}"],
+            )
+        )
+    return review_points
+
+
+def build_review_points_from_instances(
+    review_point_instances: list[ReviewPointInstance],
+    legal_fact_candidates: list,
+) -> list[ReviewPoint]:
+    fact_index = {item.fact_id: item for item in legal_fact_candidates}
+    review_points: list[ReviewPoint] = []
+    for index, instance in enumerate(review_point_instances, start=1):
+        contract = get_review_point_contract(instance.point_id)
+        if contract is None:
+            continue
+        evidence = []
+        for fact_id in instance.supporting_fact_ids[:3]:
+            fact = fact_index.get(fact_id)
+            if fact is None or not fact.object_text.strip():
+                continue
+            evidence.append(
+                Evidence(
+                    quote=fact.object_text,
+                    section_hint=str(fact.anchor.get("line_hint") or fact.anchor.get("block_no") or fact.source_unit_id),
+                )
+            )
+        if not evidence:
+            continue
+        bindings = list_bindings_for_point(instance.point_id)
+        legal_basis = [
+            LegalBasis(
+                source_name=item.doc_title,
+                article_hint=item.article_label,
+                summary=item.legal_proposition or item.reasoning_template,
+                basis_type=item.norm_level,
+            )
+            for item in bindings
+            if item.doc_title.strip()
+        ]
+        severity = Severity.high if contract.severity_policy in {"high", "critical"} else Severity.medium
+        rationale = contract.description or contract.legal_theme or instance.summary
+        review_points.append(
+            ReviewPoint(
+                point_id=f"RPI-POINT-{index:03d}",
+                catalog_id=instance.point_id,
+                title=contract.title,
+                dimension=contract.report_group or "法理审查实例",
+                severity=severity,
+                status=ReviewPointStatus.confirmed if instance.confidence >= 0.75 else ReviewPointStatus.suspected,
+                rationale=rationale,
+                evidence_bundle=EvidenceBundle(
+                    direct_evidence=evidence[:1],
+                    supporting_evidence=evidence[1:3],
+                    conflicting_evidence=[],
+                    rebuttal_evidence=[],
+                    missing_evidence_notes=[],
+                    sufficiency_summary=instance.summary or "由规则命中与法律事实支撑。",
+                    clause_roles=[],
+                    evidence_level=EvidenceLevel.strong if instance.confidence >= 0.8 else EvidenceLevel.moderate,
+                    evidence_score=round(instance.confidence, 3),
+                ),
+                legal_basis=legal_basis,
+                source_findings=[f"review_point_instance:{instance.point_id}", *(f"rule_hit:{item}" for item in instance.matched_rule_ids)],
             )
         )
     return review_points
@@ -239,7 +304,7 @@ def merge_review_points(review_points: Iterable[ReviewPoint]) -> list[ReviewPoin
         merged.append(
             ReviewPoint(
                 point_id=f"RP-{index:03d}",
-                catalog_id=resolve_review_point_definition(
+                catalog_id=primary.catalog_id or resolve_review_point_definition(
                     primary.title,
                     primary.dimension,
                     primary.severity,

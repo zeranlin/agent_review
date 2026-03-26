@@ -110,6 +110,10 @@ def render_reviewer_report(report: ReviewReport) -> str:
     enhancement_status = _build_llm_enhancement_status(report)
     if enhancement_status:
         lines.append(f"LLM增强状态：{enhancement_status}")
+    if report.parse_result.rule_hits or report.parse_result.review_point_instances:
+        lines.append(
+            f"新链摘要：RuleHit {len(report.parse_result.rule_hits)} 条，ReviewPointInstance {len(report.parse_result.review_point_instances)} 个。"
+        )
     lines.append("")
 
     if not issue_entries:
@@ -311,6 +315,22 @@ def render_markdown(report: ReviewReport) -> str:
         for item in report.review_points[:10]:
             lines.append(
                 f"- {item.point_id} [{item.catalog_id}] {item.title}: {item.status.value}，{item.evidence_bundle.sufficiency_summary}"
+            )
+        lines.append("")
+
+    if report.parse_result.rule_hits:
+        lines.append("## RuleHit")
+        for item in report.parse_result.rule_hits[:10]:
+            lines.append(
+                f"- {item.hit_id} [{item.rule_id}] -> {item.point_id}: {','.join(item.trigger_reasons[:3])}"
+            )
+        lines.append("")
+
+    if report.parse_result.review_point_instances:
+        lines.append("## ReviewPointInstance")
+        for item in report.parse_result.review_point_instances[:10]:
+            lines.append(
+                f"- {item.instance_id} [{item.point_id}] {item.title}: {item.summary}"
             )
         lines.append("")
 

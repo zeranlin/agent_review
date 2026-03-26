@@ -5,6 +5,7 @@ import re
 
 from .domain_profiles import build_document_profile, profile_activation_tags
 from .models import ClauseRole, DocumentProfile, ExtractedClause, ReviewPoint, ReviewPointCondition, ReviewPointDefinition, Severity
+from .review_point_contract_registry import list_review_point_contracts
 from .ontology import ClauseSemanticType, EffectTag, SemanticZoneType
 
 
@@ -1118,6 +1119,14 @@ def resolve_review_point_definition(title: str, dimension: str, severity: Severi
     ))
 
 
+def get_review_point_definition_by_catalog_id(catalog_id: str) -> ReviewPointDefinition | None:
+    normalized = catalog_id.strip()
+    for item in CATALOG:
+        if item.catalog_id == normalized:
+            return _enrich_definition_metadata(item)
+    return None
+
+
 def definition_required_fields(definition: ReviewPointDefinition) -> list[str]:
     derived_fields = [
         field
@@ -1204,6 +1213,7 @@ def select_standard_review_tasks(
     extracted_clauses: list[ExtractedClause],
     *,
     document_profile: DocumentProfile | None = None,
+    review_point_instances: list[object] | None = None,
 ) -> list[ReviewPointDefinition]:
     routing_profile = document_profile or build_document_profile(text, extracted_clauses)
     active_tags = build_active_task_tags(text, extracted_clauses, document_profile=routing_profile)
@@ -1222,6 +1232,16 @@ def select_standard_review_tasks(
         ):
             candidates.append(definition)
             seen.add(definition.catalog_id)
+    for definition in _contract_selected_task_definitions(
+        document_profile=routing_profile,
+        active_tags=active_tags,
+        present_fields=present_fields,
+        review_point_instances=review_point_instances or [],
+    ):
+        if definition.catalog_id in seen:
+            continue
+        seen.add(definition.catalog_id)
+        candidates.append(definition)
     return _order_and_filter_task_definitions(
         candidates,
         active_tags=active_tags,
@@ -1357,6 +1377,51 @@ def _suppressed_families_for_selection(
     if _has_competition_override_support(active_tags, present_fields):
         suppressed.discard("competition")
     return suppressed
+
+
+def _contract_selected_task_definitions(
+    *,
+    document_profile: DocumentProfile,
+    active_tags: set[str],
+    present_fields: set[str],
+    review_point_instances: list[object],
+) -> list[ReviewPointDefinition]:
+    instance_ids = {
+        str(getattr(item, "point_id", "")).strip()
+        for item in review_point_instances
+        if str(getattr(item, "point_id", "")).strip()
+    }
+    definitions: list[ReviewPointDefinition] = []
+    for contract in list_review_point_contracts():
+        if contract.point_id not in instance_ids and not set(contract.required_fields) & present_fields:
+            continue
+        if contract.applicable_procurement_kinds and document_profile.procurement_kind not in {
+            *contract.applicable_procurement_kinds,
+            "unknown",
+        }:
+            continue
+        scenario_tags = _ordered_unique(
+            [
+                *(tag for tag in active_tags if tag in {"qualification", "scoring", "contract", "structure", "consistency"}),
+                contract.risk_family,
+            ]
+        )
+        definitions.append(
+            ReviewPointDefinition(
+                catalog_id=contract.point_id,
+                title=contract.title,
+                dimension=contract.report_group or "法理审查实例",
+                default_severity=Severity.high if contract.severity_policy in {"high", "critical"} else Severity.medium,
+                task_type="contract_driven",
+                risk_family=contract.risk_family,
+                target_zones=list(contract.target_zone_types),
+                required_fields=list(contract.required_fields),
+                scenario_tags=scenario_tags,
+                enhancement_fields=list(contract.enhancement_fields),
+                basis_hint=contract.description or contract.legal_theme,
+            )
+        )
+    return definitions
 
 
 def _definition_can_override_suppression(

@@ -435,6 +435,22 @@ def test_legal_fact_candidates_can_generate_rule_hits_and_review_point_instances
     assert any(item.point_id == "RP-SCORE-005" for item in instances)
 
 
+def test_high_frequency_instances_can_generate_review_points() -> None:
+    text = """
+    合同条款：
+    验收时以采购人最终解释为准。
+    评分标准：
+    投标人具有有效的ITSS证书得5分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="instance_to_review_point_demo.txt")
+    point_map = {item.catalog_id: item for item in report.review_points}
+
+    assert "RP-CONTRACT-009" in point_map
+    assert "RP-SCORE-005" in point_map
+    assert any(source.startswith("review_point_instance:RP-CONTRACT-009") for source in point_map["RP-CONTRACT-009"].source_findings)
+    assert point_map["RP-CONTRACT-009"].legal_basis
+
+
 def test_review_point_instances_enrich_applicability_checks() -> None:
     text = """
     申请人的资格要求：
