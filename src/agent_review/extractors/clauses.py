@@ -1161,6 +1161,40 @@ def _expert_review_extractor(lines: list[str]) -> ExtractedClause | None:
     return None
 
 
+def _qualification_gate_extractor(lines: list[str]) -> ExtractedClause | None:
+    gate_terms = [
+        "科技型中小企业",
+        "高新技术企业",
+        "纳税信用",
+        "成立满",
+        "成立时间满",
+        "同类项目业绩",
+        "业绩不少于",
+    ]
+    requirement_terms = ["须为", "须具备", "须提供", "应具备", "应提供", "需提供", "不得少于"]
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        if not any(term in line for term in gate_terms):
+            continue
+        if not any(term in line for term in requirement_terms):
+            continue
+        anchors.append(line_no)
+        matched_lines.append(line[:180])
+        if len(matched_lines) >= 8:
+            break
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:1200],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["资格门槛明细"],
+    )
+
+
 def _technical_service_verifiability_extractor(lines: list[str]) -> ExtractedClause | None:
     vague_terms = [
         "满足采购人要求",
@@ -1339,25 +1373,69 @@ def _service_content_extractor(lines: list[str]) -> ExtractedClause | None:
 
 
 def _industry_mismatch_scoring_extractor(lines: list[str]) -> ExtractedClause | None:
-    mismatch_terms = ["软件企业认定证书", "ITSS", "运行维护服务证书", "利润率", "财务报告"]
+    mismatch_terms = [
+        "软件企业认定证书",
+        "ITSS",
+        "运行维护服务证书",
+        "利润率",
+        "财务报告",
+        "人力资源测评师",
+        "非金属矿采矿许可证",
+        "采矿许可证",
+    ]
     anchors: list[int] = []
     matched_lines: list[str] = []
     matched_terms: list[str] = []
+    boundary_tokens = ["合同条款", "验收条款", "付款", "一般资格要求", "资格要求", "技术要求", "商务要求"]
+    scoring_tokens = ["分", "评分", "评审", "得分", "证书", "财务报告", "利润率", "评分标准", "专家打分", "详细评审", "履约能力"]
     for line_no, line in enumerate(lines, start=1):
         matched = [term for term in mismatch_terms if term in line]
         if not matched:
             continue
-        if not any(token in line for token in ["分", "评分", "评审", "得分", "证书", "财务报告", "利润率"]):
+        context_window = " ".join(lines[max(0, line_no - 3): min(len(lines), line_no + 2)])
+        if not any(token in f"{line} {context_window}" for token in scoring_tokens):
             continue
         anchors.append(line_no)
         matched_lines.append(line[:80])
         matched_terms.extend(matched)
     if not anchors:
         return None
+    start_index = anchors[0] - 1
+    if start_index > 0 and any(token in lines[start_index - 1] for token in ["评分标准", "评分项", "详细评审", "履约能力"]):
+        start_index -= 1
+    selected: list[str] = []
+    fragment_bridge_mode = anchors[-1] - anchors[0] >= 2
+    for idx in range(start_index, min(len(lines), anchors[-1] + 1)):
+        line = lines[idx].strip()
+        if not line:
+            if selected:
+                break
+            continue
+        if any(token in line for token in boundary_tokens):
+            if selected:
+                break
+            continue
+        if (
+            selected
+            and not any(token in line for token in scoring_tokens + mismatch_terms)
+            and not (fragment_bridge_mode and (idx + 1) < anchors[-1])
+        ):
+            break
+        selected.append(line)
+    ordered_selected = list(dict.fromkeys(selected or matched_lines))
+    if any(
+        len(line.strip()) <= 12
+        or line.strip().startswith(("的", "及", "、", "（", "(", ",", "，", "）", ")", "须", "由"))
+        or not line.strip().endswith(("。", "；", "!", "！", "?", "？", "：", ":", "）", ")"))
+        for line in ordered_selected
+    ):
+        content = re.sub(r"\s+", " ", "".join(line.strip() for line in ordered_selected if line.strip())).strip()[:320]
+    else:
+        content = "；".join(ordered_selected)[:320]
     return ExtractedClause(
         category="",
         field_name="",
-        content="；".join(dict.fromkeys(matched_lines))[:320],
+        content=content,
         source_anchor=f"line:{anchors[0]}",
         normalized_value=";".join(dict.fromkeys(matched_terms)),
         relation_tags=["行业相关性存疑评分项", *dict.fromkeys(matched_terms)],
@@ -1715,6 +1793,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("项目基本信息", "专家论证结论", _expert_review_extractor),
     ("资格条款", "一般资格要求", _window_keyword_extractor(["资格要求", "供应商资格"], after=8)),
     ("资格条款", "特定资格要求", _window_keyword_extractor(["特定资格要求", "资质要求"], after=12)),
+    ("资格条款", "资格门槛明细", _qualification_gate_extractor),
     ("资格条款", "资格条件明细", _qualification_detail_extractor),
     ("资格条款", "信用要求", _simple_keyword_extractor(["信用要求"])),
     ("资格条款", "是否允许联合体", _allowance_extractor(["联合体"], ["不接受联合体", "不允许联合体"], ["允许联合体", "接受联合体"])),

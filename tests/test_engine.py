@@ -259,6 +259,41 @@ def test_review_text_surfaces_evidence_source_and_policy_consistency_risks() -> 
     assert "评分因素可能与采购标的和履约能力关联不足" in formal_titles
 
 
+def test_review_text_surfaces_qualification_gate_cluster_and_repeating_performance_gate() -> None:
+    text = """
+    本项目非专门面向中小企业采购。
+    申请人的资格要求：
+    投标人须为全国科技型中小企业；
+    投标人须具备高新技术企业证书；
+    投标人须提供纳税信用A级证明；
+    投标人须成立满5年以上；
+    投标人须具备广州市医疗器械行业同类项目业绩不少于2个。
+    评分标准：
+    提供外科医疗机械人同类业绩，提供3个得100分，提供2个得60分，提供1个得30分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification_cluster_demo.txt")
+    formal_map = {item.catalog_id: item for item in report.formal_adjudication}
+
+    assert formal_map["RP-QUAL-003"].included_in_formal is True
+    assert formal_map["RP-QUAL-004"].included_in_formal is True
+    assert "全国科技型中小企业" in formal_map["RP-QUAL-003"].primary_quote
+    assert "广州市医疗器械行业同类项目业绩不少于2个" in formal_map["RP-QUAL-004"].primary_quote
+
+
+def test_review_text_prefers_designated_institution_quote_for_evidence_source_restriction() -> None:
+    text = """
+    技术要求：
+    投标人须提供深圳市医疗器械检测中心出具的产品检测报告。
+    评分标准：
+    投标人须提供具有CMA标识的医疗器械检测报告。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="evidence_source_demo.txt")
+    formal_map = {item.catalog_id: item for item in report.formal_adjudication}
+
+    assert formal_map["RP-EVID-001"].included_in_formal is True
+    assert "深圳市医疗器械检测中心" in formal_map["RP-EVID-001"].primary_quote
+
+
 def test_review_task_planning_exposes_a_clear_contract_for_unknown_documents() -> None:
     text = """
     目录

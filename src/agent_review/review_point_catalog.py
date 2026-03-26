@@ -512,7 +512,7 @@ CATALOG: list[ReviewPointDefinition] = [
         catalog_id="RP-CONTRACT-010",
         title="货物保修表述与项目实际履约内容不匹配",
         dimension="合同与履约风险",
-        default_severity=Severity.medium,
+        default_severity=Severity.high,
         scenario_tags=["contract", "structure"],
         required_conditions=[
             ReviewPointCondition("项目属性为货物", clause_fields=["项目属性"], signal_groups=[["货物"]]),

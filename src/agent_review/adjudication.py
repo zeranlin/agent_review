@@ -309,6 +309,7 @@ def build_formal_adjudication(
             point,
             report_text,
             parse_tables or [],
+            extracted_clauses,
         )
         family_key = _formal_family_key(point.title)
         noise_like_quote = _formal_quote_is_noise_like(quote, family_key)
@@ -696,12 +697,31 @@ def _resolve_review_point_evidence(
     point: ReviewPoint,
     report_text: str,
     parse_tables: list[ParsedTable],
+    extracted_clauses: list[ExtractedClause],
 ) -> tuple[str, str]:
     evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
     if not evidence:
         return "未明确定位", "当前自动抽取未定位到可直接引用的原文。"
 
     family_key = _formal_family_key(point.title)
+    matched_clauses = _resolve_point_matched_clauses(point, extracted_clauses, "")
+    clause_candidate = _best_clause_quote_for_formal(point.title, matched_clauses, report_text)
+    if clause_candidate is not None:
+        section_hint = clause_candidate.source_anchor or "未明确定位"
+        qualification_cluster = _build_qualification_gate_cluster(point.title, matched_clauses, report_text)
+        if qualification_cluster and not _formal_quote_is_noise_like(qualification_cluster, family_key):
+            return section_hint, _sanitize_formal_quote(point.title, qualification_cluster)
+        line_quote = clause_window_from_anchor(report_text, section_hint)
+        content_quote = clause_candidate.content or ""
+        if content_quote and evidence_supports_title(point.title, content_quote) and (
+            not line_quote or len(content_quote) <= len(line_quote) or _formal_quote_is_noise_like(line_quote, family_key)
+        ):
+            clause_quote = content_quote
+        else:
+            clause_quote = line_quote or content_quote
+        if clause_quote and not _formal_quote_is_noise_like(clause_quote, family_key):
+            return section_hint, _sanitize_formal_quote(point.title, clause_quote)
+
     table_quote = ""
     if family_key in {"scoring", "score_weight"}:
         table_quote = _find_table_row_quote(point.title, evidence, parse_tables)
@@ -922,7 +942,113 @@ def _build_formal_evidence_cluster(
     return ""
 
 
+def _best_clause_quote_for_formal(
+    title: str,
+    clauses: list[ExtractedClause],
+    report_text: str,
+) -> ExtractedClause | None:
+    if not clauses:
+        return None
+    family_key = _formal_family_key(title)
+    candidates = []
+    for clause in clauses:
+        line_quote = clause_window_from_anchor(report_text, clause.source_anchor)
+        quote = ""
+        if line_quote and not _formal_quote_is_noise_like(line_quote, family_key) and evidence_supports_title(title, line_quote):
+            quote = line_quote
+        elif clause.content and not _formal_quote_is_noise_like(clause.content, family_key) and evidence_supports_title(title, clause.content):
+            quote = clause.content
+        if not quote:
+            continue
+        candidates.append(clause)
+    if not candidates:
+        return None
+    if family_key == "qualification":
+        candidates.sort(key=lambda clause: _qualification_clause_priority_for_formal(title, clause))
+    else:
+        candidates.sort(key=_matched_clause_priority)
+    return candidates[0]
+
+
+def _qualification_clause_priority_for_formal(
+    title: str,
+    clause: ExtractedClause,
+) -> tuple[int, int, int, int, int, int, int]:
+    constraint_values = {item.value for item in clause.clause_constraint.constraint_types}
+    return (
+        0 if clause.semantic_zone == SemanticZoneType.qualification else 1,
+        0 if clause.field_name == "资格门槛明细" else 1,
+        0
+        if (
+            "资格业绩要求" in title
+            and "performance_experience" in constraint_values
+            and "同类业绩" in clause.content
+        )
+        else 1,
+        0
+        if (
+            "资格业绩要求" in title
+            and (clause.clause_constraint.region_tokens or clause.clause_constraint.industry_tokens)
+        )
+        else 1,
+        0
+        if (
+            "资格条件可能缺乏履约必要性或带有歧视性门槛" in title
+            and constraint_values & {"certification", "credit_rating", "establishment_age"}
+        )
+        else 1,
+        0 if clause.source_anchor.startswith("line:") else 1,
+        len(clause.content),
+    )
+
+
+def _build_qualification_gate_cluster(
+    title: str,
+    clauses: list[ExtractedClause],
+    report_text: str,
+) -> str:
+    if title != "资格条件可能缺乏履约必要性或带有歧视性门槛":
+        return ""
+    ordered = sorted(clauses, key=lambda clause: _qualification_clause_priority_for_formal(title, clause))
+    entity_clause = next(
+        (
+            clause
+            for clause in ordered
+            if any(item.value == "entity_identity" for item in clause.clause_constraint.constraint_types)
+        ),
+        None,
+    )
+    gate_clause = next(
+        (
+            clause
+            for clause in ordered
+            if any(
+                item.value in {"certification", "credit_rating", "establishment_age"}
+                for item in clause.clause_constraint.constraint_types
+            )
+        ),
+        None,
+    )
+    preferred = [clause for clause in [entity_clause, gate_clause] if clause is not None]
+    if preferred:
+        ordered = [*preferred, *[clause for clause in ordered if clause not in preferred]]
+    fragments: list[str] = []
+    for clause in ordered[:4]:
+        quote = clause.content or clause_window_from_anchor(report_text, clause.source_anchor)
+        if not quote or _formal_quote_is_noise_like(quote, "qualification"):
+            continue
+        if quote in fragments:
+            continue
+        fragments.append(quote)
+        candidate = "；".join(fragments)
+        if len(fragments) >= 2 and evidence_supports_title(title, candidate):
+            return candidate
+    return ""
+
+
 def _formal_family_key(title: str) -> str:
+    if any(token in title for token in ["资格条件", "资格业绩", "证明材料来源", "政策适用口径"]):
+        return "qualification"
     if any(token in title for token in ["方案评分", "评分分档", "评分量化"]):
         return "scoring"
     if any(token in title for token in ["证书", "检测报告", "财务指标"]):
@@ -932,6 +1058,8 @@ def _formal_family_key(title: str) -> str:
     if any(token in title for token in ["项目属性", "合同类型", "持续性作业服务", "采购内容"]):
         return "structure"
     if any(token in title for token in ["模板", "成果", "验收标准", "质保", "保修"]):
+        return "contract"
+    if any(token in title for token in ["扣款", "解约", "违约责任", "付款", "满意度", "考核"]):
         return "contract"
     if any(token in title for token in ["团队稳定", "人员更换", "采购人批准更换", "采购人审批录用", "容貌体形", "身高限制", "性别限制", "年龄限制"]):
         return "personnel"
@@ -944,6 +1072,8 @@ def _formal_family_key(title: str) -> str:
 
 def _formal_family_tokens(title: str) -> list[str]:
     family = _formal_family_key(title)
+    if family == "qualification":
+        return ["资格", "投标人", "科技型中小企业", "高新技术企业", "纳税信用", "成立满", "同类业绩", "检测中心", "检测报告"]
     if family == "scoring":
         return ["评分", "方案", "售后", "优于", "完全满足", "不完全满足", "扣分"]
     if family == "score_weight":
@@ -953,7 +1083,7 @@ def _formal_family_tokens(title: str) -> list[str]:
     if family == "structure":
         return ["项目属性", "项目所属分类", "合同类型", "承揽合同", "人工管护", "货物", "服务"]
     if family == "contract":
-        return ["项目成果", "研究成果", "技术文档", "优胜原则", "验收", "质保", "保修"]
+        return ["项目成果", "研究成果", "技术文档", "优胜原则", "验收", "质保", "保修", "付款", "尾款", "考核", "满意度", "扣款", "解约", "违约"]
     if family == "personnel":
         return ["团队稳定", "人员更换", "采购人同意", "采购人批准", "关键岗位", "团队成员"]
     return []
@@ -1080,9 +1210,13 @@ def _resolve_point_matched_clauses(
     extracted_clauses: list[ExtractedClause],
     quote: str,
 ) -> list[ExtractedClause]:
+    direct_evidence = list(point.evidence_bundle.direct_evidence)
+    supporting_evidence = list(point.evidence_bundle.supporting_evidence)
+    direct_anchors = {item.section_hint for item in direct_evidence if item.section_hint}
+    direct_quotes = {item.quote for item in direct_evidence if item.quote}
     anchors = {
         item.section_hint
-        for item in (point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence)
+        for item in (direct_evidence + supporting_evidence)
         if item.section_hint
     }
     matched = [
@@ -1094,7 +1228,20 @@ def _resolve_point_matched_clauses(
             and (clause.content == quote or quote in clause.content or clause.content in quote)
         )
     ]
-    matched.sort(key=_matched_clause_priority)
+    matched.sort(
+        key=lambda clause: (
+            0 if clause.source_anchor in direct_anchors else 1,
+            0
+            if any(
+                direct_quote == clause.content
+                or direct_quote in clause.content
+                or clause.content in direct_quote
+                for direct_quote in direct_quotes
+            )
+            else 1,
+            *_matched_clause_priority(clause),
+        )
+    )
     return matched
 
 
@@ -1156,9 +1303,18 @@ def _formal_quote_is_noise_like(quote: str, family_key: str) -> bool:
         return True
     if _formal_quote_is_template_noise(normalized):
         return True
-    if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+    if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification"}:
         return True
-    if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+    if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification"}:
+        return True
+    if family_key == "contract" and not any(
+        token in normalized for token in ["付款", "支付", "尾款", "验收", "考核", "满意度", "扣款", "违约", "解约", "解除合同", "质保", "保修"]
+    ):
+        return True
+    if family_key == "qualification" and not any(
+        token in normalized
+        for token in ["投标人", "资格", "科技型中小企业", "高新技术企业", "纳税信用", "成立满", "同类业绩", "检测中心", "检测报告"]
+    ):
         return True
     return False
 
@@ -1251,6 +1407,8 @@ def _formal_quote_is_list_splice(text: str) -> bool:
 
 
 def _formal_family_key(title: str) -> str:
+    if any(token in title for token in ["资格条件", "资格业绩", "证明材料来源", "政策适用口径"]):
+        return "qualification"
     if any(token in title for token in ["方案评分", "评分分档", "评分量化"]):
         return "scoring"
     if any(token in title for token in ["证书", "检测报告", "财务指标"]):

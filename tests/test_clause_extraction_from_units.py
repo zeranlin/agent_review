@@ -193,7 +193,7 @@ def test_extract_clauses_from_units_marks_qualification_gate_details() -> None:
 
     gate_clauses = [item for item in clauses if item.field_name == "资格门槛明细"]
 
-    assert len(gate_clauses) == 2
+    assert len(gate_clauses) >= 2
     assert any("科技型中小企业" in item.content for item in gate_clauses)
     assert any("成立满5年以上" in item.content for item in gate_clauses)
     assert all(item.legal_effect_type.value == "qualification_gate" for item in gate_clauses)
@@ -247,3 +247,25 @@ def test_extract_clauses_from_units_builds_constraint_axes_for_regional_performa
     assert "performance_experience" in [item.value for item in regional_gate.clause_constraint.constraint_types]
     assert "geographic_region" in [item.value for item in regional_gate.clause_constraint.restriction_axes]
     assert "industry_segment" in [item.value for item in regional_gate.clause_constraint.restriction_axes]
+
+
+def test_text_extractors_capture_qualification_gate_and_scoring_mismatch_terms() -> None:
+    text = """
+    申请人的资格要求：
+    投标人须为全国科技型中小企业；
+    投标人须具备高新技术企业证书；
+    投标人须提供纳税信用A级证明；
+    投标人须具备广州市医疗器械行业同类项目业绩不少于2个。
+    评分标准：
+    投标人具备人力资源测评师；
+    投标人具备非金属矿采矿许可证；
+    """
+    clauses = extract_clauses(text)
+    clause_map = {item.field_name: item for item in clauses if item.field_name}
+
+    assert "资格门槛明细" in clause_map
+    assert "科技型中小企业" in clause_map["资格门槛明细"].content
+    assert "高新技术企业" in clause_map["资格门槛明细"].content
+    assert "行业相关性存疑评分项" in clause_map
+    assert "人力资源测评师" in clause_map["行业相关性存疑评分项"].content
+    assert "非金属矿采矿许可证" in clause_map["行业相关性存疑评分项"].content

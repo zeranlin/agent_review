@@ -136,6 +136,12 @@ def _assemble_contract_linkage_evidence(
             "验收弹性条款",
         ],
     )
+    relevant = [
+        clause
+        for clause in relevant
+        if _is_strong_contract_clause(clause)
+        or clause.field_name in {"合同类型", "合同成果模板术语", "验收弹性条款"}
+    ]
     if definition.catalog_id != "RP-CONTRACT-011":
         return _assemble_bundle_for_definition(definition, relevant)
 
@@ -521,6 +527,11 @@ def _assemble_qualification_boundary_evidence(
         "认证证书",
         "管理体系认证",
         "检测报告",
+        "科技型中小企业",
+        "高新技术企业",
+        "纳税信用",
+        "成立满",
+        "同类项目业绩",
         "项目负责人",
         "项目经理",
         "项目主管",
@@ -535,7 +546,7 @@ def _assemble_qualification_boundary_evidence(
         "须驻场",
     ]
     cert_tokens = ["资质", "认证", "检测报告", "管理体系", "环境标志", "环保产品"]
-    qualification_fields = ["特定资格要求", "资格条件明细"]
+    qualification_fields = ["资格门槛明细", "特定资格要求", "资格条件明细", "一般资格要求"]
     scoring_fields = ["评分项明细", "行业相关性存疑评分项", "证书检测报告负担特征", "证书类评分总分", "信用评价要求"]
     excluded_qualification_tokens = [
         "政府采购法第二十二条",
@@ -599,6 +610,20 @@ def _assemble_qualification_boundary_evidence(
         direct_scoring = [
             clause for clause in scoring_pool if any(token in clause.content for token in matched_tokens)
         ][:1]
+        if (not direct_qualification or not direct_scoring) and qualification_pool and scoring_pool:
+            performance_qualification = [
+                clause
+                for clause in qualification_pool
+                if any(item.value == "performance_experience" for item in clause.clause_constraint.constraint_types)
+            ]
+            performance_scoring = [
+                clause
+                for clause in scoring_pool
+                if "同类业绩" in clause.content or "业绩" in clause.content
+            ]
+            if performance_qualification and performance_scoring:
+                direct_qualification = direct_qualification or performance_qualification[:1]
+                direct_scoring = direct_scoring or performance_scoring[:1]
         direct_clauses = _dedupe_clauses([*direct_qualification, *direct_scoring])
         supporting_clauses = _dedupe_clauses([*qualification_pool[:1], *scoring_pool[:1]])
         if not qualification_pool or not scoring_pool:
@@ -609,7 +634,7 @@ def _assemble_qualification_boundary_evidence(
             missing_fields.append("资格条件明细")
         if not scoring_pool:
             missing_fields.append("评分项明细")
-        if qualification_pool and scoring_pool and not matched_tokens:
+        if qualification_pool and scoring_pool and not matched_tokens and not direct_clauses:
             missing_fields.append("资格条款与评分条款重复锚点")
         return _assemble_custom_bundle(
             definition,
@@ -725,6 +750,19 @@ def _assemble_qualification_gate_evidence(
             clause
             for clause in _collect_by_fields_in_order(extracted_clauses, ["资格门槛明细", "资格条件明细", "一般资格要求"])
             if clause.field_name == "资格门槛明细"
+            or (
+                clause.field_name in {"资格条件明细", "一般资格要求"}
+                and any(
+                    item.value in {
+                        "entity_identity",
+                        "certification",
+                        "credit_rating",
+                        "establishment_age",
+                        "performance_experience",
+                    }
+                    for item in clause.clause_constraint.constraint_types
+                )
+            )
         ]
     )
     if definition.catalog_id == "RP-QUAL-004":
@@ -753,8 +791,8 @@ def _assemble_qualification_gate_evidence(
 
     return _assemble_custom_bundle(
         definition,
-        direct_clauses=direct_clauses[:3],
-        supporting_clauses=supporting_clauses[:3],
+        direct_clauses=direct_clauses[:5],
+        supporting_clauses=supporting_clauses[:4],
         missing_fields=["资格门槛明细"] if not qualification_gate_clauses else [],
     )
 
@@ -771,10 +809,18 @@ def _assemble_evidence_source_restriction_evidence(
             or any(item.value == "institution_source" for item in clause.clause_constraint.constraint_types)
         ]
     )
+    relevant.sort(
+        key=lambda clause: (
+            "检测中心" not in clause.content and "税务部门" not in clause.content and "检测机构" not in clause.content,
+            clause.field_name != "证明来源要求",
+            _is_structurally_weak_clause(clause),
+            -len(clause.content),
+        )
+    )
     return _assemble_custom_bundle(
         definition,
-        direct_clauses=relevant[:2],
-        supporting_clauses=relevant[2:4],
+        direct_clauses=relevant[:1],
+        supporting_clauses=relevant[1:3],
         missing_fields=["证明来源要求"] if not relevant else [],
     )
 
@@ -810,6 +856,50 @@ def _assemble_scoring_relevance_evidence(
         ["行业相关性存疑评分项", "财务指标加分", "人员评分要求", "信用评价要求", "采购标的", "项目属性"],
     )
     return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_warranty_scope_mismatch_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    project_clauses = _sort_candidate_clauses(
+        _collect_by_fields_in_order(extracted_clauses, ["项目属性"])
+    )
+    duration_clauses = _sort_candidate_clauses(
+        _collect_by_fields_in_order(extracted_clauses, ["合同履行期限"])
+    )
+    service_clauses = _sort_candidate_clauses(
+        [
+            clause
+            for clause in _collect_by_fields_in_order(extracted_clauses, ["是否含持续性服务", "采购内容构成"])
+            if any(token in clause.content for token in ["人工管护", "抚育", "运水", "持续性作业", "管护"])
+        ]
+    )
+    warranty_clauses = _sort_candidate_clauses(
+        [
+            clause
+            for clause in _collect_by_fields_in_order(extracted_clauses, ["质保期"])
+            if any(token in clause.content for token in ["货物质保期", "质量保修范围和保修期", "验收合格之日起计"])
+        ]
+    )
+    direct_clauses = _dedupe_clauses([*service_clauses[:1], *warranty_clauses[:1]])
+    supporting_clauses = _dedupe_clauses(
+        [*project_clauses[:1], *duration_clauses[:1], *service_clauses[1:2], *warranty_clauses[1:2]]
+    )
+    supporting_clauses = [clause for clause in supporting_clauses if clause not in direct_clauses]
+    missing_fields: list[str] = []
+    if not project_clauses:
+        missing_fields.append("项目属性")
+    if not service_clauses:
+        missing_fields.append("是否含持续性服务")
+    if not warranty_clauses:
+        missing_fields.append("质保期")
+    return _assemble_custom_bundle(
+        definition,
+        direct_clauses=direct_clauses,
+        supporting_clauses=supporting_clauses,
+        missing_fields=missing_fields,
+    )
 
 
 def _assemble_verifiability_evidence(
@@ -1095,6 +1185,19 @@ def _is_structurally_weak_clause(clause: ExtractedClause) -> bool:
         EffectTag.public_copy_noise,
     }
     return bool(clause.effect_tags) and all(tag in weak_tags for tag in clause.effect_tags)
+
+
+def _is_strong_contract_clause(clause: ExtractedClause) -> bool:
+    if clause.semantic_zone != SemanticZoneType.contract:
+        return False
+    if clause.clause_role != ClauseRole.contract_term:
+        return False
+    text = clause.content or ""
+    if not any(token in text for token in ["付款", "支付", "尾款", "验收", "考核", "满意度", "扣款", "扣罚", "违约", "解约", "解除合同"]):
+        return False
+    if any(token in text for token in ["参数", "机械臂", "控制台", "器械", "光学视野", "监视器", "离合"]):
+        return False
+    return not _is_structurally_weak_clause(clause)
 
 
 def _collect_dynamic_enhancement_clauses_by_type(
@@ -1622,7 +1725,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-CONTRACT-007": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-008": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-009": _assemble_contract_linkage_evidence,
-    "RP-CONTRACT-010": _assemble_structure_conflict_evidence,
+    "RP-CONTRACT-010": _assemble_warranty_scope_mismatch_evidence,
     "RP-CONTRACT-011": _assemble_contract_linkage_evidence,
     "RP-PER-001": _assemble_personnel_boundary_evidence,
     "RP-PER-002": _assemble_personnel_boundary_evidence,

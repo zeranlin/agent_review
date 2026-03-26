@@ -340,6 +340,8 @@ def _is_noise_like_clause(clause: ExtractedClause) -> bool:
 
 
 def _table_or_list_splice_can_be_effective(clause: ExtractedClause) -> bool:
+    if clause.field_name in {"行业相关性存疑评分项", "评分项明细", "方案评分扣分模式"}:
+        return True
     if clause.semantic_zone in {
         SemanticZoneType.scoring,
         SemanticZoneType.qualification,
@@ -493,6 +495,44 @@ def _clauses_for_fields(clause_mapping: dict[str, list[ExtractedClause]], field_
     for field_name in field_names:
         clauses.extend(clause_mapping.get(field_name, []))
     return clauses
+
+
+def _has_cross_clause_performance_overlap(
+    qualification_clauses: list[ExtractedClause],
+    scoring_clauses: list[ExtractedClause],
+) -> bool:
+    qualification_candidates = [
+        clause
+        for clause in qualification_clauses
+        if any(item.value == "performance_experience" for item in clause.clause_constraint.constraint_types)
+        or "同类业绩" in (clause.content or "")
+        or "业绩" in (clause.content or "")
+    ]
+    scoring_candidates = [
+        clause
+        for clause in scoring_clauses
+        if "同类业绩" in (clause.content or "")
+        or "业绩" in (clause.content or "")
+        or any(item.value == "performance_experience" for item in clause.clause_constraint.constraint_types)
+    ]
+    for qualification in qualification_candidates:
+        q_text = qualification.content or ""
+        q_regions = set(qualification.clause_constraint.region_tokens)
+        q_industries = set(qualification.clause_constraint.industry_tokens)
+        q_qualifiers = set(qualification.clause_constraint.qualifier_tokens)
+        for scoring in scoring_candidates:
+            s_text = scoring.content or ""
+            if "业绩" not in s_text and "同类" not in s_text:
+                continue
+            if "外科医疗机械人" in q_text and "外科医疗机械人" in s_text:
+                return True
+            if q_regions and q_regions & set(scoring.clause_constraint.region_tokens):
+                return True
+            if q_industries and q_industries & set(scoring.clause_constraint.industry_tokens):
+                return True
+            if {"同类项目业绩", "类似项目业绩"} & q_qualifiers and ("同类业绩" in s_text or "类似项目" in s_text):
+                return True
+    return False
 
 
 def _contains_any(text: str, tokens: list[str]) -> bool:
@@ -809,6 +849,17 @@ def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[Extr
     for label, tokens in overlap_groups:
         if any(_contains_any(text, tokens) for text in qualification_texts) and any(_contains_any(text, tokens) for text in scoring_texts):
             matched_labels.append(label)
+    if not matched_labels:
+        qualification_clauses = _clauses_for_fields(
+            clause_mapping,
+            ["资格门槛明细", "资格条件明细", "特定资格要求", "一般资格要求"],
+        )
+        scoring_clauses = _clauses_for_fields(
+            clause_mapping,
+            ["评分项明细", "行业相关性存疑评分项", "信用评价要求", "人员评分要求"],
+        )
+        if _has_cross_clause_performance_overlap(qualification_clauses, scoring_clauses):
+            matched_labels.append("同类业绩/业绩要求")
     if matched_labels:
         return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：资格条款与评分条款在 {', '.join(matched_labels)} 上存在重复门槛。"]
     return ApplicabilityStatus.unsatisfied, ["已识别资格条款与评分条款，但当前未发现同一资质、业绩、人员或信用要求被重复放大。"]
