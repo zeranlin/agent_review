@@ -284,3 +284,113 @@ def test_unknown_sample_regression_enhanced_mode_uses_review_report_metrics(tmp_
     assert item.evaluation_summary["task_duration"]["total_seconds"] == 1.5
     assert item.evaluation_summary["llm_task_status_counts"]["completed"] >= 1
     assert summary.evaluation_summary["llm_enhanced_count"] == 1
+
+
+def test_unknown_sample_regression_writes_comparison_summary_against_baseline(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "sample.docx"
+    input_path.write_text("demo", encoding="utf-8")
+
+    current_summary_item = _make_summary_item(
+        input_path.resolve(),
+        document_name="sample.docx",
+        procurement_kind="unknown",
+    )
+    current_summary_item = FileRegressionSummary(
+        document_name=current_summary_item.document_name,
+        source_path=current_summary_item.source_path,
+        status=current_summary_item.status,
+        parse_summary=current_summary_item.parse_summary,
+        document_profile=current_summary_item.document_profile,
+        domain_profile=current_summary_item.domain_profile,
+        quality_gate_summary=current_summary_item.quality_gate_summary,
+        formal_summary=current_summary_item.formal_summary,
+        review_point_summary=current_summary_item.review_point_summary,
+        evaluation_summary={
+            **current_summary_item.evaluation_summary,
+            "average_input_chars": 18,
+            "review_planning_contract": {
+                **current_summary_item.evaluation_summary["review_planning_contract"],
+                "planned_catalog_count": 4,
+                "target_zone_count": 3,
+                "matched_extraction_field_count": 3,
+                "base_hit_field_count": 2,
+                "required_hit_field_count": 2,
+                "clause_unit_targeted_count": 4,
+            },
+            "parser_semantic_assist": {
+                **current_summary_item.evaluation_summary["parser_semantic_assist"],
+                "applied_count": 2,
+            },
+            "prompt_volume": {
+                **current_summary_item.evaluation_summary["prompt_volume"],
+                "total_chars": 180,
+            },
+        },
+        error=current_summary_item.error,
+    )
+
+    monkeypatch.setattr(
+        "agent_review.eval.unknown_sample_regression._run_single_file",
+        lambda path, options: current_summary_item,
+    )
+
+    baseline_payload = {
+        "generated_at": "2026-03-25T12:00:00",
+        "review_mode": "enhanced",
+        "input_count": 1,
+        "aggregate": {
+            "procurement_kind_counts": {"unknown": 1},
+            "routing_mode_counts": {"standard": 1},
+            "result_status_counts": {"ok": 1},
+        },
+        "evaluation_summary": {
+            "average_input_chars": 12.0,
+            "average_total_prompt_chars": 100.0,
+            "average_planned_catalog_count": 2.0,
+            "average_target_zone_count": 2.0,
+            "average_matched_extraction_field_count": 2.0,
+            "average_base_hit_field_count": 1.0,
+            "average_required_hit_field_count": 1.0,
+            "average_optional_hit_field_count": 0.0,
+            "average_unknown_fallback_hit_field_count": 0.0,
+            "average_clause_unit_targeted_count": 2.0,
+            "average_text_fallback_clause_count": 0.0,
+            "parser_semantic_assist_activated_count": 1,
+            "parser_semantic_assist_applied_count": 1,
+            "llm_enhanced_count": 0,
+            "average_dynamic_review_task_count": 1.0,
+            "average_llm_total_seconds": 1.25,
+            "routing_mode_counts": {"standard": 1},
+            "quality_gate_status_counts": {"passed": 1},
+            "llm_task_status_counts": {"completed": 1},
+            "largest_prompt_name_counts": {"scenario_review": 1},
+        },
+    }
+    baseline_path = tmp_path / "baseline_batch_summary.json"
+    baseline_path.write_text(json.dumps(baseline_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    options = RegressionRunOptions(
+        input_paths=[input_path],
+        output_dir=tmp_path / "runs",
+        write_outputs=True,
+        baseline_summary_path=baseline_path,
+    )
+    summary = run_unknown_sample_regression(options)
+
+    comparison_summary_path = options.output_dir / "comparison_summary.json"
+    comparison_summary_md_path = options.output_dir / "comparison_summary.md"
+    batch_summary = json.loads((options.output_dir / "batch_summary.json").read_text(encoding="utf-8"))
+    comparison_summary = json.loads(comparison_summary_path.read_text(encoding="utf-8"))
+    comparison_summary_md = comparison_summary_md_path.read_text(encoding="utf-8")
+
+    assert summary.comparison_summary["baseline_label"] == "2026-03-25T12:00:00"
+    assert comparison_summary["changed_metric_count"] >= 1
+    assert comparison_summary["changed_counter_count"] >= 1
+    assert any(item["path"] == "evaluation_summary.average_total_prompt_chars" for item in comparison_summary["metric_diffs"])
+    assert any(item["path"] == "aggregate.routing_mode_counts" for item in comparison_summary["counter_diffs"])
+    assert batch_summary["comparison_summary"]["baseline_label"] == "2026-03-25T12:00:00"
+    assert comparison_summary_md.startswith("# 未知品目回归升级前后对比")
+    assert "- changed_metric_count：" in comparison_summary_md

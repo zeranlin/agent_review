@@ -26,6 +26,7 @@ class RegressionRunOptions:
     write_outputs: bool = True
     emit_manifest: bool = False
     manifest_label: str = "baseline"
+    baseline_summary_path: Path | None = None
     review_enhancer_factory: Callable[[float], object] | None = None
 
 
@@ -69,6 +70,7 @@ class BatchRegressionSummary:
     items: list[FileRegressionSummary]
     aggregate: dict[str, object]
     evaluation_summary: dict[str, object]
+    comparison_summary: dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -79,6 +81,7 @@ class BatchRegressionSummary:
             "failed_count": self.failed_count,
             "aggregate": self.aggregate,
             "evaluation_summary": self.evaluation_summary,
+            "comparison_summary": self.comparison_summary,
             "items": [item.to_dict() for item in self.items],
         }
 
@@ -100,6 +103,9 @@ def run_unknown_sample_regression(options: RegressionRunOptions) -> BatchRegress
         aggregate=_build_aggregate_summary(results),
         evaluation_summary=_build_batch_evaluation_summary(results),
     )
+    if options.baseline_summary_path:
+        baseline_payload = _load_baseline_summary(options.baseline_summary_path)
+        summary.comparison_summary = _build_comparison_summary(summary, baseline_payload)
 
     if options.write_outputs:
         _write_outputs(summary, options.output_dir)
@@ -620,6 +626,15 @@ def _write_outputs(summary: BatchRegressionSummary, output_dir: Path) -> None:
         _render_markdown(summary),
         encoding="utf-8",
     )
+    if summary.comparison_summary:
+        (target_dir / "comparison_summary.json").write_text(
+            json.dumps(summary.comparison_summary, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (target_dir / "comparison_summary.md").write_text(
+            _render_comparison_markdown(summary.comparison_summary),
+            encoding="utf-8",
+        )
     file_dir = target_dir / "files"
     file_dir.mkdir(parents=True, exist_ok=True)
     for index, item in enumerate(summary.items, start=1):
@@ -688,6 +703,17 @@ def _render_markdown(summary: BatchRegressionSummary) -> str:
             f"- evaluation_summary：{summary.evaluation_summary}",
         ]
     )
+    if summary.comparison_summary:
+        lines.extend(
+            [
+                "",
+                "## 升级前后对比",
+                "",
+                f"- baseline_label：{summary.comparison_summary.get('baseline_label', '')}",
+                f"- changed_metric_count：{summary.comparison_summary.get('changed_metric_count', 0)}",
+                f"- changed_counter_count：{summary.comparison_summary.get('changed_counter_count', 0)}",
+            ]
+        )
     lines.append("")
     for item in summary.items:
         lines.extend(
@@ -737,6 +763,146 @@ def _sorted_counter_dict(counter: Counter[str]) -> dict[str, int]:
     return {key: counter[key] for key in sorted(counter)}
 
 
+def _load_baseline_summary(path: str | Path) -> dict[str, object]:
+    target = Path(path).expanduser().resolve()
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+def _build_comparison_summary(summary: BatchRegressionSummary, baseline_payload: dict[str, object]) -> dict[str, object]:
+    metric_paths = [
+        "evaluation_summary.average_input_chars",
+        "evaluation_summary.average_total_prompt_chars",
+        "evaluation_summary.average_planned_catalog_count",
+        "evaluation_summary.average_target_zone_count",
+        "evaluation_summary.average_matched_extraction_field_count",
+        "evaluation_summary.average_base_hit_field_count",
+        "evaluation_summary.average_required_hit_field_count",
+        "evaluation_summary.average_optional_hit_field_count",
+        "evaluation_summary.average_unknown_fallback_hit_field_count",
+        "evaluation_summary.average_clause_unit_targeted_count",
+        "evaluation_summary.average_text_fallback_clause_count",
+        "evaluation_summary.parser_semantic_assist_activated_count",
+        "evaluation_summary.parser_semantic_assist_applied_count",
+        "evaluation_summary.llm_enhanced_count",
+        "evaluation_summary.average_dynamic_review_task_count",
+        "evaluation_summary.average_llm_total_seconds",
+    ]
+    counter_paths = [
+        "aggregate.procurement_kind_counts",
+        "aggregate.routing_mode_counts",
+        "aggregate.result_status_counts",
+        "evaluation_summary.routing_mode_counts",
+        "evaluation_summary.quality_gate_status_counts",
+        "evaluation_summary.llm_task_status_counts",
+        "evaluation_summary.largest_prompt_name_counts",
+    ]
+    metric_diffs = []
+    for path in metric_paths:
+        baseline_value = _get_nested_value(baseline_payload, path)
+        current_value = _get_nested_value(summary.to_dict(), path)
+        if not isinstance(baseline_value, (int, float)) or not isinstance(current_value, (int, float)):
+            continue
+        delta = round(float(current_value) - float(baseline_value), 3)
+        if delta == 0:
+            continue
+        metric_diffs.append(
+            {
+                "path": path,
+                "baseline": float(baseline_value),
+                "current": float(current_value),
+                "delta": delta,
+            }
+        )
+    counter_diffs = []
+    for path in counter_paths:
+        baseline_value = _get_nested_value(baseline_payload, path) or {}
+        current_value = _get_nested_value(summary.to_dict(), path) or {}
+        if not isinstance(baseline_value, dict) or not isinstance(current_value, dict):
+            continue
+        diff = _build_counter_diff(path, baseline_value, current_value)
+        if diff["changed_keys"]:
+            counter_diffs.append(diff)
+    return {
+        "baseline_label": str(
+            baseline_payload.get("generated_at")
+            or baseline_payload.get("review_mode")
+            or "baseline"
+        ),
+        "baseline_review_mode": baseline_payload.get("review_mode", ""),
+        "current_review_mode": summary.review_mode,
+        "baseline_input_count": baseline_payload.get("input_count", 0),
+        "current_input_count": summary.input_count,
+        "metric_diffs": metric_diffs,
+        "counter_diffs": counter_diffs,
+        "changed_metric_count": len(metric_diffs),
+        "changed_counter_count": len(counter_diffs),
+    }
+
+
+def _get_nested_value(payload: dict[str, object], path: str) -> object:
+    current: object = payload
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _build_counter_diff(path: str, baseline_value: dict[str, object], current_value: dict[str, object]) -> dict[str, object]:
+    changed_keys = []
+    all_keys = sorted(set(baseline_value) | set(current_value))
+    for key in all_keys:
+        baseline_count = int(baseline_value.get(key, 0) or 0)
+        current_count = int(current_value.get(key, 0) or 0)
+        if baseline_count == current_count:
+            continue
+        changed_keys.append(
+            {
+                "key": key,
+                "baseline": baseline_count,
+                "current": current_count,
+                "delta": current_count - baseline_count,
+            }
+        )
+    return {
+        "path": path,
+        "changed_keys": changed_keys,
+    }
+
+
+def _render_comparison_markdown(comparison_summary: dict[str, object]) -> str:
+    lines = [
+        "# 未知品目回归升级前后对比",
+        "",
+        f"- baseline_label：{comparison_summary.get('baseline_label', '')}",
+        f"- baseline_review_mode：{comparison_summary.get('baseline_review_mode', '')}",
+        f"- current_review_mode：{comparison_summary.get('current_review_mode', '')}",
+        f"- baseline_input_count：{comparison_summary.get('baseline_input_count', 0)}",
+        f"- current_input_count：{comparison_summary.get('current_input_count', 0)}",
+        f"- changed_metric_count：{comparison_summary.get('changed_metric_count', 0)}",
+        f"- changed_counter_count：{comparison_summary.get('changed_counter_count', 0)}",
+        "",
+        "## 指标变化",
+    ]
+    metric_diffs = comparison_summary.get("metric_diffs", [])
+    if metric_diffs:
+        for item in metric_diffs:
+            lines.append(
+                f"- {item.get('path')}：baseline={item.get('baseline')}, current={item.get('current')}, delta={item.get('delta')}"
+            )
+    else:
+        lines.append("- 无数值指标变化")
+    lines.extend(["", "## 计数器变化"])
+    counter_diffs = comparison_summary.get("counter_diffs", [])
+    if counter_diffs:
+        for item in counter_diffs:
+            lines.append(f"- {item.get('path')}：{item.get('changed_keys')}")
+    else:
+        lines.append("- 无计数器变化")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _average(values) -> float:
     numbers = [float(item) for item in values]
     if not numbers:
@@ -760,6 +926,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--no-write-outputs", action="store_true", help="仅打印，不落盘。")
     parser.add_argument("--emit-manifest", action="store_true", help="写出规范化 baseline manifest。")
     parser.add_argument("--manifest-label", default="baseline", help="写出 manifest 时使用的标签。")
+    parser.add_argument("--baseline-summary", help="已有 batch_summary.json 路径，用于生成升级前后对比。")
     return parser.parse_args(argv)
 
 
@@ -791,6 +958,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         write_outputs=not args.no_write_outputs,
         emit_manifest=args.emit_manifest,
         manifest_label=args.manifest_label,
+        baseline_summary_path=Path(args.baseline_summary).expanduser() if args.baseline_summary else None,
     )
     summary = run_unknown_sample_regression(options)
     print(_render_markdown(summary))
