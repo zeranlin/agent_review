@@ -54,6 +54,43 @@ def load_review_point_authority_map() -> dict[str, dict[str, object]]:
     }
 
 
+def lookup_external_manual_review_boundary(
+    *,
+    catalog_id: str = "",
+    title: str = "",
+) -> dict[str, list[str]]:
+    mapping = load_review_point_authority_map()
+    target = mapping.get(catalog_id) if catalog_id else None
+    if target is None and title:
+        normalized_title = title.strip()
+        for item in mapping.values():
+            if str(item.get("review_point_title", "")).strip() == normalized_title:
+                target = item
+                break
+    if target is None:
+        return {"reasons": [], "authority_refs": []}
+
+    clause_index = load_external_clause_index()
+    authority_refs: list[str] = []
+    for clause_id in target.get("primary_clause_ids", []):
+        clause = clause_index.get(str(clause_id).strip())
+        if clause is None:
+            continue
+        doc_title = str(clause.get("doc_title", "")).strip()
+        article_label = str(clause.get("article_label") or clause.get("chapter_label") or "").strip()
+        parts = [item for item in [doc_title, article_label] if item]
+        if parts:
+            authority_refs.append(" ".join(parts))
+    return {
+        "reasons": [
+            str(item).strip()
+            for item in target.get("requires_human_review_when", [])
+            if str(item).strip()
+        ],
+        "authority_refs": authority_refs,
+    }
+
+
 def lookup_external_legal_basis(
     *,
     catalog_id: str = "",
@@ -185,6 +222,82 @@ def external_profile_activation_tags(profile_id: str) -> set[str]:
     return set()
 
 
+def external_profile_planning_hints(profile_id: str) -> dict[str, list[str]]:
+    for profile in load_external_catalog_knowledge_profiles():
+        current_id = str(profile.get("review_domain_key") or profile.get("catalog_id") or "").strip()
+        if current_id != profile_id:
+            continue
+
+        route_tags = set(external_profile_activation_tags(profile_id))
+        preferred_fields: list[str] = []
+        fallback_fields: list[str] = []
+        activation_reasons: list[str] = []
+
+        category_type = str(profile.get("category_type", "")).strip()
+        if category_type == "goods":
+            _append_unique(preferred_fields, ["交货期限", "验收标准", "质保期"])
+        elif category_type == "service":
+            _append_unique(preferred_fields, ["服务期限", "考核要求", "付款节点"])
+        elif category_type == "mixed":
+            _append_unique(fallback_fields, ["采购包数量", "采购内容构成", "合同类型"])
+
+        scoring_markers = [str(item).strip() for item in profile.get("scoring_evidence_markers", []) if str(item).strip()]
+        lifecycle_markers = [str(item).strip() for item in profile.get("commercial_lifecycle_markers", []) if str(item).strip()]
+        mixed_markers = [str(item).strip() for item in profile.get("mixed_scope_markers", []) if str(item).strip()]
+        template_markers = [str(item).strip() for item in profile.get("template_scope_markers", []) if str(item).strip()]
+        theme_markers = [str(item).strip() for item in profile.get("scoring_theme_markers", []) if str(item).strip()]
+
+        if scoring_markers or theme_markers:
+            route_tags.add("scoring")
+            _append_unique(preferred_fields, ["评分方法", "评分项明细"])
+            activation_reasons.append(f"external_profile:{current_id}:scoring")
+        if lifecycle_markers:
+            route_tags.add("contract")
+            _append_unique(preferred_fields, ["合同履行期限", "付款节点", "验收标准"])
+            activation_reasons.append(f"external_profile:{current_id}:lifecycle")
+        if mixed_markers:
+            route_tags.update({"structure", "consistency"})
+            _append_unique(fallback_fields, ["采购包划分说明", "采购内容构成"])
+            activation_reasons.append(f"external_profile:{current_id}:mixed_scope")
+        if template_markers:
+            route_tags.add("template")
+            _append_unique(fallback_fields, ["投标文件格式", "附件引用"])
+            activation_reasons.append(f"external_profile:{current_id}:template_scope")
+
+        profile_text = " ".join(
+            [
+                str(profile.get("catalog_name", "")).strip(),
+                " ".join(scoring_markers),
+                " ".join(lifecycle_markers),
+                " ".join(mixed_markers),
+                " ".join(template_markers),
+                " ".join(theme_markers),
+            ]
+        )
+        if any(token in profile_text for token in ["医疗", "器械", "检测报告", "CMA", "CNAS"]):
+            route_tags.add("qualification")
+            _append_unique(preferred_fields, ["证明来源要求", "是否要求检测报告", "证书材料适用阶段"])
+        if any(token in profile_text for token in ["家具", "桌", "椅", "样品"]):
+            _append_unique(preferred_fields, ["样品要求", "质保期"])
+        if any(token in profile_text for token in ["系统", "接口", "演示", "驻场"]):
+            _append_unique(preferred_fields, ["系统对接要求", "演示要求", "驻场要求"])
+        if any(token in profile_text for token in ["物业", "考核", "满意度"]):
+            _append_unique(preferred_fields, ["考核要求", "满意度评价机制"])
+
+        return {
+            "route_tags": list(route_tags),
+            "preferred_fields": preferred_fields,
+            "fallback_fields": fallback_fields,
+            "activation_reasons": activation_reasons,
+        }
+    return {
+        "route_tags": [],
+        "preferred_fields": [],
+        "fallback_fields": [],
+        "activation_reasons": [],
+    }
+
+
 def _score_external_profile(
     profile: dict[str, object],
     text: str,
@@ -239,3 +352,10 @@ def _collect_keyword_hits(text: str, terms: list[str]) -> list[str]:
         if current in text and current not in hits:
             hits.append(current)
     return hits
+
+
+def _append_unique(target: list[str], items: list[str]) -> None:
+    for item in items:
+        current = item.strip()
+        if current and current not in target:
+            target.append(current)

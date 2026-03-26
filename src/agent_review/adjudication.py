@@ -5,6 +5,7 @@ import re
 
 from .applicability import build_applicability_checks
 from .fact_collectors import collect_task_facts
+from .external_data import lookup_external_manual_review_boundary
 from .models import (
     ApplicabilityCheck,
     ClauseRole,
@@ -345,6 +346,12 @@ def build_formal_adjudication(
         legal_basis_applicable = bool(point.legal_basis) and (
             applicability.applicable if applicability is not None else True
         )
+        external_boundary = lookup_external_manual_review_boundary(
+            catalog_id=point.catalog_id,
+            title=point.title,
+        )
+        boundary_reasons = external_boundary.get("reasons", [])
+        authority_refs = external_boundary.get("authority_refs", [])
         evidence_sufficient = bool(
             has_direct
             and strong_anchor
@@ -398,6 +405,17 @@ def build_formal_adjudication(
                 review_reason = "当前已识别高风险方向，但法规适用链条尚未闭合，建议人工复核后决定是否进入正式高风险。"
             else:
                 review_reason = "当前已识别高风险方向，但仍需人工确认后再正式定性。"
+        if disposition == FormalDisposition.manual_confirmation and boundary_reasons:
+            boundary_summary = "；".join(boundary_reasons[:2])
+            authority_summary = "、".join(authority_refs[:2])
+            if authority_summary:
+                rationale += f" 外部法理边界提示：依据 {authority_summary}，如存在“{boundary_summary}”情形，应保留人工复核。"
+            else:
+                rationale += f" 外部法理边界提示：如存在“{boundary_summary}”情形，应保留人工复核。"
+            if review_reason:
+                review_reason += f" 重点核查：{boundary_summary}。"
+            else:
+                review_reason = f"外部法理边界提示需复核：{boundary_summary}。"
         results.append(
             FormalAdjudication(
                 point_id=point.point_id,

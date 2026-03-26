@@ -354,6 +354,23 @@ def test_planning_guided_extraction_reuses_contract_demands() -> None:
     assert "extraction demand" in guided_stage.detail
 
 
+def test_external_profile_hints_extend_review_planning_contract_for_medical_documents() -> None:
+    text = """
+    项目属性：货物
+    采购标的：外科医疗机器人系统
+    技术要求：提供设备供货、安装调试、院内接口配套、试运行验收方案。
+    评分标准：提供检测报告、培训方案、接口方案、售后方案。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="medical_device_profile.txt")
+    contract = report.review_planning_contract
+
+    assert contract is not None
+    assert "qualification" in contract.route_tags
+    assert "证明来源要求" in contract.extraction_demands
+    assert "是否要求检测报告" in contract.extraction_demands
+    assert any(reason.startswith("external_profile_candidate:medical_device_goods") for reason in contract.activation_reasons)
+
+
 def test_unknown_document_routes_to_common_tasks_without_goods_specific_review_points() -> None:
     text = """
     本文件仅供说明相关事项，详见附件。
@@ -2736,6 +2753,51 @@ def test_formal_review_can_reconstruct_scoring_row_from_flattened_pdf_text() -> 
 
     assert "详细评审 履约能力" in adjudications[0].primary_quote
     assert "软件企业认定证书（5分）" in adjudications[0].primary_quote
+
+
+def test_formal_manual_boundary_uses_external_authority_guidance() -> None:
+    point = ReviewPoint(
+        point_id="RP-BOUNDARY-001",
+        catalog_id="RP-CONTRACT-009",
+        title="验收标准存在优胜原则或单方弹性判断",
+        dimension="D.合同条款风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.manual_confirmation,
+        rationale="已发现验收标准弹性过大，但仍需复核行业特殊场景。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="验收时以采购人最终解释为准。", section_hint="line:1")],
+            supporting_evidence=[],
+            conflicting_evidence=[],
+            rebuttal_evidence=[],
+            missing_evidence_notes=[],
+            sufficiency_summary="存在直接证据，但适法边界需复核。",
+            clause_roles=[],
+            evidence_level="strong",
+            evidence_score=0.8,
+        ),
+        legal_basis=[],
+    )
+    checks = [
+        ApplicabilityCheck(
+            point_id="RP-BOUNDARY-001",
+            catalog_id="RP-CONTRACT-009",
+            applicable=False,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=[],
+            missing_conditions=["尚未确认是否存在行业强制验收规范"],
+            blocking_conditions=[],
+            requirement_chain_complete=False,
+            summary="适法性边界未闭合。",
+        )
+    ]
+    gates = [ReviewQualityGate(point_id="RP-BOUNDARY-001", status=QualityGateStatus.passed, reasons=[])]
+
+    adjudications = build_formal_adjudication([point], checks, gates, "验收时以采购人最终解释为准。", [], [])
+
+    assert adjudications[0].disposition.value == "manual_confirmation"
+    assert "外部法理边界提示" in adjudications[0].rationale
+    assert "法定验收标准" in adjudications[0].review_reason or "第三方检测" in adjudications[0].review_reason
 
 
 def test_formal_review_opinion_suppresses_review_mirror_items() -> None:

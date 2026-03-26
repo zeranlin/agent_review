@@ -16,6 +16,7 @@ from .adjudication import (
     merge_review_points,
 )
 from .domain_profiles import profile_activation_tags
+from .external_data import external_profile_planning_hints
 from .checklist import DEFAULT_DIMENSIONS
 from .consistency import (
     check_consistency,
@@ -820,10 +821,14 @@ def _build_review_planning_contract(
         resolve_review_point_definition(point.title, point.dimension, point.severity)
         for point in review_points
     ]
+    external_route_tags, external_preferred_fields, external_fallback_fields, external_activation_reasons = (
+        _collect_external_profile_planning_hints(document_profile)
+    )
     route_tags = _ordered_unique(
         list(profile_activation_tags(document_profile))
         + list(document_profile.risk_activation_hints)
         + _route_tags_from_profile(document_profile)
+        + external_route_tags
     )
     routing_flags = _ordered_unique(
         list(document_profile.structure_flags)
@@ -841,6 +846,7 @@ def _build_review_planning_contract(
             *document_profile.risk_activation_hints,
             *document_profile.unknown_structure_flags,
             *document_profile.quality_flags,
+            *external_activation_reasons,
         ]
     )
     base_extraction_demands = _build_base_extraction_demands(document_profile, route_tags)
@@ -851,7 +857,10 @@ def _build_review_planning_contract(
     ]
     optional_enhancement_extraction_demands = [
         field
-        for field in _collect_optional_enhancement_extraction_demands(review_points)
+        for field in [
+            *_collect_optional_enhancement_extraction_demands(review_points),
+            *external_preferred_fields,
+        ]
         if field not in base_extraction_demands and field not in required_task_extraction_demands
     ]
     enhancement_extraction_demands = _ordered_unique(
@@ -862,7 +871,10 @@ def _build_review_planning_contract(
     )
     unknown_fallback_extraction_demands = [
         field
-        for field in _build_unknown_fallback_extraction_demands(document_profile, route_tags)
+        for field in [
+            *_build_unknown_fallback_extraction_demands(document_profile, route_tags),
+            *external_fallback_fields,
+        ]
         if field not in base_extraction_demands and field not in enhancement_extraction_demands
     ]
     extraction_demands = _ordered_unique(
@@ -1024,3 +1036,31 @@ def _ordered_unique(items) -> list[str]:
         seen.add(item)
         ordered.append(item)
     return ordered
+
+
+def _collect_external_profile_planning_hints(
+    document_profile: DocumentProfile,
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    route_tags: list[str] = []
+    preferred_fields: list[str] = []
+    fallback_fields: list[str] = []
+    activation_reasons: list[str] = []
+    for candidate in document_profile.domain_profile_candidates[:2]:
+        if candidate.confidence < 0.35:
+            continue
+        hints = external_profile_planning_hints(candidate.profile_id)
+        route_tags.extend(hints.get("route_tags", []))
+        preferred_fields.extend(hints.get("preferred_fields", []))
+        fallback_fields.extend(hints.get("fallback_fields", []))
+        activation_reasons.extend(
+            [
+                *hints.get("activation_reasons", []),
+                f"external_profile_candidate:{candidate.profile_id}:{candidate.confidence:.2f}",
+            ]
+        )
+    return (
+        _ordered_unique(route_tags),
+        _ordered_unique(preferred_fields),
+        _ordered_unique(fallback_fields),
+        _ordered_unique(activation_reasons),
+    )
