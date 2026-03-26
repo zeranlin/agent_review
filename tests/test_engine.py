@@ -218,6 +218,26 @@ def test_review_task_planning_builds_standard_tasks_without_polluting_findings()
     assert any(item.stage_name == "review_task_planning" for item in report.stage_records)
     assert any(item.catalog_id == "RP-SME-002" for item in report.review_points)
     assert any(item.catalog_id == "RP-PER-001" for item in report.review_points)
+
+
+def test_review_text_surfaces_qualification_gate_points_into_formal_adjudication() -> None:
+    text = """
+    第一章 招标公告
+    申请人的资格要求：
+    10.投标人须为全国科技型中小企业；
+    11.投标人须具备高新技术企业证书；
+    12.投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；
+    13.投标人须成立满5年以上，并提供营业执照复印件；
+    14.投标人须具备深圳市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification_demo.txt")
+
+    formal_map = {item.catalog_id: item for item in report.formal_adjudication}
+
+    assert formal_map["RP-QUAL-003"].included_in_formal is True
+    assert formal_map["RP-QUAL-004"].included_in_formal is True
+    assert "高新技术企业证书" in formal_map["RP-QUAL-003"].primary_quote
+    assert "深圳市医疗器械行业同类项目业绩不少于2个" in formal_map["RP-QUAL-004"].primary_quote
     assert not any(item.title == "服务项目声明函类型疑似错用货物模板" for item in report.findings)
 
 

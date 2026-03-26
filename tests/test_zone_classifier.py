@@ -144,3 +144,26 @@ def test_zone_classifier_marks_policy_explanation_and_catalog_nodes() -> None:
 
     assert zones[catalog_node.node_id].zone_type == SemanticZoneType.catalog_or_navigation
     assert zones[policy_node.node_id].zone_type == SemanticZoneType.policy_explanation
+
+
+def test_zone_classifier_inherits_qualification_context_from_parent_heading() -> None:
+    heading_node = _node(
+        "q-head",
+        node_type=NodeType.section,
+        title="申请人的资格要求",
+        text="申请人的资格要求",
+        path="ROOT > 第一章 招标公告 > 申请人的资格要求",
+    )
+    detail_node = DocumentNode(
+        node_id="q-detail",
+        node_type=NodeType.list_item,
+        title="12.投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；",
+        text="12.投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；",
+        path="ROOT > 第一章 招标公告 > 12.投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；",
+        parent_id="q-head",
+        anchor=SourceAnchor(line_hint="line:q-detail"),
+    )
+
+    zones = _zone_map([heading_node, detail_node])
+
+    assert zones[detail_node.node_id].zone_type == SemanticZoneType.qualification

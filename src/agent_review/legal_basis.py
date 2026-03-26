@@ -122,6 +122,22 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         )
     ],
+    "资格条件可能超出必要限度": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="资格条件和证明材料要求应与采购需求和履约能力直接相关，不宜以信用等级、企业资质层级或成立年限设置过度门槛。",
+            basis_type="部门规范性文件",
+        )
+    ],
+    "资格条件可能限定地域业绩或行业范围过窄": [
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="业绩要求应与项目履约能力相匹配，不宜通过地域范围、地方资源或过窄口径形成排他性限制。",
+            basis_type="部门规范性文件",
+        )
+    ],
     "技术或服务要求可验证性不足": [
         LegalBasis(
             source_name="政府采购需求管理办法",

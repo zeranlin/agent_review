@@ -888,6 +888,38 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="资格条件和证书要求应与项目履约能力直接相关，不得超出必要限度设置门槛。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-QUAL-003",
+        title="资格条件可能超出必要限度",
+        dimension="资格条件适度性风险",
+        default_severity=Severity.high,
+        risk_family="generic",
+        scenario_tags=["qualification"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在资格门槛明细",
+                clause_fields=["资格门槛明细"],
+                signal_groups=[["科技型中小企业", "高新技术企业", "纳税信用", "成立满"]],
+            ),
+        ],
+        basis_hint="资格门槛应与项目特点和履约实际需要直接相关，不宜以企业资质层级、信用等级或成立年限形成过度准入限制。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-QUAL-004",
+        title="资格条件可能限定地域业绩或行业范围过窄",
+        dimension="资格条件适度性风险",
+        default_severity=Severity.high,
+        risk_family="generic",
+        scenario_tags=["qualification"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在地域业绩门槛",
+                clause_fields=["资格门槛明细"],
+                signal_groups=[["同类项目业绩", "业绩不少于"], ["深圳市"]],
+            ),
+        ],
+        basis_hint="业绩要求应与履约能力相关，不宜通过限定地域范围、地方资源或过窄行业口径形成排他性门槛。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-REQ-001",
         title="技术或服务要求可验证性不足",
         dimension="采购需求完整性风险",
@@ -1286,7 +1318,7 @@ def _structured_active_task_tags(extracted_clauses: list[ExtractedClause]) -> se
     active_tags: set[str] = set()
     if _has_clause_support(
         extracted_clauses,
-        field_names={"资格条件明细", "一般资格要求", "特定资格要求", "是否要求认证证书", "证书材料适用阶段"},
+        field_names={"资格条件明细", "资格门槛明细", "一般资格要求", "特定资格要求", "是否要求认证证书", "证书材料适用阶段"},
         expected_zones={SemanticZoneType.qualification, SemanticZoneType.technical, SemanticZoneType.mixed_or_uncertain},
         allowed_roles={ClauseRole.qualification_or_scoring, ClauseRole.policy_explanation, ClauseRole.unknown},
         allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},

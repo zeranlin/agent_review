@@ -716,6 +716,40 @@ def _assemble_qualification_boundary_evidence(
     return _assemble_bundle_for_definition(definition, relevant)
 
 
+def _assemble_qualification_gate_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    qualification_gate_clauses = _sort_candidate_clauses(
+        [
+            clause
+            for clause in _collect_by_fields_in_order(extracted_clauses, ["资格门槛明细", "资格条件明细", "一般资格要求"])
+            if clause.field_name == "资格门槛明细"
+        ]
+    )
+    if definition.catalog_id == "RP-QUAL-004":
+        direct_clauses = [
+            clause
+            for clause in qualification_gate_clauses
+            if any(token in clause.content for token in ["深圳市", "同类项目业绩", "业绩不少于"])
+        ]
+        supporting_clauses = [clause for clause in qualification_gate_clauses if clause not in direct_clauses]
+    else:
+        direct_clauses = [
+            clause
+            for clause in qualification_gate_clauses
+            if any(token in clause.content for token in ["科技型中小企业", "高新技术企业", "纳税信用", "成立满"])
+        ]
+        supporting_clauses = [clause for clause in qualification_gate_clauses if clause not in direct_clauses]
+
+    return _assemble_custom_bundle(
+        definition,
+        direct_clauses=direct_clauses[:3],
+        supporting_clauses=supporting_clauses[:3],
+        missing_fields=["资格门槛明细"] if not qualification_gate_clauses else [],
+    )
+
+
 def _assemble_verifiability_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
@@ -1494,6 +1528,8 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-PROC-002": _assemble_package_split_evidence,
     "RP-QUAL-001": _assemble_qualification_boundary_evidence,
     "RP-QUAL-002": _assemble_qualification_boundary_evidence,
+    "RP-QUAL-003": _assemble_qualification_gate_evidence,
+    "RP-QUAL-004": _assemble_qualification_gate_evidence,
     "RP-REQ-001": _assemble_verifiability_evidence,
     "RP-SME-001": _assemble_policy_conflict_evidence,
     "RP-SME-002": _assemble_service_template_evidence,

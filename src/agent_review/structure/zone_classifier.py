@@ -33,12 +33,38 @@ CONTRACT_STRONG_TOKENS = ["付款", "验收", "违约", "解除", "争议", "质
 QUALIFICATION_STRONG_TOKENS = ["资格", "资质", "准入", "资格条件", "资格要求", "资格证明"]
 TECHNICAL_STRONG_TOKENS = ["技术", "参数", "指标", "规范", "样品", "检测报告"]
 BUSINESS_STRONG_TOKENS = ["商务", "交货", "交付", "售后", "服务", "培训", "实施"]
+QUALIFICATION_HEADING_TOKENS = ["申请人的资格要求", "投标人资格要求", "资格要求", "一般资格要求", "特定资格要求", "资格条件", "资格审查"]
+QUALIFICATION_CONTEXT_BREAK_TOKENS = [
+    "评分标准",
+    "评分项",
+    "评标办法",
+    "综合评分",
+    "商务部分",
+    "商务要求",
+    "技术要求",
+    "技术参数",
+    "合同条款",
+    "付款方式",
+]
+QUALIFICATION_GATE_TOKENS = [
+    "须为",
+    "须具备",
+    "须提供",
+    "成立满",
+    "纳税信用",
+    "高新技术企业",
+    "科技型中小企业",
+    "同类项目业绩",
+    "业绩不少于",
+]
 
 
 def classify_semantic_zones(nodes: list[DocumentNode]) -> list[SemanticZone]:
+    node_index = {node.node_id: node for node in nodes}
+    node_positions = {node.node_id: index for index, node in enumerate(nodes)}
     results: list[SemanticZone] = []
     for node in nodes:
-        zone_type, confidence, basis = _classify_node(node)
+        zone_type, confidence, basis = _classify_node(node, node_index, nodes, node_positions)
         results.append(
             SemanticZone(
                 node_id=node.node_id,
@@ -50,7 +76,12 @@ def classify_semantic_zones(nodes: list[DocumentNode]) -> list[SemanticZone]:
     return results
 
 
-def _classify_node(node: DocumentNode) -> tuple[SemanticZoneType, float, list[str]]:
+def _classify_node(
+    node: DocumentNode,
+    node_index: dict[str, DocumentNode],
+    ordered_nodes: list[DocumentNode],
+    node_positions: dict[str, int],
+) -> tuple[SemanticZoneType, float, list[str]]:
     if node.node_id == "root":
         return SemanticZoneType.catalog_or_navigation, 1.0, ["synthetic_root"]
     if node.node_type == NodeType.catalog_entry:
@@ -70,6 +101,8 @@ def _classify_node(node: DocumentNode) -> tuple[SemanticZoneType, float, list[st
 
     if any(token in haystack for token in ["目录"]) and node.node_type == NodeType.catalog_entry:
         return SemanticZoneType.catalog_or_navigation, 1.0, ["catalog_keyword"]
+
+    qualification_context = _has_qualification_heading_context(node, node_index, ordered_nodes, node_positions)
 
     _score_keyword_family(scores, basis, node, SemanticZoneType.administrative_info, ZONE_RULES[SemanticZoneType.administrative_info])
     _score_keyword_family(scores, basis, node, SemanticZoneType.qualification, ZONE_RULES[SemanticZoneType.qualification])
@@ -135,6 +168,13 @@ def _classify_node(node: DocumentNode) -> tuple[SemanticZoneType, float, list[st
     ):
         scores[SemanticZoneType.contract] += 0.75
         basis.append("path_contract")
+
+    if qualification_context:
+        scores[SemanticZoneType.qualification] += 0.85
+        basis.append("parent_qualification_context")
+        if any(token in haystack for token in QUALIFICATION_GATE_TOKENS):
+            scores[SemanticZoneType.qualification] += 0.45
+            basis.append("qualification_gate_phrase")
 
     if any(token in haystack for token in APPENDIX_STRONG_TOKENS) and len(compact_text) < 80:
         scores[SemanticZoneType.appendix_reference] += 0.9
@@ -232,3 +272,34 @@ def _matched_basis(zone: SemanticZoneType, node: DocumentNode) -> list[str]:
         elif keyword in node.text:
             matched.append(f"text:{keyword}")
     return matched
+
+
+def _has_qualification_heading_context(
+    node: DocumentNode,
+    node_index: dict[str, DocumentNode],
+    ordered_nodes: list[DocumentNode],
+    node_positions: dict[str, int],
+) -> bool:
+    current_parent_id = node.parent_id
+    hops = 0
+    while current_parent_id and hops < 4:
+        parent = node_index.get(current_parent_id)
+        if parent is None:
+            break
+        parent_text = " ".join(part for part in [parent.title, parent.text, parent.path] if part)
+        if any(token in parent_text for token in QUALIFICATION_HEADING_TOKENS):
+            return True
+        current_parent_id = parent.parent_id
+        hops += 1
+    current_index = node_positions.get(node.node_id, -1)
+    if current_index > 0:
+        for sibling_index in range(current_index - 1, max(-1, current_index - 7), -1):
+            sibling = ordered_nodes[sibling_index]
+            if sibling.parent_id != node.parent_id:
+                continue
+            sibling_text = " ".join(part for part in [sibling.title, sibling.text, sibling.path] if part)
+            if any(token in sibling_text for token in QUALIFICATION_CONTEXT_BREAK_TOKENS):
+                return False
+            if any(token in sibling_text for token in QUALIFICATION_HEADING_TOKENS):
+                return True
+    return False

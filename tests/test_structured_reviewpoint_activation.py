@@ -306,3 +306,41 @@ def test_applicability_ignores_citation_like_policy_noise() -> None:
     assert checks[0].applicable is False
     assert checks[0].requirement_chain_complete is False
     assert any("弱来源" in item.detail for item in checks[0].requirement_results)
+
+
+def test_qualification_gate_tasks_activate_for_excessive_threshold_clauses() -> None:
+    clauses = [
+        ExtractedClause(
+            category="资格条款",
+            field_name="资格门槛明细",
+            content="10.投标人须为全国科技型中小企业；",
+            source_anchor="line:80",
+            clause_role=ClauseRole.qualification_or_scoring,
+            semantic_zone=SemanticZoneType.qualification,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="资格条款",
+            field_name="资格门槛明细",
+            content="12.投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；",
+            source_anchor="line:82",
+            clause_role=ClauseRole.qualification_or_scoring,
+            semantic_zone=SemanticZoneType.qualification,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="资格条款",
+            field_name="资格门槛明细",
+            content="14.投标人须具备深圳市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。",
+            source_anchor="line:84",
+            clause_role=ClauseRole.qualification_or_scoring,
+            semantic_zone=SemanticZoneType.qualification,
+            effect_tags=[EffectTag.binding],
+        ),
+    ]
+
+    tasks = select_standard_review_tasks("申请人的资格要求", clauses)
+    titles = {item.title for item in tasks}
+
+    assert "资格条件可能超出必要限度" in titles
+    assert "资格条件可能限定地域业绩或行业范围过窄" in titles

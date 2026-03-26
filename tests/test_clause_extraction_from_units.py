@@ -136,3 +136,63 @@ def test_extractors_can_follow_target_field_demands() -> None:
 
     assert {item.field_name for item in unit_clauses} == {"付款节点"}
     assert any(item.field_name == "项目属性" for item in text_clauses)
+
+
+def test_extract_clauses_from_units_marks_qualification_gate_details() -> None:
+    nodes = [
+        DocumentNode(
+            node_id="root",
+            node_type=NodeType.volume,
+            title="ROOT",
+            text="",
+            path="ROOT",
+        ),
+        DocumentNode(
+            node_id="q-head",
+            node_type=NodeType.section,
+            title="申请人的资格要求",
+            text="申请人的资格要求",
+            path="ROOT > 第一章 招标公告 > 申请人的资格要求",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:10"),
+        ),
+        DocumentNode(
+            node_id="q-1",
+            node_type=NodeType.list_item,
+            title="10.投标人须为全国科技型中小企业；",
+            text="10.投标人须为全国科技型中小企业；",
+            path="ROOT > 第一章 招标公告 > 10.投标人须为全国科技型中小企业；",
+            parent_id="q-head",
+            anchor=SourceAnchor(line_hint="line:11"),
+        ),
+        DocumentNode(
+            node_id="q-2",
+            node_type=NodeType.list_item,
+            title="13.投标人须成立满5年以上，并提供营业执照复印件；",
+            text="13.投标人须成立满5年以上，并提供营业执照复印件；",
+            path="ROOT > 第一章 招标公告 > 13.投标人须成立满5年以上，并提供营业执照复印件；",
+            parent_id="q-head",
+            anchor=SourceAnchor(line_hint="line:12"),
+        ),
+    ]
+    zones = [
+        SemanticZone("root", SemanticZoneType.catalog_or_navigation, 1.0, ["root"]),
+        SemanticZone("q-head", SemanticZoneType.qualification, 0.95, ["title:申请人的资格要求"]),
+        SemanticZone("q-1", SemanticZoneType.qualification, 0.92, ["parent_qualification_context"]),
+        SemanticZone("q-2", SemanticZoneType.qualification, 0.92, ["parent_qualification_context"]),
+    ]
+    effects = [
+        EffectTagResult("root", [EffectTag.catalog], 1.0, ["root"]),
+        EffectTagResult("q-head", [EffectTag.binding], 0.85, ["binding"]),
+        EffectTagResult("q-1", [EffectTag.binding], 0.88, ["binding"]),
+        EffectTagResult("q-2", [EffectTag.binding], 0.88, ["binding"]),
+    ]
+
+    units = build_clause_units(nodes, zones, effects)
+    clauses = extract_clauses_from_units(units)
+
+    gate_clauses = [item for item in clauses if item.field_name == "资格门槛明细"]
+
+    assert len(gate_clauses) == 2
+    assert any("科技型中小企业" in item.content for item in gate_clauses)
+    assert any("成立满5年以上" in item.content for item in gate_clauses)
