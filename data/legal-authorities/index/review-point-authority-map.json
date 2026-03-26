@@ -1,0 +1,94 @@
+{
+  "version": "v1",
+  "description": "将 agent_review 的 review_point_catalog 映射到外部法规条文索引，作为 legal_basis 的外部补充层。",
+  "mappings": [
+    {
+      "catalog_id": "RP-QUAL-003",
+      "review_point_title": "资格条件可能缺乏履约必要性或带有歧视性门槛",
+      "source_issue_type": "excessive_supplier_qualification",
+      "primary_clause_ids": ["LEGAL-001-ART-018", "LEGAL-001-ART-031"],
+      "secondary_clause_ids": [],
+      "requires_human_review_when": [
+        "行业许可、医疗安全、保密资质等可能具有特殊法定必要性",
+        "采购人主张该门槛与重大履约风险直接相关但尚未提供论证"
+      ]
+    },
+    {
+      "catalog_id": "RP-QUAL-004",
+      "review_point_title": "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复",
+      "source_issue_type": "geographic_restriction",
+      "primary_clause_ids": ["LEGAL-001-ART-018", "LEGAL-001-ART-031"],
+      "secondary_clause_ids": [],
+      "requires_human_review_when": [
+        "项目确有现场连续运行、应急保障等客观场景需要",
+        "采购人已说明为何必须设置本地场地或极短响应时限"
+      ]
+    },
+    {
+      "catalog_id": "RP-SCORE-005",
+      "review_point_title": "行业无关证书或财务指标被纳入评分",
+      "source_issue_type": "scoring_content_mismatch",
+      "primary_clause_ids": ["LEGAL-001-ART-021", "LEGAL-001-ART-009"],
+      "secondary_clause_ids": [],
+      "requires_human_review_when": [
+        "采购人能够证明相关评分内容对履约质量具有直接影响",
+        "混合采购场景下评分项同时覆盖主标的和次标的能力"
+      ]
+    },
+    {
+      "catalog_id": "RP-SCORE-006",
+      "review_point_title": "方案评分量化不足",
+      "source_issue_type": "ambiguous_requirement",
+      "primary_clause_ids": ["LEGAL-001-ART-009", "LEGAL-001-ART-021"],
+      "secondary_clause_ids": [],
+      "requires_human_review_when": [
+        "采购标的确难以完全量化，需要保留少量专家判断空间",
+        "主观表述仅作为补充说明，已有充分客观指标支撑"
+      ]
+    },
+    {
+      "catalog_id": "RP-REQ-001",
+      "review_point_title": "技术或服务要求可验证性不足",
+      "source_issue_type": "ambiguous_requirement",
+      "primary_clause_ids": ["LEGAL-001-ART-009", "LEGAL-001-ART-021"],
+      "secondary_clause_ids": [],
+      "requires_human_review_when": [
+        "采购标的确难以完全量化，需要保留少量专家判断空间",
+        "主观表述仅作为补充说明，已有充分客观指标支撑"
+      ]
+    },
+    {
+      "catalog_id": "RP-CONTRACT-005",
+      "review_point_title": "验收与付款/考核/满意度联动不当",
+      "source_issue_type": "one_sided_commercial_term",
+      "primary_clause_ids": ["LEGAL-001-ART-023", "LEGAL-001-ART-025"],
+      "secondary_clause_ids": [],
+      "requires_human_review_when": [
+        "法律法规对特定行业风险承担另有强制要求",
+        "条款可能属于保险、安全生产或院感管理等法定责任延伸"
+      ]
+    },
+    {
+      "catalog_id": "RP-CONTRACT-009",
+      "review_point_title": "验收标准存在优胜原则或单方弹性判断",
+      "source_issue_type": "unclear_acceptance_standard",
+      "primary_clause_ids": ["LEGAL-001-ART-024", "LEGAL-001-ART-023"],
+      "secondary_clause_ids": [],
+      "requires_human_review_when": [
+        "行业主管部门另有法定验收标准或第三方检测强制要求",
+        "项目采取分期实施、分段验收且合同中已有完整配套机制"
+      ]
+    },
+    {
+      "catalog_id": "RP-REST-004",
+      "review_point_title": "刚性门槛型专利要求",
+      "source_issue_type": "technical_justification_needed",
+      "primary_clause_ids": ["LEGAL-001-ART-007", "LEGAL-001-ART-009", "LEGAL-002-SEC-003"],
+      "secondary_clause_ids": [],
+      "requires_human_review_when": [
+        "技术标准、兼容性、检测方式可能涉及医疗安全、信息安全、院感或法定强制标准",
+        "采购人已提供充分的市场调查、需求调查或技术论证材料"
+      ]
+    }
+  ]
+}

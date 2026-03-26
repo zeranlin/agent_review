@@ -1,0 +1,1384 @@
+{
+  "version": "v1",
+  "profiles": [
+    {
+      "catalog_id": "CAT-AGRI-FORESTRY",
+      "catalog_name": "农林牧渔及造林绿化",
+      "review_domain_key": "agri_forestry_greening",
+      "category_type": "mixed",
+      "reasonable_requirements": [
+        "苗木及物资供货",
+        "造林实施",
+        "成活率验收",
+        "绿化养护"
+      ],
+      "core_delivery_capabilities": [
+        "苗木及物资供货",
+        "造林实施",
+        "绿化养护",
+        "成活率和保存率验收"
+      ],
+      "high_risk_patterns": [
+        "成活率责任过重",
+        "跨域信息化义务误植入",
+        "错位环保或系统要求",
+        "验收标准与自然条件绑定过严"
+      ],
+      "scoring_risk_markers": [
+        "成活率",
+        "保存率",
+        "苗木质量",
+        "有机肥",
+        "复合肥"
+      ],
+      "scoring_mismatch_markers": [
+        "政务信息系统",
+        "软件著作权",
+        "平台建设",
+        "系统对接",
+        "驻场运维"
+      ],
+      "commercial_lifecycle_markers": [
+        "成活率",
+        "保存率",
+        "养护期",
+        "验收",
+        "付款",
+        "补植"
+      ],
+      "common_mismatch_clues": [
+        "政务信息系统",
+        "软件著作权",
+        "平台建设",
+        "系统对接"
+      ],
+      "boundary_notes": "造林绿化项目通常围绕苗木、肥料、栽植、养护和成活率验收设置要求；如出现政务信息系统、平台建设、软件著作权、驻场运维等信息化表述，应优先判断是否为否定型元信息、模板残留或错位要求。",
+      "related_issue_types": [
+        "template_mismatch",
+        "technical_justification_needed",
+        "one_sided_commercial_term"
+      ],
+      "preferred_analyzers": [
+        "technical_reference_consistency_engine",
+        "commercial_lifecycle_analyzer",
+        "mixed_scope_boundary_engine"
+      ],
+      "domain_mismatch_markers": [
+        "政务信息系统",
+        "软件著作权",
+        "平台建设",
+        "系统对接",
+        "驻场运维"
+      ],
+      "template_scope_markers": [
+        "政务信息系统",
+        "平台建设",
+        "系统对接",
+        "驻场运维"
+      ],
+      "mixed_scope_markers": [
+        "平台",
+        "系统",
+        "接口",
+        "软件",
+        "运维"
+      ],
+      "scoring_theme_markers": [
+        "苗木及物资供货",
+        "造林实施",
+        "绿化养护",
+        "成活率验收"
+      ],
+      "scoring_evidence_markers": [
+        "苗木清单",
+        "实施方案",
+        "养护方案",
+        "验收方案"
+      ],
+      "mixed_scope_core_markers": [
+        "造林",
+        "绿化",
+        "苗木",
+        "肥料",
+        "养护",
+        "成活率"
+      ],
+      "mixed_scope_support_markers": [
+        "补植",
+        "保存率",
+        "验收"
+      ],
+      "mixed_scope_out_of_scope_markers": [
+        "政务信息系统",
+        "平台建设",
+        "系统对接",
+        "软件著作权",
+        "驻场运维"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "平台建设",
+        "系统对接",
+        "软件著作权",
+        "驻场运维"
+      ]
+    },
+    {
+      "catalog_id": "CAT-FURNITURE",
+      "catalog_name": "家具",
+      "review_domain_key": "furniture_goods",
+      "category_type": "goods",
+      "reasonable_requirements": [
+        "环保要求",
+        "结构稳定性",
+        "安装调试",
+        "保修和维护"
+      ],
+      "core_delivery_capabilities": [
+        "供货质量",
+        "安装组织",
+        "交付计划",
+        "售后保障"
+      ],
+      "high_risk_patterns": [
+        "生产设备评分",
+        "样品高分",
+        "认证高分",
+        "智能管理边界外扩",
+        "检测报告形式过严"
+      ],
+      "scoring_risk_markers": [
+        "生产设备",
+        "样品",
+        "认证",
+        "软件著作权",
+        "资产定位",
+        "智能管理系统"
+      ],
+      "scoring_mismatch_markers": [
+        "软件著作权",
+        "资产定位",
+        "平台接口",
+        "信息系统集成实施服务",
+        "专利证书"
+      ],
+      "commercial_lifecycle_markers": [
+        "安装调试",
+        "交付",
+        "到场",
+        "维修",
+        "备品备件",
+        "质保"
+      ],
+      "common_mismatch_clues": [
+        "软件著作权",
+        "资产定位",
+        "智能管理系统",
+        "平台接口",
+        "信息系统集成实施服务"
+      ],
+      "boundary_notes": "家具类采购允许围绕材质、环保、安装和保修提出要求，但将智能定位、软件著作权、平台接口作为高分或必需条件时，应重点核查是否超出家具供货与安装履约边界。",
+      "related_issue_types": [
+        "scoring_content_mismatch",
+        "technical_justification_needed",
+        "one_sided_commercial_term"
+      ],
+      "preferred_analyzers": [
+        "brand_and_certification_scoring_analyzer",
+        "technical_reference_consistency_engine",
+        "commercial_burden_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "软件著作权",
+        "资产定位",
+        "智能管理系统",
+        "平台接口",
+        "信息系统集成实施服务"
+      ],
+      "template_scope_markers": [
+        "资产定位",
+        "定位管理标签模块",
+        "蓝牙",
+        "UWB",
+        "资产管理读写基站",
+        "智能芯片",
+        "碳足迹",
+        "无缝对接"
+      ],
+      "mixed_scope_markers": [
+        "资产定位",
+        "定位管理标签模块",
+        "蓝牙",
+        "UWB",
+        "智能芯片",
+        "软件管理系统"
+      ],
+      "scoring_theme_markers": [
+        "供货质量",
+        "安装组织",
+        "交付计划",
+        "售后保障",
+        "环保性能",
+        "样品质量"
+      ],
+      "scoring_evidence_markers": [
+        "供货方案",
+        "安装方案",
+        "质保承诺",
+        "检测报告",
+        "样品",
+        "项目实施方案"
+      ],
+      "mixed_scope_core_markers": [
+        "家具",
+        "供货",
+        "安装",
+        "交货",
+        "柜体",
+        "桌",
+        "椅"
+      ],
+      "mixed_scope_support_markers": [],
+      "mixed_scope_out_of_scope_markers": [
+        "资产定位",
+        "智能芯片",
+        "软件管理系统",
+        "UWB",
+        "蓝牙",
+        "碳足迹"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "资产定位",
+        "智能芯片",
+        "软件管理系统",
+        "UWB",
+        "蓝牙",
+        "碳足迹"
+      ]
+    },
+    {
+      "catalog_id": "CAT-TEXTILE",
+      "catalog_name": "窗帘及被服",
+      "review_domain_key": "textile_goods",
+      "category_type": "goods",
+      "reasonable_requirements": [
+        "阻燃",
+        "抗菌",
+        "环保",
+        "安装调试",
+        "保修维护"
+      ],
+      "core_delivery_capabilities": [
+        "材质环保",
+        "阻燃抗菌",
+        "安装调试",
+        "质保维护"
+      ],
+      "high_risk_patterns": [
+        "检测报告地方化",
+        "样品高分",
+        "认证高分",
+        "履约保证金转售后保证金"
+      ],
+      "scoring_risk_markers": [
+        "样品",
+        "认证",
+        "检测报告",
+        "地方检测",
+        "履约保证金"
+      ],
+      "scoring_mismatch_markers": [
+        "芯片",
+        "系统",
+        "无缝对接",
+        "平台",
+        "软件"
+      ],
+      "commercial_lifecycle_markers": [
+        "安装",
+        "验收",
+        "空气检测",
+        "整改",
+        "复验",
+        "质保"
+      ],
+      "common_mismatch_clues": [
+        "保洁服务",
+        "信息化系统",
+        "智能芯片",
+        "软件著作权"
+      ],
+      "boundary_notes": "窗帘及被服类采购可以设置院感、安全和环保要求，但叠加地方化检测报告、样品高分和长期资金占压时，应重点审查必要性与市场可得性。",
+      "related_issue_types": [
+        "technical_justification_needed",
+        "excessive_scoring_weight",
+        "one_sided_commercial_term"
+      ],
+      "preferred_analyzers": [
+        "brand_and_certification_scoring_analyzer",
+        "technical_reference_consistency_engine",
+        "commercial_burden_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "芯片",
+        "系统",
+        "无缝对接",
+        "平台",
+        "软件"
+      ],
+      "template_scope_markers": [
+        "芯片",
+        "系统",
+        "无缝对接",
+        "平台",
+        "软件"
+      ],
+      "mixed_scope_markers": [
+        "芯片",
+        "系统",
+        "无缝对接"
+      ],
+      "scoring_theme_markers": [
+        "材质环保",
+        "阻燃抗菌",
+        "安装调试",
+        "质保维护",
+        "样品质量"
+      ],
+      "scoring_evidence_markers": [
+        "检测报告",
+        "样品",
+        "安装方案",
+        "质保承诺",
+        "材质说明"
+      ],
+      "mixed_scope_core_markers": [
+        "窗帘",
+        "隔帘",
+        "被服",
+        "安装",
+        "阻燃",
+        "抗菌"
+      ],
+      "mixed_scope_support_markers": [],
+      "mixed_scope_out_of_scope_markers": [
+        "芯片",
+        "软件",
+        "平台",
+        "无缝对接",
+        "系统"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "芯片",
+        "软件",
+        "平台",
+        "无缝对接",
+        "系统"
+      ]
+    },
+    {
+      "catalog_id": "CAT-SPORTS",
+      "catalog_name": "体育器材及运动场设施",
+      "review_domain_key": "sports_facility_goods",
+      "category_type": "mixed",
+      "reasonable_requirements": [
+        "器材供货",
+        "场地铺装",
+        "围网与照明安装",
+        "基础智能显示和售后维护"
+      ],
+      "core_delivery_capabilities": [
+        "器材供货",
+        "场地铺装",
+        "围网照明安装",
+        "售后维护"
+      ],
+      "high_risk_patterns": [
+        "技术评分过高",
+        "负偏离扣分过重",
+        "专项检测报告加分",
+        "轻量智能化边界外扩",
+        "品牌定向痕迹"
+      ],
+      "scoring_risk_markers": [
+        "技术部分",
+        "负偏离",
+        "检测报告",
+        "CMA",
+        "CNAS",
+        "品牌：",
+        "leyard",
+        "智能显示"
+      ],
+      "scoring_mismatch_markers": [
+        "软件平台",
+        "系统集成实施服务",
+        "二维码报修系统",
+        "OTA远程升级",
+        "leyard",
+        "品牌："
+      ],
+      "commercial_lifecycle_markers": [
+        "安装",
+        "调试",
+        "验收",
+        "维修",
+        "到场",
+        "报修"
+      ],
+      "common_mismatch_clues": [
+        "软件平台",
+        "系统集成实施服务",
+        "二维码报修系统",
+        "OTA远程升级",
+        "leyard",
+        "品牌："
+      ],
+      "boundary_notes": "体育器材及运动场设施项目允许围绕场地材料、安全性能、照明、围网、安装和基础运维提出要求，但把轻量智能化功能、专项检测储备、品牌偏好或负偏离扣分过重叠加为高分或高罚项时，应重点审查是否超出体育器材供货并安装调试的合理边界。",
+      "related_issue_types": [
+        "scoring_structure_imbalance",
+        "technical_justification_needed",
+        "template_mismatch"
+      ],
+      "preferred_analyzers": [
+        "scoring_semantic_consistency_engine",
+        "technical_reference_consistency_engine",
+        "mixed_scope_boundary_engine"
+      ],
+      "domain_mismatch_markers": [
+        "软件平台",
+        "系统集成实施服务",
+        "二维码报修系统",
+        "OTA远程升级",
+        "leyard",
+        "品牌："
+      ],
+      "template_scope_markers": [
+        "二维码报修系统",
+        "OTA远程升级",
+        "智能显示",
+        "品牌：",
+        "leyard"
+      ],
+      "mixed_scope_markers": [
+        "二维码报修系统",
+        "OTA远程升级",
+        "智能显示",
+        "远程升级"
+      ],
+      "scoring_theme_markers": [
+        "器材供货",
+        "场地铺装",
+        "围网照明安装",
+        "售后维护",
+        "实施方案"
+      ],
+      "scoring_evidence_markers": [
+        "供货方案",
+        "施工组织方案",
+        "检测报告",
+        "CMA",
+        "CNAS",
+        "售后方案"
+      ],
+      "mixed_scope_core_markers": [
+        "运动场",
+        "围网",
+        "硅PU",
+        "照明",
+        "器材",
+        "铺装"
+      ],
+      "mixed_scope_support_markers": [
+        "二维码报修系统",
+        "OTA远程升级",
+        "智能显示",
+        "远程升级"
+      ],
+      "mixed_scope_out_of_scope_markers": [
+        "二维码报修系统",
+        "OTA远程升级",
+        "智能显示",
+        "远程升级",
+        "系统端口",
+        "无缝对接",
+        "软件著作权",
+        "平台接口",
+        "综合业务协同平台"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "系统端口",
+        "无缝对接",
+        "软件著作权",
+        "平台接口",
+        "综合业务协同平台"
+      ]
+    },
+    {
+      "catalog_id": "CAT-PROPERTY",
+      "catalog_name": "物业管理服务",
+      "review_domain_key": "property_service",
+      "category_type": "service",
+      "reasonable_requirements": [
+        "驻场人员",
+        "应急保障",
+        "岗位证书",
+        "考核机制"
+      ],
+      "core_delivery_capabilities": [
+        "驻场组织",
+        "岗位配置",
+        "应急响应",
+        "服务质量保障"
+      ],
+      "high_risk_patterns": [
+        "人员证书堆叠",
+        "医院经验高分",
+        "月度考核与付款绑定",
+        "高额扣罚与解除"
+      ],
+      "scoring_risk_markers": [
+        "医院物业",
+        "医院评审",
+        "履约评价为满意",
+        "履约评价为优秀",
+        "学历",
+        "职称",
+        "证书",
+        "奖项"
+      ],
+      "scoring_mismatch_markers": [
+        "软件著作权",
+        "高精设备参数",
+        "学生饮用奶",
+        "生产设备",
+        "品牌价值"
+      ],
+      "commercial_lifecycle_markers": [
+        "每月服务费与考核结果挂钩",
+        "管理费直接挂钩",
+        "满意度评价结果与服务费挂钩",
+        "扣除当月物业服务费",
+        "24小时",
+        "到场"
+      ],
+      "common_mismatch_clues": [
+        "软件著作权",
+        "高精设备参数",
+        "学生饮用奶",
+        "生产设备",
+        "品牌价值"
+      ],
+      "boundary_notes": "物业服务场景允许对驻场、应急和服务考核提出要求，但将无关证书、品牌荣誉或设备参数纳入评分，或把付款深度绑定考核与扣罚时，通常更接近高风险条款。",
+      "related_issue_types": [
+        "personnel_restriction",
+        "scoring_content_mismatch",
+        "payment_acceptance_linkage"
+      ],
+      "preferred_analyzers": [
+        "personnel_certificate_mismatch_engine",
+        "commercial_lifecycle_analyzer",
+        "geographic_tendency_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "软件著作权",
+        "高精设备参数",
+        "学生饮用奶",
+        "生产设备",
+        "品牌价值"
+      ],
+      "template_scope_markers": [
+        "芯片",
+        "HIS",
+        "PACS",
+        "LIS",
+        "数据交换",
+        "软件著作权",
+        "著作权登记证书",
+        "实际需求为准"
+      ],
+      "mixed_scope_markers": [
+        "物业垃圾分类自动化分捡类系统",
+        "物业能源管理类软件",
+        "物业电梯安全远程监控类系统",
+        "物业消防设备监测自动化类系统",
+        "物业空调运行自动化监测类系统",
+        "软件著作权"
+      ],
+      "scoring_theme_markers": [
+        "驻场组织",
+        "岗位配置",
+        "应急响应",
+        "服务质量保障",
+        "管理方案"
+      ],
+      "scoring_evidence_markers": [
+        "服务方案",
+        "岗位配置表",
+        "应急预案",
+        "履约评价",
+        "考核方案"
+      ],
+      "mixed_scope_core_markers": [
+        "物业",
+        "保洁",
+        "安保",
+        "维修",
+        "驻场",
+        "服务"
+      ],
+      "mixed_scope_support_markers": [],
+      "mixed_scope_out_of_scope_markers": [
+        "自动化分拣",
+        "能源管理软件",
+        "电梯远程监控",
+        "软件著作权",
+        "著作权登记证书"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "自动化分拣",
+        "能源管理软件",
+        "电梯远程监控",
+        "软件著作权",
+        "著作权登记证书"
+      ]
+    },
+    {
+      "catalog_id": "CAT-INFO",
+      "catalog_name": "信息化平台及系统运维",
+      "review_domain_key": "information_system",
+      "category_type": "service",
+      "reasonable_requirements": [
+        "系统对接",
+        "持续运维",
+        "驻场保障",
+        "演示验证"
+      ],
+      "core_delivery_capabilities": [
+        "系统建设",
+        "接口对接",
+        "运维保障",
+        "演示验证"
+      ],
+      "high_risk_patterns": [
+        "软件著作权高分",
+        "演示高分",
+        "签到门槛",
+        "驻场响应要求过重"
+      ],
+      "scoring_risk_markers": [
+        "软件著作权",
+        "现场演示",
+        "签到",
+        "PMP",
+        "CISE",
+        "驻场"
+      ],
+      "scoring_mismatch_markers": [
+        "特种设备作业证",
+        "水运机电工程专项监理",
+        "生活垃圾分类服务能力认证",
+        "保安服务认证"
+      ],
+      "commercial_lifecycle_markers": [
+        "驻场",
+        "到场",
+        "验收",
+        "付款",
+        "整改",
+        "解除合同"
+      ],
+      "common_mismatch_clues": [
+        "特种设备作业证",
+        "水运机电工程专项监理",
+        "生活垃圾分类服务能力认证",
+        "保安服务认证"
+      ],
+      "boundary_notes": "信息化项目可以围绕接口、运维、演示和驻场设置要求，但应重点防止将软件著作权、案例、演示和驻场要求叠加成决定性高分，或引入与信息系统履约无关的跨行业认证。",
+      "related_issue_types": [
+        "scoring_content_mismatch",
+        "excessive_scoring_weight",
+        "geographic_restriction"
+      ],
+      "preferred_analyzers": [
+        "demo_mechanism_engine",
+        "scoring_semantic_consistency_engine",
+        "commercial_lifecycle_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "特种设备作业证",
+        "水运机电工程专项监理",
+        "生活垃圾分类服务能力认证",
+        "保安服务认证"
+      ],
+      "template_scope_markers": [
+        "园区保洁",
+        "设施维修",
+        "安防管理",
+        "保洁",
+        "垃圾",
+        "特种设备",
+        "高空清洗",
+        "CCRC",
+        "ISO20000"
+      ],
+      "mixed_scope_markers": [
+        "驻场",
+        "签到",
+        "原型演示",
+        "现场演示"
+      ],
+      "scoring_theme_markers": [
+        "系统建设",
+        "接口对接",
+        "运维保障",
+        "演示验证",
+        "实施方案"
+      ],
+      "scoring_evidence_markers": [
+        "演示",
+        "软件著作权",
+        "项目案例",
+        "实施方案",
+        "驻场方案"
+      ],
+      "mixed_scope_core_markers": [
+        "系统",
+        "平台",
+        "接口",
+        "运维",
+        "驻场",
+        "演示"
+      ],
+      "mixed_scope_support_markers": [
+        "驻场",
+        "签到",
+        "原型演示",
+        "现场演示"
+      ],
+      "mixed_scope_out_of_scope_markers": [
+        "特种设备",
+        "高空清洗",
+        "生活垃圾分类",
+        "保安服务认证"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "特种设备",
+        "高空清洗",
+        "生活垃圾分类",
+        "保安服务认证"
+      ]
+    },
+    {
+      "catalog_id": "CAT-MEDICAL-DEVICE",
+      "catalog_name": "医疗设备",
+      "review_domain_key": "medical_device_goods",
+      "category_type": "goods",
+      "reasonable_requirements": [
+        "设备供货",
+        "安装调试",
+        "院内接口配套",
+        "售后维护"
+      ],
+      "core_delivery_capabilities": [
+        "设备供货",
+        "安装调试",
+        "试运行验收",
+        "售后维护"
+      ],
+      "high_risk_patterns": [
+        "固定年份限制",
+        "接口和碳足迹义务外扩",
+        "技术标准错位",
+        "证明材料过严"
+      ],
+      "scoring_risk_markers": [
+        "检测报告",
+        "CMA",
+        "CNAS",
+        "碳足迹",
+        "接口",
+        "售后方案"
+      ],
+      "scoring_mismatch_markers": [
+        "碳足迹盘查",
+        "保安服务认证",
+        "学生饮用奶",
+        "高空清洗",
+        "有害生物防制"
+      ],
+      "commercial_lifecycle_markers": [
+        "开机率",
+        "备用设备",
+        "第三方质量检测",
+        "暂停支付",
+        "验收",
+        "质保"
+      ],
+      "common_mismatch_clues": [
+        "碳足迹盘查",
+        "保安服务认证",
+        "学生饮用奶",
+        "高空清洗",
+        "有害生物防制"
+      ],
+      "boundary_notes": "医疗设备项目允许围绕安装、接口、试运行和售后提出要求，但固定年份、过严的证明材料和额外 ESG/接口义务，应重点审查是否真正与临床使用和医院信息系统对接直接相关。",
+      "related_issue_types": [
+        "narrow_technical_parameter",
+        "technical_justification_needed",
+        "template_mismatch"
+      ],
+      "preferred_analyzers": [
+        "technical_reference_consistency_engine",
+        "mixed_scope_boundary_engine",
+        "commercial_burden_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "碳足迹盘查",
+        "保安服务认证",
+        "学生饮用奶",
+        "高空清洗",
+        "有害生物防制"
+      ],
+      "template_scope_markers": [
+        "软件端口",
+        "医院信息系统",
+        "HIS",
+        "PACS",
+        "LIS",
+        "碳足迹"
+      ],
+      "mixed_scope_markers": [
+        "软件端口",
+        "医院信息系统",
+        "HIS",
+        "PACS",
+        "LIS",
+        "碳足迹盘查报告",
+        "碳足迹改进报告"
+      ],
+      "scoring_theme_markers": [
+        "设备供货",
+        "安装调试",
+        "试运行验收",
+        "售后维护",
+        "接口配套"
+      ],
+      "scoring_evidence_markers": [
+        "检测报告",
+        "CMA",
+        "CNAS",
+        "售后方案",
+        "接口方案",
+        "培训方案"
+      ],
+      "mixed_scope_core_markers": [
+        "设备",
+        "供货",
+        "安装",
+        "调试",
+        "验收",
+        "院内接口"
+      ],
+      "mixed_scope_support_markers": [
+        "软件端口",
+        "医院信息系统",
+        "HIS",
+        "PACS",
+        "LIS"
+      ],
+      "mixed_scope_out_of_scope_markers": [
+        "碳足迹",
+        "盘查报告",
+        "改进报告",
+        "HIS",
+        "PACS",
+        "LIS",
+        "软件端口"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "碳足迹",
+        "盘查报告",
+        "改进报告"
+      ]
+    },
+    {
+      "catalog_id": "CAT-MEDICAL-TCM",
+      "catalog_name": "药品及医用配套",
+      "review_domain_key": "medical_tcm",
+      "category_type": "goods",
+      "reasonable_requirements": [
+        "药品供货",
+        "仓储配送",
+        "基础设备配套",
+        "院内使用保障"
+      ],
+      "core_delivery_capabilities": [
+        "药品供货",
+        "仓储配送",
+        "基础设备配套",
+        "院内使用保障"
+      ],
+      "high_risk_patterns": [
+        "自动化设备边界不清",
+        "信息化接口义务外扩",
+        "错位资质",
+        "长期保证金占压"
+      ],
+      "scoring_risk_markers": [
+        "信息化管理系统",
+        "系统端口",
+        "自动化调剂",
+        "发药机",
+        "IT服务管理体系认证",
+        "信息安全管理体系认证"
+      ],
+      "scoring_mismatch_markers": [
+        "IT服务管理体系认证",
+        "保安服务认证",
+        "信息安全管理体系认证",
+        "棉花加工资格",
+        "生活垃圾分类"
+      ],
+      "commercial_lifecycle_markers": [
+        "履约保证金",
+        "售后保证金",
+        "36个月",
+        "配送",
+        "到场",
+        "义务外扩"
+      ],
+      "common_mismatch_clues": [
+        "IT服务管理体系认证",
+        "保安服务认证",
+        "信息安全管理体系认证",
+        "棉花加工资格",
+        "生活垃圾分类"
+      ],
+      "boundary_notes": "药品及医用配套采购允许对仓储、配送和基础配套设备提出要求，但自动化设备、信息化接口和跨行业资质一旦被写成必需条件或高分项，应重点判断是否属于混合采购边界不清。",
+      "related_issue_types": [
+        "qualification_domain_mismatch",
+        "template_mismatch",
+        "technical_justification_needed"
+      ],
+      "preferred_analyzers": [
+        "qualification_reasoning_engine",
+        "mixed_scope_boundary_engine",
+        "commercial_burden_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "IT服务管理体系认证",
+        "保安服务认证",
+        "信息安全管理体系认证",
+        "棉花加工资格",
+        "生活垃圾分类"
+      ],
+      "template_scope_markers": [
+        "园区保洁",
+        "药瓶清洁",
+        "无缝对接",
+        "信息化管理系统",
+        "系统端口"
+      ],
+      "mixed_scope_markers": [
+        "信息化管理系统",
+        "系统端口",
+        "无缝对接",
+        "综合业务协同平台",
+        "自动化调剂",
+        "发药机",
+        "药瓶清洁"
+      ],
+      "scoring_theme_markers": [
+        "药品供货",
+        "仓储配送",
+        "基础设备配套",
+        "院内使用保障",
+        "配送方案"
+      ],
+      "scoring_evidence_markers": [
+        "配送方案",
+        "仓储方案",
+        "设备配套方案",
+        "系统接口方案",
+        "认证证书"
+      ],
+      "mixed_scope_core_markers": [
+        "中药配方颗粒",
+        "药品",
+        "配送",
+        "仓储",
+        "供应"
+      ],
+      "mixed_scope_support_markers": [
+        "信息化管理系统",
+        "系统端口",
+        "自动化调剂",
+        "发药机"
+      ],
+      "mixed_scope_out_of_scope_markers": [
+        "信息化管理系统",
+        "系统端口",
+        "自动化调剂",
+        "发药机",
+        "药瓶清洁"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "综合业务协同平台",
+        "无缝对接",
+        "药瓶清洁"
+      ]
+    },
+    {
+      "catalog_id": "CAT-SIGNAGE",
+      "catalog_name": "标识标牌及宣传印制",
+      "review_domain_key": "signage_printing_service",
+      "category_type": "service",
+      "reasonable_requirements": [
+        "设计制作",
+        "现场安装维护",
+        "物料环保要求",
+        "响应时限"
+      ],
+      "core_delivery_capabilities": [
+        "设计制作",
+        "物料打样",
+        "现场安装维护",
+        "短时响应"
+      ],
+      "high_risk_patterns": [
+        "错位IT/保安/信息安全认证",
+        "软件著作权高分",
+        "印刷设备储备高分",
+        "属地响应过短"
+      ],
+      "scoring_risk_markers": [
+        "IT服务管理体系认证",
+        "保安服务认证",
+        "信息安全管理体系认证",
+        "软件著作权",
+        "UV打印机",
+        "喷绘机",
+        "写真机",
+        "系统端口"
+      ],
+      "scoring_mismatch_markers": [
+        "IT服务管理体系认证",
+        "保安服务认证",
+        "信息安全管理体系认证",
+        "软件著作权",
+        "系统接口"
+      ],
+      "commercial_lifecycle_markers": [
+        "安装",
+        "维护",
+        "响应时限",
+        "医院审核后方可制作",
+        "按市场价",
+        "其他合同未明示的相关工作"
+      ],
+      "common_mismatch_clues": [
+        "IT服务管理体系认证",
+        "保安服务认证",
+        "信息安全管理体系认证",
+        "软件著作权",
+        "系统接口"
+      ],
+      "boundary_notes": "标识标牌及宣传印制服务可以包含设计、制作、安装和短时维护响应，但将 IT、保安、信息安全认证，或软件著作权、系统接口要求写入资格和评分，通常属于高频错位内容。",
+      "related_issue_types": [
+        "scoring_content_mismatch",
+        "template_mismatch",
+        "geographic_restriction"
+      ],
+      "preferred_analyzers": [
+        "scoring_semantic_consistency_engine",
+        "mixed_scope_boundary_engine",
+        "commercial_lifecycle_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "IT服务管理体系认证",
+        "保安服务认证",
+        "信息安全管理体系认证",
+        "学生饮用奶定点生产企业资格",
+        "成桥荷载试验",
+        "交通部交工验收"
+      ],
+      "template_scope_markers": [
+        "成桥荷载试验",
+        "交通部交工验收",
+        "试验成果",
+        "工程现场勘察",
+        "试验人员",
+        "试验仪器设备",
+        "用户组织有关技术人员"
+      ],
+      "mixed_scope_markers": [
+        "软件著作权",
+        "UV 打印机",
+        "UV打印机",
+        "喷绘机",
+        "写真机",
+        "雕刻机",
+        "折弯机",
+        "系统端口",
+        "无缝对接"
+      ],
+      "scoring_theme_markers": [
+        "设计制作",
+        "物料打样",
+        "现场安装维护",
+        "短时响应",
+        "服务方案"
+      ],
+      "scoring_evidence_markers": [
+        "设计方案",
+        "打样方案",
+        "安装维护方案",
+        "服务承诺",
+        "项目案例"
+      ],
+      "mixed_scope_core_markers": [
+        "标识",
+        "标牌",
+        "导视",
+        "宣传印刷",
+        "设计制作",
+        "安装维护"
+      ],
+      "mixed_scope_support_markers": [
+        "UV打印机",
+        "喷绘机",
+        "写真机"
+      ],
+      "mixed_scope_out_of_scope_markers": [
+        "软件著作权",
+        "系统端口",
+        "无缝对接",
+        "UV打印机",
+        "喷绘机",
+        "写真机"
+      ],
+      "mixed_scope_hard_mismatch_markers": [
+        "软件著作权",
+        "系统端口",
+        "无缝对接"
+      ]
+    },
+    {
+      "catalog_id": "CAT-EQUIPMENT-INSTALL",
+      "catalog_name": "设备供货并安装调试",
+      "review_domain_key": "equipment_installation",
+      "category_type": "goods",
+      "reasonable_requirements": [
+        "供货安装",
+        "调试验收",
+        "售后维保"
+      ],
+      "core_delivery_capabilities": [
+        "设备供货",
+        "安装组织",
+        "调试验收",
+        "售后维保"
+      ],
+      "high_risk_patterns": [
+        "行业错位资质",
+        "固定年份限制",
+        "付款与运行期绑定",
+        "绝对免责"
+      ],
+      "scoring_risk_markers": [
+        "运行期",
+        "试运行",
+        "系统接口",
+        "连续运行",
+        "尾款"
+      ],
+      "scoring_mismatch_markers": [
+        "有害生物防制",
+        "SPCA",
+        "有机产品认证",
+        "水运机电工程专项监理",
+        "水运工程监理甲级"
+      ],
+      "commercial_lifecycle_markers": [
+        "试运行",
+        "连续运行",
+        "付款",
+        "尾款",
+        "绝对免责",
+        "解除合同"
+      ],
+      "common_mismatch_clues": [
+        "有害生物防制",
+        "SPCA登记证书",
+        "水运机电工程专项监理",
+        "有机产品认证"
+      ],
+      "boundary_notes": "设备供货并安装调试类项目允许围绕安装、调试、试运行和售后设置要求，但行业错位资质、固定年份、付款与长运行期绑定、绝对免责条款，往往是高风险组合。",
+      "related_issue_types": [
+        "qualification_domain_mismatch",
+        "one_sided_commercial_term",
+        "technical_justification_needed"
+      ],
+      "preferred_analyzers": [
+        "qualification_reasoning_engine",
+        "technical_reference_consistency_engine",
+        "commercial_lifecycle_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "有害生物防制",
+        "SPCA",
+        "有机产品认证",
+        "水运机电工程专项监理",
+        "水运工程监理甲级"
+      ],
+      "template_scope_markers": [
+        "有害生物防制",
+        "SPCA",
+        "有机产品认证",
+        "水运机电工程专项监理",
+        "水运工程监理甲级"
+      ],
+      "mixed_scope_markers": [
+        "系统接口",
+        "运行期",
+        "连续运行",
+        "试运行"
+      ],
+      "scoring_theme_markers": [
+        "设备供货",
+        "安装组织",
+        "调试验收",
+        "售后维保",
+        "实施方案"
+      ],
+      "scoring_evidence_markers": [
+        "实施方案",
+        "安装调试方案",
+        "验收方案",
+        "售后方案",
+        "项目案例"
+      ],
+      "mixed_scope_core_markers": [
+        "设备",
+        "供货",
+        "安装",
+        "调试",
+        "试运行",
+        "验收"
+      ],
+      "mixed_scope_out_of_scope_markers": [
+        "系统接口",
+        "连续运行",
+        "尾款",
+        "远程监测",
+        "额外运维平台"
+      ]
+    },
+    {
+      "catalog_id": "CAT-CATERING",
+      "catalog_name": "餐饮托管及食堂运营",
+      "review_domain_key": "catering_service",
+      "category_type": "service",
+      "reasonable_requirements": [
+        "持续供餐",
+        "食品安全",
+        "现场保障",
+        "人员配置"
+      ],
+      "core_delivery_capabilities": [
+        "持续供餐",
+        "食品安全",
+        "现场保障",
+        "人员配置"
+      ],
+      "high_risk_patterns": [
+        "过短营业/响应要求误判",
+        "考核与付款绑定",
+        "餐饮证照或经验评分失衡"
+      ],
+      "scoring_risk_markers": [
+        "履约评价",
+        "点餐系统",
+        "配送系统",
+        "高级餐饮业职业经理人",
+        "食品安全管理员"
+      ],
+      "scoring_mismatch_markers": [
+        "软件著作权",
+        "信息系统集成实施服务",
+        "高空清洗",
+        "水运机电工程专项监理"
+      ],
+      "commercial_lifecycle_markers": [
+        "考核",
+        "付款",
+        "扣减",
+        "驻场",
+        "供餐",
+        "食品安全"
+      ],
+      "common_mismatch_clues": [
+        "软件著作权",
+        "信息系统集成实施服务",
+        "高空清洗",
+        "水运机电工程专项监理"
+      ],
+      "boundary_notes": "餐饮托管及食堂运营允许围绕食品安全、供餐连续性和驻场保障设置要求，但与软件、工程或跨行业资质有关的评分和资格，通常更可能属于错位要求。",
+      "related_issue_types": [
+        "payment_acceptance_linkage",
+        "scoring_content_mismatch",
+        "geographic_restriction"
+      ],
+      "preferred_analyzers": [
+        "commercial_lifecycle_analyzer",
+        "personnel_certificate_mismatch_engine",
+        "geographic_tendency_analyzer"
+      ],
+      "domain_mismatch_markers": [
+        "软件著作权",
+        "信息系统集成实施服务",
+        "高空清洗",
+        "水运机电工程专项监理"
+      ],
+      "template_scope_markers": [
+        "软件著作权",
+        "信息系统集成实施服务",
+        "高空清洗",
+        "水运机电工程专项监理"
+      ],
+      "mixed_scope_markers": [
+        "营养系统",
+        "点餐系统",
+        "配送系统"
+      ],
+      "scoring_theme_markers": [
+        "持续供餐",
+        "食品安全",
+        "现场保障",
+        "人员配置",
+        "运营方案"
+      ],
+      "scoring_evidence_markers": [
+        "运营方案",
+        "食品安全方案",
+        "人员配置表",
+        "履约评价",
+        "应急预案"
+      ],
+      "mixed_scope_core_markers": [
+        "供餐",
+        "食堂",
+        "餐饮",
+        "食品安全",
+        "配送",
+        "驻场"
+      ],
+      "mixed_scope_out_of_scope_markers": [
+        "点餐系统",
+        "配送系统",
+        "软件著作权",
+        "信息系统集成实施服务"
+      ]
+    }
+  ]
+}

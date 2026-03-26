@@ -1,0 +1,26 @@
+{
+  "version": "v1",
+  "authorities": [
+    {
+      "reference_id": "LEGAL-001",
+      "reference_title": "政府采购需求管理办法",
+      "raw_metadata_path": "data/legal-authorities/raw/LEGAL-001/metadata.json",
+      "normalized_text_path": "data/legal-authorities/normalized/LEGAL-001.txt",
+      "review_topics": [
+        "采购需求",
+        "评分标准",
+        "验收"
+      ]
+    },
+    {
+      "reference_id": "LEGAL-002",
+      "reference_title": "财政部办公厅关于做好政府采购框架协议采购工作有关问题的通知",
+      "raw_metadata_path": "data/legal-authorities/raw/LEGAL-002/metadata.json",
+      "normalized_text_path": "data/legal-authorities/normalized/LEGAL-002.txt",
+      "review_topics": [
+        "框架协议",
+        "第二阶段成交规则"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .external_data import lookup_external_legal_basis
 from .models import ConsistencyCheck, Finding, LegalBasis, ReviewPoint, RiskHit
 
 
@@ -696,9 +697,24 @@ def annotate_findings(findings: list[Finding]) -> list[Finding]:
 def annotate_review_points(review_points: list[ReviewPoint]) -> list[ReviewPoint]:
     for point in review_points:
         if not point.legal_basis:
-            point.legal_basis = _lookup_basis(point.title)
+            point.legal_basis = _lookup_basis(point.title, catalog_id=point.catalog_id)
     return review_points
 
 
-def _lookup_basis(key: str) -> list[LegalBasis]:
-    return [item for item in LEGAL_BASIS_REGISTRY.get(key, [])]
+def _lookup_basis(key: str, *, catalog_id: str = "") -> list[LegalBasis]:
+    results = [item for item in LEGAL_BASIS_REGISTRY.get(key, [])]
+    results.extend(lookup_external_legal_basis(catalog_id=catalog_id, title=key))
+    deduped: list[LegalBasis] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for item in results:
+        current = (
+            item.source_name,
+            item.article_hint,
+            item.summary,
+            item.basis_type,
+        )
+        if current in seen:
+            continue
+        seen.add(current)
+        deduped.append(item)
+    return deduped

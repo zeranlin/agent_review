@@ -1,0 +1,313 @@
+{
+  "source_id": "CN-GOV-PROCUREMENT-CATALOG-2022-REVIEW-DOMAIN-MAP-V1",
+  "source_catalog_id": "CN-GOV-PROCUREMENT-CATALOG-2022-FULL",
+  "mapping_version": "v1",
+  "description": "第一版审查领域映射：基于2022版政府采购品目分类目录，将高频官方品目编码映射到代码审查主链路使用的审查领域。",
+  "entries": [
+    {
+      "catalog_id": "CAT-AGRI-FORESTRY",
+      "review_domain_key": "agri_forestry_greening",
+      "review_domain_name": "农林牧渔及造林绿化",
+      "category_type": "mixed",
+      "mapped_catalog_codes": [
+        "A07039900",
+        "C09000000",
+        "C09020100",
+        "C13030000"
+      ],
+      "mapped_catalog_prefixes": [
+        "A0703",
+        "C0900",
+        "C0902",
+        "C1303"
+      ],
+      "keyword_fallbacks": [
+        "林业和草原",
+        "造林绿化",
+        "造林服务",
+        "人工造林",
+        "苗木",
+        "农林牧渔"
+      ],
+      "coverage_note": "覆盖农林牧渔业产品、造林服务、园林绿化管理及相关绿化实施保障场景。",
+      "preferred_analyzers": [
+        "technical_reference_consistency_engine",
+        "commercial_lifecycle_analyzer",
+        "mixed_scope_boundary_engine"
+      ]
+    },
+    {
+      "catalog_id": "CAT-FURNITURE",
+      "review_domain_key": "furniture_goods",
+      "review_domain_name": "家具",
+      "category_type": "goods",
+      "mapped_catalog_codes": [
+        "A05010000"
+      ],
+      "mapped_catalog_prefixes": [
+        "A0501"
+      ],
+      "keyword_fallbacks": [
+        "家具",
+        "办公家具",
+        "医用家具"
+      ],
+      "coverage_note": "覆盖办公家具、医用家具及其他家具类货物采购场景。",
+      "preferred_analyzers": [
+        "brand_and_certification_scoring_analyzer",
+        "technical_reference_consistency_engine",
+        "commercial_burden_analyzer"
+      ]
+    },
+    {
+      "catalog_id": "CAT-TEXTILE",
+      "review_domain_key": "textile_goods",
+      "review_domain_name": "窗帘及被服",
+      "category_type": "goods",
+      "mapped_catalog_codes": [
+        "A05030300",
+        "A05030505"
+      ],
+      "mapped_catalog_prefixes": [
+        "A050303",
+        "A050305"
+      ],
+      "keyword_fallbacks": [
+        "窗帘",
+        "隔帘",
+        "被服",
+        "布草"
+      ],
+      "coverage_note": "覆盖窗帘、隔帘、床品、被服和布草类货物采购场景。",
+      "preferred_analyzers": [
+        "brand_and_certification_scoring_analyzer",
+        "technical_reference_consistency_engine",
+        "commercial_burden_analyzer"
+      ]
+    },
+    {
+      "catalog_id": "CAT-SPORTS",
+      "review_domain_key": "sports_facility_goods",
+      "review_domain_name": "体育器材及运动场设施",
+      "category_type": "mixed",
+      "mapped_catalog_codes": [
+        "A02460000",
+        "A02462600",
+        "A02462900",
+        "A02469900",
+        "A02061914",
+        "B02130400"
+      ],
+      "mapped_catalog_prefixes": [
+        "A0246",
+        "A02061914",
+        "B021304"
+      ],
+      "keyword_fallbacks": [
+        "全民健身",
+        "多功能运动场",
+        "运动场",
+        "球场",
+        "围网",
+        "硅PU",
+        "健身设备",
+        "体育比赛用灯"
+      ],
+      "coverage_note": "覆盖体育器材供货、健身设备、运动场设施、照明及相关安装调试场景。",
+      "preferred_analyzers": [
+        "scoring_semantic_consistency_engine",
+        "technical_reference_consistency_engine",
+        "mixed_scope_boundary_engine"
+      ]
+    },
+    {
+      "catalog_id": "CAT-PROPERTY",
+      "review_domain_key": "property_service",
+      "review_domain_name": "物业管理服务",
+      "category_type": "service",
+      "mapped_catalog_codes": [
+        "C21040000"
+      ],
+      "mapped_catalog_prefixes": [
+        "C210400"
+      ],
+      "keyword_fallbacks": [
+        "物业管理",
+        "物业服务",
+        "保洁",
+        "保安"
+      ],
+      "coverage_note": "覆盖医院、园区、办公区等物业管理和后勤服务场景。",
+      "preferred_analyzers": [
+        "personnel_certificate_mismatch_engine",
+        "commercial_lifecycle_analyzer",
+        "geographic_tendency_analyzer"
+      ]
+    },
+    {
+      "catalog_id": "CAT-INFO",
+      "review_domain_key": "information_system",
+      "review_domain_name": "信息化平台及系统运维",
+      "category_type": "service",
+      "mapped_catalog_codes": [
+        "C16010000",
+        "C16020000",
+        "C16070000",
+        "C16090200",
+        "A08060300"
+      ],
+      "mapped_catalog_prefixes": [
+        "C1601",
+        "C1602",
+        "C1607",
+        "C1609",
+        "A080603"
+      ],
+      "keyword_fallbacks": [
+        "平台",
+        "系统",
+        "接口",
+        "运维",
+        "软件"
+      ],
+      "coverage_note": "覆盖平台建设、系统集成、软件开发、运行维护及相关信息化采购场景。",
+      "preferred_analyzers": [
+        "demo_mechanism_engine",
+        "scoring_semantic_consistency_engine",
+        "commercial_lifecycle_analyzer"
+      ]
+    },
+    {
+      "catalog_id": "CAT-MEDICAL-DEVICE",
+      "review_domain_key": "medical_device_goods",
+      "review_domain_name": "医疗设备",
+      "category_type": "goods",
+      "mapped_catalog_codes": [
+        "A02320000",
+        "C23110500",
+        "C23120500"
+      ],
+      "mapped_catalog_prefixes": [
+        "A0232",
+        "C231105",
+        "C231205"
+      ],
+      "keyword_fallbacks": [
+        "医疗设备",
+        "医疗器械",
+        "内窥镜",
+        "血透"
+      ],
+      "coverage_note": "覆盖医疗设备采购、租赁、维修保养及院内设备配套场景。",
+      "preferred_analyzers": [
+        "technical_reference_consistency_engine",
+        "mixed_scope_boundary_engine",
+        "commercial_burden_analyzer"
+      ]
+    },
+    {
+      "catalog_id": "CAT-MEDICAL-TCM",
+      "review_domain_key": "medical_tcm",
+      "review_domain_name": "药品及医用配套",
+      "category_type": "goods",
+      "mapped_catalog_codes": [
+        "A07020000",
+        "A02310300"
+      ],
+      "mapped_catalog_prefixes": [
+        "A0702",
+        "A023103"
+      ],
+      "keyword_fallbacks": [
+        "中药",
+        "配方颗粒",
+        "药品",
+        "饮片"
+      ],
+      "coverage_note": "覆盖药品供货、中药配方颗粒及中药机械等医药配套场景。",
+      "preferred_analyzers": [
+        "qualification_reasoning_engine",
+        "mixed_scope_boundary_engine",
+        "commercial_burden_analyzer"
+      ]
+    },
+    {
+      "catalog_id": "CAT-SIGNAGE",
+      "review_domain_key": "signage_printing_service",
+      "review_domain_name": "标识标牌及宣传印制",
+      "category_type": "service",
+      "mapped_catalog_codes": [
+        "C23070000",
+        "C23090000",
+        "C23090100",
+        "C23150000"
+      ],
+      "mapped_catalog_prefixes": [
+        "C2307",
+        "C2309",
+        "C2315"
+      ],
+      "keyword_fallbacks": [
+        "标识标牌",
+        "导视",
+        "宣传印制",
+        "宣传物料"
+      ],
+      "coverage_note": "覆盖标识标牌、导视系统、印刷出版和广告宣传等服务场景。",
+      "preferred_analyzers": [
+        "scoring_semantic_consistency_engine",
+        "mixed_scope_boundary_engine",
+        "commercial_lifecycle_analyzer"
+      ]
+    },
+    {
+      "catalog_id": "CAT-EQUIPMENT-INSTALL",
+      "review_domain_key": "equipment_installation",
+      "review_domain_name": "设备供货并安装调试",
+      "category_type": "mixed",
+      "mapped_catalog_codes": [
+        "B06080000",
+        "B06080100"
+      ],
+      "mapped_catalog_prefixes": [
+        "B0608"
+      ],
+      "keyword_fallbacks": [
+        "发电机",
+        "供货安装",
+        "安装调试",
+        "机电设备"
+      ],
+      "coverage_note": "覆盖设备供货、机电安装、调试验收和运维保障混合场景。",
+      "preferred_analyzers": [
+        "qualification_reasoning_engine",
+        "technical_reference_consistency_engine",
+        "commercial_lifecycle_analyzer"
+      ]
+    },
+    {
+      "catalog_id": "CAT-CATERING",
+      "review_domain_key": "catering_service",
+      "review_domain_name": "餐饮托管及食堂运营",
+      "category_type": "service",
+      "mapped_catalog_codes": [
+        "C22040000"
+      ],
+      "mapped_catalog_prefixes": [
+        "C220400"
+      ],
+      "keyword_fallbacks": [
+        "餐饮",
+        "食堂",
+        "供餐",
+        "托管"
+      ],
+      "coverage_note": "覆盖食堂托管、持续供餐、餐饮运营和现场保障服务场景。",
+      "preferred_analyzers": [
+        "commercial_lifecycle_analyzer",
+        "personnel_certificate_mismatch_engine",
+        "geographic_tendency_analyzer"
+      ]
+    }
+  ]
+}

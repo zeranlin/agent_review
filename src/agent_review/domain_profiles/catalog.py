@@ -4,6 +4,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 import re
 
+from ..external_data import external_profile_activation_tags
 from ..models import ExtractedClause
 from ..ontology import EffectTag, SemanticZoneType, ZONE_ONTOLOGY_VERSION, ZONE_PRIMARY_REVIEW_TYPES
 
@@ -553,6 +554,7 @@ def profile_activation_tags(profile: DocumentProfile) -> set[str]:
             continue
         domain_profile = DOMAIN_PROFILES.get(candidate.profile_id)
         if not domain_profile:
+            tags.update(external_profile_activation_tags(candidate.profile_id))
             continue
         tags.update(_families_to_tags(domain_profile.preferred_risk_families))
         if domain_profile.profile_id == "furniture":

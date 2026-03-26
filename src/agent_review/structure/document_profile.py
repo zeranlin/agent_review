@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from ..external_data import match_external_domain_profile_candidates
 from ..models import (
     ClauseSemanticStat,
     DocumentProfile,
@@ -253,6 +254,13 @@ def _build_domain_profile_candidates(
         candidates.append(DomainProfileCandidate("appendix_heavy", 0.68, ["引用性条款较多"]))
     if _clause_ratio(clause_stats, ClauseSemanticType.contract_obligation) > 0.1:
         candidates.append(DomainProfileCandidate("contract_heavy", 0.65, ["合同条款较多"]))
+    candidates.extend(
+        match_external_domain_profile_candidates(
+            text=text,
+            procurement_kind=procurement_kind,
+            limit=3,
+        )
+    )
 
     deduped: list[DomainProfileCandidate] = []
     seen: set[str] = set()
