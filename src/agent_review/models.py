@@ -215,6 +215,111 @@ class ReviewPointDefinition:
 
 
 @dataclass(slots=True)
+class LegalFactCandidate:
+    fact_id: str
+    document_id: str
+    source_unit_id: str
+    fact_type: str
+    zone_type: str = ""
+    clause_semantic_type: str = ""
+    effect_tags: list[str] = field(default_factory=list)
+    subject: str = ""
+    predicate: str = ""
+    object_text: str = ""
+    normalized_terms: list[str] = field(default_factory=list)
+    constraint_type: str = ""
+    constraint_value: dict[str, object] = field(default_factory=dict)
+    evidence_stage: str = "unknown"
+    counterparty: str = ""
+    anchor: dict[str, object] = field(default_factory=dict)
+    table_context: dict[str, object] = field(default_factory=dict)
+    supporting_context: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    needs_llm_disambiguation: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class RuleDefinition:
+    rule_id: str
+    version: str
+    name: str
+    point_id: str
+    rule_type: str = "soft_rule"
+    status: str = "active"
+    risk_family: str = ""
+    applicable_zone_types: list[str] = field(default_factory=list)
+    applicable_fact_types: list[str] = field(default_factory=list)
+    trigger_patterns: list[str] = field(default_factory=list)
+    required_fact_slots: list[str] = field(default_factory=list)
+    evidence_requirements: list[str] = field(default_factory=list)
+    exception_patterns: list[str] = field(default_factory=list)
+    severity_hint: str = Severity.medium.value
+    default_disposition: str = FindingType.warning.value
+    llm_assist_policy: str = "low_confidence_only"
+    llm_questions: list[str] = field(default_factory=list)
+    remedy_template_ids: list[str] = field(default_factory=list)
+    authority_binding_ids: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ReviewPointContract:
+    point_id: str
+    title: str
+    description: str = ""
+    risk_family: str = ""
+    legal_theme: str = ""
+    applicable_procurement_kinds: list[str] = field(default_factory=list)
+    target_zone_types: list[str] = field(default_factory=list)
+    primary_review_types: list[str] = field(default_factory=list)
+    required_fact_types: list[str] = field(default_factory=list)
+    supporting_fact_types: list[str] = field(default_factory=list)
+    activation_rule_ids: list[str] = field(default_factory=list)
+    suppression_rule_ids: list[str] = field(default_factory=list)
+    required_fields: list[str] = field(default_factory=list)
+    enhancement_fields: list[str] = field(default_factory=list)
+    evidence_policy: str = ""
+    quality_gate_policy: str = ""
+    manual_boundary_policy: str = ""
+    authority_binding_ids: list[str] = field(default_factory=list)
+    severity_policy: str = Severity.medium.value
+    report_group: str = ""
+    report_priority: int = 100
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class AuthorityBinding:
+    binding_id: str
+    authority_id: str
+    clause_id: str
+    doc_title: str
+    article_label: str
+    norm_level: str
+    binding_scope: str = "point"
+    point_id: str = ""
+    rule_id: str = ""
+    legal_proposition: str = ""
+    applicability_conditions: list[str] = field(default_factory=list)
+    exclusion_conditions: list[str] = field(default_factory=list)
+    requires_human_review_when: list[str] = field(default_factory=list)
+    evidence_expectations: list[str] = field(default_factory=list)
+    reasoning_template: str = ""
+    suggested_remedy_template: str = ""
+    priority: str = "primary"
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class ApplicabilityItem:
     name: str
     status: ApplicabilityStatus
