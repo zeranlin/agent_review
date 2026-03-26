@@ -39,6 +39,35 @@ def test_build_document_profile_detects_furniture_candidate_from_clause_terms() 
     assert "furniture" in profile_activation_tags(profile)
 
 
+def test_informationized_service_sample_does_not_activate_furniture_profile() -> None:
+    clauses = [
+        ExtractedClause(
+            category="技术",
+            field_name="采购标的",
+            content="信息化系统开发、接口对接、数据迁移服务，提供测试报告与验收材料。",
+            source_anchor="line:11",
+            semantic_zone=SemanticZoneType.technical,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="商务",
+            field_name="履约要求",
+            content="安装、验收、质保与售后服务按约定执行。",
+            source_anchor="line:18",
+            semantic_zone=SemanticZoneType.business,
+            effect_tags=[EffectTag.binding],
+        ),
+    ]
+
+    profile = build_document_profile("本项目为服务采购，信息化系统开发与运维支撑服务。", clauses)
+    tags = profile_activation_tags(profile)
+
+    assert profile.procurement_kind == "service"
+    assert "service" in tags
+    assert "furniture" not in tags
+    assert any(item.profile_id == "furniture" and item.confidence < 0.38 for item in profile.domain_profile_candidates)
+
+
 def test_build_document_profile_keeps_unknown_documents_on_conservative_activation() -> None:
     profile = build_document_profile("本文件仅供说明相关事项。", [])
     tags = profile_activation_tags(profile)

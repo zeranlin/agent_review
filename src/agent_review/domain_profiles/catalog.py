@@ -140,6 +140,13 @@ class EvidencePatternPack:
 
 
 @dataclass(slots=True)
+class FalsePositivePack:
+    pack_id: str
+    anti_terms_by_family: dict[str, list[str]]
+    penalty: float = 0.12
+
+
+@dataclass(slots=True)
 class DomainProfile:
     profile_id: str
     display_name: str
@@ -298,6 +305,47 @@ EVIDENCE_PATTERN_PACKS: dict[str, EvidencePatternPack] = {
                 ],
             ),
         ],
+    ),
+}
+
+
+FALSE_POSITIVE_PACKS: dict[str, FalsePositivePack] = {
+    "generic_goods_fp": FalsePositivePack(
+        pack_id="generic_goods_fp",
+        anti_terms_by_family={
+            "competition_restriction": ["服务", "运维", "驻场"],
+        },
+    ),
+    "generic_service_fp": FalsePositivePack(
+        pack_id="generic_service_fp",
+        anti_terms_by_family={
+            "personnel_boundary": ["家具", "货物"],
+        },
+    ),
+    "mixed_procurement_fp": FalsePositivePack(
+        pack_id="mixed_procurement_fp",
+        anti_terms_by_family={
+            "procurement_structure": ["单一", "纯货物", "纯服务"],
+        },
+    ),
+    "furniture_fp": FalsePositivePack(
+        pack_id="furniture_fp",
+        anti_terms_by_family={
+            "competition_restriction": [
+                "软件",
+                "系统",
+                "平台",
+                "接口",
+                "数据库",
+                "开发",
+                "信息化",
+                "数据迁移",
+                "代码",
+                "应用",
+                "算法",
+            ],
+        },
+        penalty=0.14,
     ),
 }
 
@@ -515,6 +563,7 @@ def _score_domain_profile(
 ) -> tuple[float, list[str]]:
     reasons: list[str] = []
     score = 0.0
+    haystack = " ".join([text, " ".join(clause.content for clause in extracted_clauses[:8])])
     if profile.procurement_kind in domain_profile.applies_to_procurement_kinds:
         score += 0.22
         reasons.append(f"procurement_kind={profile.procurement_kind}")
@@ -540,7 +589,7 @@ def _score_domain_profile(
             reasons.append(f"effect:{effect_weight.effect_tag}")
 
     pattern_pack = EVIDENCE_PATTERN_PACKS.get(domain_profile.evidence_pattern_pack_id)
-    if pattern_pack:
+    if pattern_pack and domain_profile.profile_id != "furniture":
         if _matches_any_pattern(pattern_pack.primary_patterns, profile, text, extracted_clauses):
             score += 0.2
             reasons.append("primary_pattern_hit")
@@ -563,14 +612,34 @@ def _score_domain_profile(
             score += 0.05
             reasons.append("lexicon:template_conflict")
 
+    false_positive_pack = FALSE_POSITIVE_PACKS.get(domain_profile.false_positive_pack_id)
+    if false_positive_pack:
+        if any(
+            token in haystack
+            for family_terms in false_positive_pack.anti_terms_by_family.values()
+            for token in family_terms
+        ):
+            score -= false_positive_pack.penalty
+            reasons.append(f"false_positive:{false_positive_pack.pack_id}")
+
     if domain_profile.profile_id == "furniture":
         furniture_terms = ["家具", "课桌", "书桌", "档案柜", "会议桌", "茶几", "沙发", "床", "柜"]
-        if sum(1 for token in furniture_terms if token in text) >= 2:
+        furniture_vocab_hit = sum(1 for token in furniture_terms if token in haystack) >= 1
+        if furniture_vocab_hit and sum(1 for token in furniture_terms if token in text) >= 2:
             score += 0.12
             reasons.append("furniture_vocab_cluster")
-        if "heavy_scoring_tables" in profile.structure_flags:
+        if furniture_vocab_hit and _matches_any_pattern(
+            EVIDENCE_PATTERN_PACKS[domain_profile.evidence_pattern_pack_id].primary_patterns,
+            profile,
+            text,
+            extracted_clauses,
+        ):
+            score += 0.2
+            reasons.append("primary_pattern_hit")
+        if furniture_vocab_hit and "heavy_scoring_tables" in profile.structure_flags:
             score += 0.08
             reasons.append("furniture_scoring_tables")
+        return score, reasons
 
     return score, reasons
 
