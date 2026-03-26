@@ -7,10 +7,33 @@ from ..models import (
     DocumentProfile,
     DomainProfileCandidate,
     EffectStat,
+    NodeType,
     ParseResult,
     ZoneStat,
 )
 from ..ontology import ClauseSemanticType, EffectTag, SemanticZoneType
+
+
+_PROCUREMENT_KIND_TOKENS: dict[str, list[str]] = {
+    "goods": ["货物", "家具", "设备", "器材", "课桌", "书桌", "桌椅", "柜", "床", "讲桌", "办公桌", "沙发"],
+    "service": ["服务", "运维", "驻场", "保洁", "培训", "维护", "实施", "咨询", "巡检"],
+    "engineering": ["工程", "施工", "改造", "装修", "装饰", "建设", "土建", "迁改"],
+}
+
+_ZONE_IMPORTANCE: dict[SemanticZoneType, int] = {
+    SemanticZoneType.scoring: 100,
+    SemanticZoneType.qualification: 95,
+    SemanticZoneType.contract: 90,
+    SemanticZoneType.template: 85,
+    SemanticZoneType.appendix_reference: 80,
+    SemanticZoneType.technical: 70,
+    SemanticZoneType.business: 65,
+    SemanticZoneType.policy_explanation: 35,
+    SemanticZoneType.administrative_info: 30,
+    SemanticZoneType.mixed_or_uncertain: 20,
+    SemanticZoneType.catalog_or_navigation: 10,
+    SemanticZoneType.public_copy_or_noise: 5,
+}
 
 
 def build_document_profile(
@@ -29,7 +52,7 @@ def build_document_profile(
         effect_stats,
         clause_stats,
     )
-    structure_flags = _build_structure_flags(parse_result, zone_stats, effect_stats, clause_stats)
+    structure_flags = _build_structure_flags(procurement_kind, parse_result, zone_stats, effect_stats, clause_stats)
     risk_activation_hints = _build_risk_activation_hints(procurement_kind, structure_flags, zone_stats, effect_stats)
     quality_flags = _build_quality_flags(parse_result, zone_stats, effect_stats, clause_stats)
     unknown_structure_flags = _build_unknown_structure_flags(procurement_kind, structure_flags, zone_stats)
@@ -41,6 +64,7 @@ def build_document_profile(
         candidates=candidates,
         structure_flags=structure_flags,
         quality_flags=quality_flags,
+        risk_activation_hints=risk_activation_hints,
     )
     return DocumentProfile(
         document_id=parse_result.source_path or document_name,
@@ -61,29 +85,55 @@ def build_document_profile(
 
 
 def _infer_procurement_kind(parse_result: ParseResult) -> tuple[str, float, list[str]]:
-    text = " ".join(
-        part
-        for part in [
-            parse_result.text,
-            " ".join(node.title for node in parse_result.document_nodes[:120]),
-            " ".join(node.text for node in parse_result.document_nodes[:120]),
-        ]
-        if part
-    )
-    scores = {
-        "goods": _score_tokens(text, ["货物", "家具", "设备", "桌", "椅", "柜", "床", "柜体", "课桌", "讲桌"]),
-        "service": _score_tokens(text, ["服务", "运维", "驻场", "保洁", "管护", "实施", "培训", "维护"]),
-        "engineering": _score_tokens(text, ["工程", "施工", "改造", "装饰", "装修", "建设"]),
-    }
-    best_kind = max(scores, key=scores.get, default="unknown")
-    best_score = scores.get(best_kind, 0)
-    if best_score <= 0:
-        return "unknown", 0.25, ["未识别到稳定采购类型信号"]
+    zone_by_node = {item.node_id: item.zone_type for item in parse_result.semantic_zones}
+    scores: dict[str, float] = {kind: 0.0 for kind in _PROCUREMENT_KIND_TOKENS}
+    reasons: dict[str, list[str]] = {kind: [] for kind in _PROCUREMENT_KIND_TOKENS}
+    weak_only = True
 
-    kinds = [kind for kind, score in scores.items() if score > 0]
-    if len(kinds) >= 2:
-        return "mixed", min(0.78, 0.55 + 0.05 * len(kinds)), [f"同时识别到 {', '.join(kinds)} 信号"]
-    return best_kind, min(0.95, 0.52 + 0.06 * best_score), [f"识别到 {best_kind} 相关信号"]
+    for node in parse_result.document_nodes:
+        fragment = " ".join(part for part in [node.title, node.text] if part).strip()
+        if not fragment:
+            continue
+        zone_type = zone_by_node.get(node.node_id, SemanticZoneType.mixed_or_uncertain)
+        weight = _kind_signal_weight(zone_type, node.node_type)
+        if weight >= 0.7:
+            weak_only = False
+        _accumulate_kind_scores(fragment, weight, scores, reasons, context=f"{zone_type.value}/{node.node_type.value}")
+
+    for unit in parse_result.clause_units:
+        if not unit.text:
+            continue
+        weight = _kind_signal_weight(unit.zone_type, None, unit.effect_tags)
+        if weight >= 0.7:
+            weak_only = False
+        _accumulate_kind_scores(
+            unit.text,
+            weight,
+            scores,
+            reasons,
+            context=f"{unit.zone_type.value}/{unit.clause_semantic_type.value}",
+        )
+
+    best_kind = max(scores, key=scores.get, default="unknown")
+    best_score = scores.get(best_kind, 0.0)
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    second_kind, second_score = ranked[1] if len(ranked) > 1 else ("unknown", 0.0)
+
+    if best_score <= 0.0:
+        return "unknown", 0.25, ["未识别到稳定采购类型信号"]
+    if weak_only and best_score < 1.0:
+        return "unknown", 0.31, [f"仅在弱结构区识别到 {best_kind} 相关信号"]
+    if best_score < 1.2 and second_score > 0.8 and (best_score - second_score) < 0.35:
+        mixed_kinds = [kind for kind, score in ranked[:2] if score > 0]
+        return "mixed", min(0.78, 0.56 + 0.05 * len(mixed_kinds)), [f"同时识别到 {', '.join(mixed_kinds)} 信号"]
+
+    best_reasons = reasons.get(best_kind, [])
+    confidence = min(0.95, 0.48 + 0.10 * best_score)
+    if second_score > 0.9 and (best_score - second_score) < 0.8:
+        confidence = min(confidence, 0.76)
+    if not best_reasons:
+        best_reasons = [f"识别到 {best_kind} 相关信号"]
+    return best_kind, confidence, best_reasons[:3]
 
 
 def _build_zone_stats(parse_result: ParseResult) -> list[ZoneStat]:
@@ -186,24 +236,41 @@ def _build_domain_profile_candidates(
 
 
 def _build_structure_flags(
+    procurement_kind: str,
     parse_result: ParseResult,
     zone_stats: list[ZoneStat],
     effect_stats: list[EffectStat],
     clause_stats: list[ClauseSemanticStat],
 ) -> list[str]:
     flags: list[str] = []
-    if _zone_ratio(zone_stats, SemanticZoneType.scoring) > 0.2:
+    appendix_node_count = sum(1 for node in parse_result.document_nodes if node.node_type == NodeType.appendix)
+    scoring_ratio = _zone_ratio(zone_stats, SemanticZoneType.scoring)
+    template_ratio = _zone_ratio(zone_stats, SemanticZoneType.template)
+    appendix_ratio = _zone_ratio(zone_stats, SemanticZoneType.appendix_reference)
+    contract_ratio = _zone_ratio(zone_stats, SemanticZoneType.contract)
+    uncertain_ratio = _zone_ratio(zone_stats, SemanticZoneType.mixed_or_uncertain)
+
+    if procurement_kind == "unknown":
+        flags.append("unknown_document_first")
+    if scoring_ratio > 0.18:
         flags.append("heavy_scoring_tables")
-    if _zone_ratio(zone_stats, SemanticZoneType.template) > 0.2:
+        flags.append("scoring_dense_structure")
+    if template_ratio > 0.18:
         flags.append("heavy_template_pollution")
-    if _zone_ratio(zone_stats, SemanticZoneType.appendix_reference) > 0.12:
+        flags.append("template_pollution")
+    if appendix_ratio > 0.12 or appendix_node_count >= 2:
         flags.append("heavy_appendix_reference")
-    if _zone_ratio(zone_stats, SemanticZoneType.contract) > 0.12:
+        flags.append("attachment_driven_structure")
+    if contract_ratio > 0.12:
         flags.append("heavy_contract_terms")
     if _effect_ratio(effect_stats, EffectTag.catalog) > 0.08:
         flags.append("catalog_noise_present")
-    if len([item for item in zone_stats if item.ratio >= 0.12]) >= 2:
+    if len([item for item in zone_stats if item.ratio >= 0.12]) >= 2 or (
+        scoring_ratio > 0.08 and (template_ratio > 0.08 or appendix_ratio > 0.08)
+    ):
         flags.append("mixed_structure_signals")
+    if uncertain_ratio > 0.25 or (procurement_kind == "unknown" and (scoring_ratio + template_ratio + appendix_ratio) > 0.35):
+        flags.append("mixed_structure_uncertain")
     if any(len(node.text) > 260 for node in parse_result.document_nodes if node.node_type.value == "table_row"):
         flags.append("fragmented_table_text")
     if _clause_ratio(clause_stats, ClauseSemanticType.unknown_clause) > 0.35:
@@ -217,20 +284,28 @@ def _build_risk_activation_hints(
     zone_stats: list[ZoneStat],
     effect_stats: list[EffectStat],
 ) -> list[str]:
-    hints: list[str] = []
+    from ..domain_profiles.catalog import profile_activation_tags
+
+    hints: set[str] = set(profile_activation_tags(_profile_like(procurement_kind, structure_flags, zone_stats)))
+    if procurement_kind == "unknown":
+        hints.update({"unknown_document", "unknown_document_first"})
     if procurement_kind in {"goods", "mixed"}:
-        hints.append("competition_restriction")
+        hints.add("competition_restriction")
     if procurement_kind in {"service", "mixed"}:
-        hints.append("contract_performance")
+        hints.add("contract_performance")
     if _zone_ratio(zone_stats, SemanticZoneType.qualification) > 0.08:
-        hints.append("qualification_scoring_boundary")
+        hints.add("qualification_scoring_boundary")
     if _zone_ratio(zone_stats, SemanticZoneType.scoring) > 0.08:
-        hints.append("scoring_quantification")
+        hints.update({"scoring_quantification", "scoring_dense_structure"})
     if _zone_ratio(zone_stats, SemanticZoneType.policy_explanation) > 0.04 or _effect_ratio(effect_stats, EffectTag.policy_background) > 0.04:
-        hints.append("sme_policy_consistency")
-    if any(flag in structure_flags for flag in ["heavy_template_pollution", "heavy_appendix_reference"]):
-        hints.append("template_conflict")
-    return list(dict.fromkeys(hints))
+        hints.add("sme_policy_consistency")
+    if any(flag in structure_flags for flag in ["heavy_template_pollution", "template_pollution"]):
+        hints.update({"template_conflict", "template_pollution"})
+    if any(flag in structure_flags for flag in ["heavy_appendix_reference", "attachment_driven_structure"]):
+        hints.update({"attachment_driven_structure", "template_conflict"})
+    if any(flag in structure_flags for flag in ["mixed_structure_signals", "mixed_structure_uncertain"]):
+        hints.update({"structure", "consistency", "mixed_structure_uncertain"})
+    return sorted(hints)
 
 
 def _build_quality_flags(
@@ -261,29 +336,56 @@ def _build_unknown_structure_flags(
     flags: list[str] = []
     if procurement_kind == "unknown":
         flags.append("unknown_procurement_kind")
-    if "mixed_structure_signals" in structure_flags:
+    if "unknown_document_first" in structure_flags:
+        flags.append("unknown_document_first")
+    if "attachment_driven_structure" in structure_flags:
+        flags.append("unknown_attachment_driven_structure")
+    if "scoring_dense_structure" in structure_flags or "heavy_scoring_tables" in structure_flags:
+        flags.append("unknown_scoring_dense_structure")
+    if "template_pollution" in structure_flags or "heavy_template_pollution" in structure_flags:
+        flags.append("unknown_template_pollution")
+    if "mixed_structure_signals" in structure_flags or "mixed_structure_uncertain" in structure_flags:
         flags.append("mixed_structure_uncertain")
     if _zone_ratio(zone_stats, SemanticZoneType.mixed_or_uncertain) > 0.4:
         flags.append("majority_uncertain_zone")
+    if procurement_kind == "unknown" and flags == ["unknown_procurement_kind"]:
+        flags.append("unknown_domain_gap")
     return flags
 
 
 def _build_representative_anchors(parse_result: ParseResult, zone_stats: list[ZoneStat]) -> list[str]:
-    dominant_zones = {item.zone_type for item in zone_stats[:3]}
-    anchors: list[str] = []
-    for unit in parse_result.clause_units:
-        if unit.zone_type not in dominant_zones:
+    zone_by_node = {item.node_id: item.zone_type for item in parse_result.semantic_zones}
+    scored_anchors: list[tuple[int, int, str]] = []
+
+    for index, unit in enumerate(parse_result.clause_units):
+        if not unit.anchor.line_hint:
             continue
-        if unit.anchor.line_hint and unit.anchor.line_hint not in anchors:
-            anchors.append(unit.anchor.line_hint)
-        if len(anchors) >= 5:
+        priority = _anchor_priority(unit.zone_type, unit.clause_semantic_type, unit.effect_tags)
+        scored_anchors.append((priority, index, unit.anchor.line_hint))
+
+    for index, node in enumerate(parse_result.document_nodes):
+        if not node.anchor.line_hint:
+            continue
+        zone_type = zone_by_node.get(node.node_id, SemanticZoneType.mixed_or_uncertain)
+        priority = _anchor_priority(zone_type, None, [])
+        if node.node_type == NodeType.appendix:
+            priority += 8
+        if node.node_type in {NodeType.table, NodeType.table_row} and zone_type in {
+            SemanticZoneType.scoring,
+            SemanticZoneType.qualification,
+            SemanticZoneType.contract,
+            SemanticZoneType.template,
+        }:
+            priority += 4
+        scored_anchors.append((priority, len(parse_result.clause_units) + index, node.anchor.line_hint))
+
+    anchors: list[str] = []
+    for priority, index, anchor in sorted(scored_anchors, key=lambda item: (-item[0], item[1])):
+        if anchor in anchors:
+            continue
+        anchors.append(anchor)
+        if len(anchors) >= 6:
             break
-    if not anchors:
-        for node in parse_result.document_nodes[:5]:
-            if node.anchor.line_hint and node.anchor.line_hint not in anchors:
-                anchors.append(node.anchor.line_hint)
-            if len(anchors) >= 5:
-                break
     return anchors
 
 
@@ -295,22 +397,118 @@ def _build_summary(
     candidates: list[DomainProfileCandidate],
     structure_flags: list[str],
     quality_flags: list[str],
+    risk_activation_hints: list[str],
 ) -> str:
     top_zones = ", ".join(f"{item.zone_type.value}:{item.ratio:.2f}" for item in zone_stats[:3]) or "无稳定区域"
     top_candidates = ", ".join(item.profile_id for item in candidates[:3]) or "无候选领域画像"
     top_flags = ", ".join(structure_flags[:3]) or "无明显结构风险"
     top_quality = ", ".join(quality_flags[:3]) or "无显著质量告警"
+    top_hints = ", ".join(risk_activation_hints[:3]) or "无显著风险激活"
     return (
         f"文件《{document_name}》初步画像为 {procurement_kind}；"
         f"主要区域：{top_zones}；"
         f"候选领域：{top_candidates}；"
         f"结构标记：{top_flags}；"
-        f"质量标记：{top_quality}。"
+        f"质量标记：{top_quality}；"
+        f"风险提示：{top_hints}。"
     )
 
 
-def _score_tokens(text: str, tokens: list[str]) -> int:
-    return sum(1 for token in tokens if token in text)
+def _accumulate_kind_scores(
+    fragment: str,
+    weight: float,
+    scores: dict[str, float],
+    reasons: dict[str, list[str]],
+    *,
+    context: str,
+) -> None:
+    for kind, tokens in _PROCUREMENT_KIND_TOKENS.items():
+        if not any(token in fragment for token in tokens):
+            continue
+        scores[kind] += weight
+        if len(reasons[kind]) < 3:
+            reasons[kind].append(f"{context} 命中 {kind} 信号")
+
+
+def _kind_signal_weight(
+    zone_type: SemanticZoneType,
+    node_type: NodeType | None,
+    effect_tags: list[EffectTag] | None = None,
+) -> float:
+    weight = {
+        SemanticZoneType.qualification: 1.15,
+        SemanticZoneType.technical: 1.1,
+        SemanticZoneType.business: 1.05,
+        SemanticZoneType.contract: 1.05,
+        SemanticZoneType.scoring: 0.95,
+        SemanticZoneType.template: 0.45,
+        SemanticZoneType.appendix_reference: 0.45,
+        SemanticZoneType.policy_explanation: 0.75,
+        SemanticZoneType.administrative_info: 0.7,
+        SemanticZoneType.mixed_or_uncertain: 0.55,
+        SemanticZoneType.catalog_or_navigation: 0.35,
+        SemanticZoneType.public_copy_or_noise: 0.2,
+    }.get(zone_type, 0.5)
+    if node_type == NodeType.appendix:
+        weight *= 0.75
+    if effect_tags and any(tag in {EffectTag.template, EffectTag.reference_only, EffectTag.public_copy_noise} for tag in effect_tags):
+        weight *= 0.8
+    return round(weight, 3)
+
+
+def _anchor_priority(
+    zone_type: SemanticZoneType,
+    clause_semantic_type: ClauseSemanticType | None,
+    effect_tags: list[EffectTag],
+) -> int:
+    priority = _ZONE_IMPORTANCE.get(zone_type, 0)
+    if clause_semantic_type in {
+        ClauseSemanticType.scoring_rule,
+        ClauseSemanticType.scoring_factor,
+    }:
+        priority += 18
+    elif clause_semantic_type in {
+        ClauseSemanticType.qualification_condition,
+        ClauseSemanticType.qualification_material_requirement,
+    }:
+        priority += 15
+    elif clause_semantic_type in {
+        ClauseSemanticType.contract_obligation,
+        ClauseSemanticType.payment_term,
+        ClauseSemanticType.acceptance_term,
+        ClauseSemanticType.breach_term,
+        ClauseSemanticType.termination_term,
+    }:
+        priority += 12
+    elif clause_semantic_type in {
+        ClauseSemanticType.template_instruction,
+        ClauseSemanticType.declaration_template,
+        ClauseSemanticType.example_clause,
+    }:
+        priority += 10
+    elif clause_semantic_type in {
+        ClauseSemanticType.reference_clause,
+        ClauseSemanticType.catalog_clause,
+    }:
+        priority += 6
+    if any(tag in {EffectTag.template, EffectTag.reference_only} for tag in effect_tags):
+        priority += 4
+    return priority
+
+
+def _profile_like(
+    procurement_kind: str,
+    structure_flags: list[str],
+    zone_stats: list[ZoneStat],
+) -> DocumentProfile:
+    return DocumentProfile(
+        document_id="__profile_like__",
+        source_path="__profile_like__",
+        procurement_kind=procurement_kind,
+        procurement_kind_confidence=0.0,
+        structure_flags=structure_flags,
+        dominant_zones=zone_stats,
+    )
 
 
 def _zone_ratio(zone_stats: list[ZoneStat], zone_type: SemanticZoneType) -> float:

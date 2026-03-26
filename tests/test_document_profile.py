@@ -30,7 +30,11 @@ def test_document_profile_is_built_before_review_task_planning() -> None:
     assert profile is not None
     assert profile.procurement_kind in {"goods", "mixed"}
     assert profile.domain_profile_candidates
-    assert any(flag in profile.structure_flags for flag in ["heavy_scoring_tables", "heavy_template_pollution"])
+    assert "heavy_scoring_tables" in profile.structure_flags
+    assert "scoring_dense_structure" in profile.structure_flags
+    assert "scoring_quantification" in profile.risk_activation_hints
+    assert profile.representative_anchors[0] in {"line:3", "line:4"}
+    assert any(anchor in {"line:5", "line:6", "line:7"} for anchor in profile.representative_anchors)
     assert state.parse_result.to_dict()["document_profile"]["procurement_kind"] == profile.procurement_kind
 
     stage_names = [item.__name__ for item in pipeline.stages]
@@ -50,5 +54,38 @@ def test_document_profile_marks_unknown_documents_and_retains_candidates() -> No
     assert profile is not None
     assert profile.procurement_kind == "unknown"
     assert profile.domain_profile_candidates
-    assert profile.unknown_structure_flags
+    assert "unknown_procurement_kind" in profile.unknown_structure_flags
+    assert "unknown_document_first" in profile.structure_flags
+    assert "unknown_document_first" in profile.risk_activation_hints
+    assert "unknown_attachment_driven_structure" in profile.unknown_structure_flags
     assert profile.summary.startswith("文件《unknown.txt》初步画像")
+
+
+def test_document_profile_prioritizes_scoring_template_and_attachment_anchors() -> None:
+    text = """
+    采购说明
+    综合评分法评标信息
+    评分项 | 分值 | 评分标准
+    检测报告 | 5 | 提供得分
+    第三章 投标文件格式、附件
+    中小企业声明函（格式）
+    附件二 售后承诺
+    """
+
+    _, state = _build_profile_state(text, "anchor_priority.txt")
+    profile = state.parse_result.document_profile
+
+    assert profile is not None
+    assert profile.procurement_kind == "unknown"
+    assert "scoring_dense_structure" in profile.structure_flags
+    assert "template_pollution" in profile.structure_flags
+    assert "attachment_driven_structure" in profile.structure_flags
+    assert "unknown_scoring_dense_structure" in profile.unknown_structure_flags
+    assert "unknown_template_pollution" in profile.unknown_structure_flags
+    assert "unknown_attachment_driven_structure" in profile.unknown_structure_flags
+    assert "unknown_document_first" in profile.risk_activation_hints
+    assert "scoring_dense_structure" in profile.risk_activation_hints
+    assert "template_pollution" in profile.risk_activation_hints
+    assert "attachment_driven_structure" in profile.risk_activation_hints
+    assert profile.representative_anchors[0] in {"line:3", "line:4"}
+    assert any(anchor in {"line:5", "line:6", "line:7"} for anchor in profile.representative_anchors)
