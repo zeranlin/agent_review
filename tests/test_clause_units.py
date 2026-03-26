@@ -114,15 +114,18 @@ def test_clause_unit_builder_creates_units_for_paragraphs_and_table_rows() -> No
 
     assert qualification_unit.path == "ROOT > 第一章 招标公告 > 投标人资格要求"
     assert qualification_unit.anchor.line_hint == "line:2"
+    assert qualification_unit.primary_review_type == "资格"
     assert qualification_unit.clause_semantic_type == ClauseSemanticType.qualification_condition
 
     assert header_unit.zone_type == SemanticZoneType.catalog_or_navigation
+    assert header_unit.primary_review_type == "导航"
     assert header_unit.clause_semantic_type == ClauseSemanticType.catalog_clause
     assert header_unit.table_context["row_role"] == "header"
     assert header_unit.table_context["cells"] == ["评分项", "分值", "评分标准"]
     assert header_unit.confidence <= 0.38
 
     assert scoring_unit.zone_type == SemanticZoneType.scoring
+    assert scoring_unit.primary_review_type == "评分"
     assert scoring_unit.clause_semantic_type == ClauseSemanticType.scoring_rule
     assert scoring_unit.path == "ROOT > 第二章 评分办法 > 综合评分法评标信息 > row:2"
     assert scoring_unit.anchor.line_hint == "line:6"

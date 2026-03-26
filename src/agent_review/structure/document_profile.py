@@ -11,7 +11,7 @@ from ..models import (
     ParseResult,
     ZoneStat,
 )
-from ..ontology import ClauseSemanticType, EffectTag, SemanticZoneType
+from ..ontology import ClauseSemanticType, EffectTag, SemanticZoneType, ZONE_PRIMARY_REVIEW_TYPES
 
 
 _PROCUREMENT_KIND_TOKENS: dict[str, list[str]] = {
@@ -106,6 +106,7 @@ def build_document_profile(
         parser_semantic_assist_activated=bool(parser_semantic_trace and parser_semantic_trace.activated),
         parser_semantic_assist_reviewed_count=parser_semantic_trace.reviewed_count if parser_semantic_trace else 0,
         parser_semantic_assist_applied_count=parser_semantic_trace.applied_count if parser_semantic_trace else 0,
+        primary_review_types=_build_primary_review_types(zone_stats),
         representative_anchors=anchors,
         summary=summary,
     )
@@ -531,6 +532,16 @@ def _build_routing_policy(
     if not reasons:
         return "standard", []
     return "unknown_conservative", list(dict.fromkeys(reasons))
+
+
+def _build_primary_review_types(zone_stats: list[ZoneStat]) -> list[str]:
+    ordered: list[str] = []
+    for item in sorted(zone_stats, key=lambda stat: (-_ZONE_IMPORTANCE.get(stat.zone_type, 0), -stat.ratio, stat.zone_type.value)):
+        review_type = ZONE_PRIMARY_REVIEW_TYPES.get(item.zone_type, "")
+        if not review_type or review_type in ordered:
+            continue
+        ordered.append(review_type)
+    return ordered
 
 
 def _build_representative_anchors(parse_result: ParseResult, zone_stats: list[ZoneStat]) -> list[str]:

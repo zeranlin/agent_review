@@ -10,6 +10,11 @@ def test_domain_profile_registry_contains_requested_minimal_profiles() -> None:
     assert get_domain_profile("mixed_procurement") is not None
     assert get_domain_profile("furniture") is not None
 
+    profile = get_domain_profile("generic_goods")
+    assert profile is not None
+    assert "technical" in profile.supported_zone_types
+    assert "技术" in profile.primary_review_types
+
 
 def test_build_document_profile_detects_furniture_candidate_from_clause_terms() -> None:
     clauses = [

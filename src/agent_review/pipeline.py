@@ -57,6 +57,7 @@ from .models import (
     TaskRecord,
     TaskStatus,
 )
+from .ontology import SemanticZoneType, ZONE_PRIMARY_REVIEW_TYPES
 from .quality import derive_conclusion_by_evidence
 from .rules import build_recommendations, execute_rule_registry
 from .review_point_catalog import resolve_review_point_definition
@@ -894,6 +895,7 @@ def _build_review_planning_contract(
         activated_risk_families=activated_risk_families,
         suppressed_risk_families=suppressed_risk_families,
         target_zones=target_zones,
+        target_primary_review_types=_target_primary_review_types(target_zones),
         planned_catalog_ids=planned_catalog_ids,
         priority_dimensions=priority_dimensions,
         base_extraction_demands=base_extraction_demands,
@@ -905,6 +907,20 @@ def _build_review_planning_contract(
         high_value_fields=high_value_fields,
         summary=summary,
     )
+
+
+def _target_primary_review_types(target_zones: list[str]) -> list[str]:
+    ordered: list[str] = []
+    for zone_name in target_zones:
+        try:
+            zone_type = SemanticZoneType(zone_name)
+        except ValueError:
+            continue
+        review_type = ZONE_PRIMARY_REVIEW_TYPES.get(zone_type, "")
+        if not review_type or review_type in ordered:
+            continue
+        ordered.append(review_type)
+    return ordered
 
 
 def _route_tags_from_profile(document_profile: DocumentProfile) -> list[str]:

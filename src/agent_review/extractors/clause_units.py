@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..models import ClauseUnit, DocumentNode, EffectTagResult, SemanticZone
-from ..ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType
+from ..ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType, ZONE_PRIMARY_REVIEW_TYPES
 
 
 def build_clause_units(
@@ -49,6 +49,7 @@ def build_clause_units(
                 path=node.path,
                 anchor=node.anchor,
                 zone_type=zone_type,
+                primary_review_type=ZONE_PRIMARY_REVIEW_TYPES.get(zone_type, ""),
                 clause_semantic_type=clause_type,
                 effect_tags=effect_tags,
                 table_context={

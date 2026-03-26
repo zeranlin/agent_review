@@ -1,31 +1,42 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 import re
 
-from .models import EffectTag, ReviewReport
+from .models import EffectTag, HeaderInfo, ReviewReport
 from .ontology import SemanticZoneType
 
 
-@dataclass(slots=True)
-class HeaderInfo:
-    project_name: str
-    project_code: str
-    purchaser_name: str
-    agency_name: str
-    budget_amount: str
-    max_price: str
-
-
 def resolve_header_info(report: ReviewReport) -> HeaderInfo:
+    project_name = _resolve_project_name(report)
+    project_code = _resolve_project_code(report)
+    purchaser_name = _resolve_purchaser_name(report)
+    agency_name = _resolve_agency_name(report)
+    budget_amount = _resolve_amount_field(report, "预算金额")
+    max_price = _resolve_amount_field(report, "最高限价")
     return HeaderInfo(
-        project_name=_resolve_project_name(report),
-        project_code=_resolve_project_code(report),
-        purchaser_name=_resolve_purchaser_name(report),
-        agency_name=_resolve_agency_name(report),
-        budget_amount=_resolve_amount_field(report, "预算金额"),
-        max_price=_resolve_amount_field(report, "最高限价"),
+        project_name=project_name,
+        project_code=project_code,
+        purchaser_name=purchaser_name,
+        agency_name=agency_name,
+        budget_amount=budget_amount,
+        max_price=max_price,
+        source_evidence={
+            "project_name": "resolver",
+            "project_code": "resolver",
+            "purchaser_name": "resolver",
+            "agency_name": "resolver",
+            "budget_amount": "resolver",
+            "max_price": "resolver",
+        },
+        confidence={
+            "project_name": 1.0 if project_name else 0.0,
+            "project_code": 1.0 if project_code else 0.0,
+            "purchaser_name": 1.0 if purchaser_name and purchaser_name != "未自动识别" else 0.0,
+            "agency_name": 1.0 if agency_name else 0.0,
+            "budget_amount": 1.0 if budget_amount else 0.0,
+            "max_price": 1.0 if max_price else 0.0,
+        },
     )
 
 

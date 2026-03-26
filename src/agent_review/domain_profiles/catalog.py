@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import re
 
 from ..models import ExtractedClause
-from ..ontology import EffectTag, SemanticZoneType
+from ..ontology import EffectTag, SemanticZoneType, ZONE_ONTOLOGY_VERSION, ZONE_PRIMARY_REVIEW_TYPES
 
 
 @dataclass(slots=True)
@@ -72,6 +72,7 @@ class DocumentProfile:
     source_path: str
     procurement_kind: str
     procurement_kind_confidence: float
+    ontology_version: str = ZONE_ONTOLOGY_VERSION
     routing_mode: str = "standard"
     routing_reasons: list[str] = field(default_factory=list)
     domain_profile_candidates: list[DomainProfileCandidate] = field(default_factory=list)
@@ -82,6 +83,7 @@ class DocumentProfile:
     risk_activation_hints: list[str] = field(default_factory=list)
     quality_flags: list[str] = field(default_factory=list)
     unknown_structure_flags: list[str] = field(default_factory=list)
+    primary_review_types: list[str] = field(default_factory=list)
     representative_anchors: list[str] = field(default_factory=list)
     summary: str = ""
 
@@ -91,6 +93,7 @@ class DocumentProfile:
             "source_path": self.source_path,
             "procurement_kind": self.procurement_kind,
             "procurement_kind_confidence": self.procurement_kind_confidence,
+            "ontology_version": self.ontology_version,
             "routing_mode": self.routing_mode,
             "routing_reasons": self.routing_reasons,
             "domain_profile_candidates": [item.to_dict() for item in self.domain_profile_candidates],
@@ -101,6 +104,7 @@ class DocumentProfile:
             "risk_activation_hints": self.risk_activation_hints,
             "quality_flags": self.quality_flags,
             "unknown_structure_flags": self.unknown_structure_flags,
+            "primary_review_types": self.primary_review_types,
             "representative_anchors": self.representative_anchors,
             "summary": self.summary,
         }
@@ -164,7 +168,25 @@ class DomainProfile:
     preferred_risk_families: list[str]
     preferred_zone_weights: list[ZoneWeight]
     preferred_effect_weights: list[EffectWeight]
+    ontology_version: str = ZONE_ONTOLOGY_VERSION
+    supported_zone_types: list[str] = field(default_factory=list)
+    primary_review_types: list[str] = field(default_factory=list)
     notes: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.supported_zone_types:
+            self.supported_zone_types = [item.zone_type for item in self.preferred_zone_weights]
+        if not self.primary_review_types:
+            ordered: list[str] = []
+            for zone_name in self.supported_zone_types:
+                try:
+                    zone_type = SemanticZoneType(zone_name)
+                except ValueError:
+                    continue
+                review_type = ZONE_PRIMARY_REVIEW_TYPES.get(zone_type, "")
+                if review_type and review_type not in ordered:
+                    ordered.append(review_type)
+            self.primary_review_types = ordered
 
 
 RISK_FAMILY_TAG_MAP: dict[str, list[str]] = {

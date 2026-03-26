@@ -2,14 +2,16 @@ from agent_review.models import (
     ClauseUnit,
     DocumentNode,
     EffectTagResult,
+    HeaderInfo,
     ParseResult,
     RawBlock,
     RawCell,
     RawTable,
+    ReviewPlanningContract,
     SemanticZone,
     SourceAnchor,
 )
-from agent_review.ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType
+from agent_review.ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType, ZONE_ONTOLOGY_VERSION
 
 
 def test_parser_models_to_dict_are_serializable() -> None:
@@ -55,6 +57,7 @@ def test_parser_models_to_dict_are_serializable() -> None:
         clause_semantic_type=ClauseSemanticType.qualification_condition,
         effect_tags=[EffectTag.binding],
         confidence=0.88,
+        primary_review_type="资格",
     )
 
     payload = {
@@ -76,6 +79,8 @@ def test_parser_models_to_dict_are_serializable() -> None:
     assert payload["zone"]["zone_type"] == SemanticZoneType.administrative_info.value
     assert payload["effect"]["effect_tags"] == [EffectTag.binding.value]
     assert payload["unit"]["clause_semantic_type"] == ClauseSemanticType.qualification_condition.value
+    assert payload["unit"]["ontology_version"] == ZONE_ONTOLOGY_VERSION
+    assert payload["unit"]["primary_review_type"] == "资格"
 
 
 def test_parse_result_supports_optional_raw_parser_artifacts() -> None:
@@ -95,3 +100,26 @@ def test_parse_result_supports_optional_raw_parser_artifacts() -> None:
 
     assert payload["raw_blocks"][0]["text"] == "项目概况"
     assert payload["raw_tables"] == []
+
+
+def test_header_info_and_review_planning_contract_expose_ontology_fields() -> None:
+    header = HeaderInfo(
+        project_name="某采购项目",
+        purchaser_name="某学校",
+        source_evidence={"project_name": "resolver"},
+        confidence={"project_name": 1.0},
+    )
+    contract = ReviewPlanningContract(
+        document_id="doc-1",
+        procurement_kind="goods",
+        target_zones=["qualification", "scoring"],
+        target_primary_review_types=["资格", "评分"],
+    )
+
+    header_payload = header.to_dict()
+    contract_payload = contract.to_dict()
+
+    assert header_payload["ontology_version"] == ZONE_ONTOLOGY_VERSION
+    assert header_payload["source_evidence"]["project_name"] == "resolver"
+    assert contract_payload["ontology_version"] == ZONE_ONTOLOGY_VERSION
+    assert contract_payload["target_primary_review_types"] == ["资格", "评分"]

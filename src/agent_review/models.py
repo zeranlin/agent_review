@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
-from .ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType
+from .ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType, ZONE_ONTOLOGY_VERSION
 
 
 class FileType(str, Enum):
@@ -426,6 +426,8 @@ class ClauseUnit:
     effect_tags: list[EffectTag] = field(default_factory=list)
     table_context: dict[str, object] = field(default_factory=dict)
     confidence: float = 0.0
+    ontology_version: str = ZONE_ONTOLOGY_VERSION
+    primary_review_type: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -439,6 +441,8 @@ class ClauseUnit:
             "effect_tags": [item.value for item in self.effect_tags],
             "table_context": self.table_context,
             "confidence": self.confidence,
+            "ontology_version": self.ontology_version,
+            "primary_review_type": self.primary_review_type,
         }
 
 
@@ -494,7 +498,10 @@ class DomainProfile:
     profile_id: str
     display_name: str
     version: str = "v1"
+    ontology_version: str = ZONE_ONTOLOGY_VERSION
     applies_to_procurement_kinds: list[str] = field(default_factory=list)
+    supported_zone_types: list[str] = field(default_factory=list)
+    primary_review_types: list[str] = field(default_factory=list)
     trigger_keywords: list[str] = field(default_factory=list)
     negative_keywords: list[str] = field(default_factory=list)
     risk_lexicon_pack_id: str = ""
@@ -511,6 +518,7 @@ class DomainProfile:
 class DocumentProfile:
     document_id: str
     source_path: str
+    ontology_version: str = ZONE_ONTOLOGY_VERSION
     procurement_kind: str = "unknown"
     procurement_kind_confidence: float = 0.0
     routing_mode: str = "standard"
@@ -526,6 +534,8 @@ class DocumentProfile:
     parser_semantic_assist_activated: bool = False
     parser_semantic_assist_reviewed_count: int = 0
     parser_semantic_assist_applied_count: int = 0
+    zone_ontology_version: str = ZONE_ONTOLOGY_VERSION
+    primary_review_types: list[str] = field(default_factory=list)
     representative_anchors: list[str] = field(default_factory=list)
     summary: str = ""
 
@@ -533,6 +543,7 @@ class DocumentProfile:
         return {
             "document_id": self.document_id,
             "source_path": self.source_path,
+            "ontology_version": self.ontology_version,
             "procurement_kind": self.procurement_kind,
             "procurement_kind_confidence": self.procurement_kind_confidence,
             "routing_mode": self.routing_mode,
@@ -548,6 +559,8 @@ class DocumentProfile:
             "parser_semantic_assist_activated": self.parser_semantic_assist_activated,
             "parser_semantic_assist_reviewed_count": self.parser_semantic_assist_reviewed_count,
             "parser_semantic_assist_applied_count": self.parser_semantic_assist_applied_count,
+            "zone_ontology_version": self.zone_ontology_version,
+            "primary_review_types": self.primary_review_types,
             "representative_anchors": self.representative_anchors,
             "summary": self.summary,
         }
@@ -843,6 +856,7 @@ class RuleSelection:
 class ReviewPlanningContract:
     document_id: str
     procurement_kind: str
+    ontology_version: str = ZONE_ONTOLOGY_VERSION
     routing_mode: str = "standard"
     route_tags: list[str] = field(default_factory=list)
     routing_flags: list[str] = field(default_factory=list)
@@ -850,6 +864,7 @@ class ReviewPlanningContract:
     activated_risk_families: list[str] = field(default_factory=list)
     suppressed_risk_families: list[str] = field(default_factory=list)
     target_zones: list[str] = field(default_factory=list)
+    target_primary_review_types: list[str] = field(default_factory=list)
     planned_catalog_ids: list[str] = field(default_factory=list)
     priority_dimensions: list[str] = field(default_factory=list)
     base_extraction_demands: list[str] = field(default_factory=list)
@@ -867,6 +882,22 @@ class ReviewPlanningContract:
     clause_unit_targeted_count: int = 0
     text_fallback_clause_count: int = 0
     summary: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class HeaderInfo:
+    ontology_version: str = ZONE_ONTOLOGY_VERSION
+    project_name: str = ""
+    project_code: str = ""
+    purchaser_name: str = ""
+    agency_name: str = ""
+    budget_amount: str = ""
+    max_price: str = ""
+    source_evidence: dict[str, str] = field(default_factory=dict)
+    confidence: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
