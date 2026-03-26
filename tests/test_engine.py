@@ -764,6 +764,37 @@ def test_extract_clauses_normalizes_structured_values() -> None:
     assert "考核联动" in clauses["付款节点"].relation_tags
 
 
+def test_generic_conditional_policy_matrix_does_not_bind_sme_project_fact() -> None:
+    text = """
+    1、关于享受优惠政策的主体、价格扣除比例及采购标的所属行业的说明
+    （1）专门面向中小企业采购的项目，不再执行价格扣除比例。
+    （2）非专门面向中小企业采购的项目，应执行价格扣除比例。
+    9.本项目为非专门面向中小企业采购项目。
+    """
+
+    clauses = {item.field_name: item for item in extract_clauses(text)}
+
+    assert clauses["是否专门面向中小企业"].normalized_value == "否"
+    assert "项目事实绑定" in clauses["是否专门面向中小企业"].relation_tags
+    assert "是否仍保留价格扣除条款" not in clauses
+
+
+def test_engine_does_not_raise_sme_price_conflict_from_conditional_policy_matrix_only() -> None:
+    text = """
+    1、关于享受优惠政策的主体、价格扣除比例及采购标的所属行业的说明
+    （1）专门面向中小企业采购的项目，不再执行价格扣除比例。
+    （2）非专门面向中小企业采购的项目，应执行价格扣除比例：投标人提供的货物全部均由优惠主体制造，则对其投标总价给予10%的扣除，用扣除后的价格参与评审。
+    9.本项目为非专门面向中小企业采购项目。
+    10.投标人须为全国科技型中小企业。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="sme_matrix_demo.txt")
+    titles = {item.title for item in report.findings}
+
+    assert "专门面向中小企业却仍保留价格扣除" not in titles
+    assert "专门面向中小企业却保留价格扣除模板" not in titles
+    assert "中小企业政策 vs 价格扣除政策" not in titles
+
+
 def test_applicability_uses_structured_field_relations() -> None:
     text = """
     项目属性：服务

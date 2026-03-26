@@ -309,6 +309,51 @@ def test_applicability_ignores_citation_like_policy_noise() -> None:
     assert any("弱来源" in item.detail for item in checks[0].requirement_results)
 
 
+def test_applicability_requires_project_binding_for_conditional_policy_matrix() -> None:
+    point = ReviewPoint(
+        point_id="RP-SME-COND",
+        catalog_id="RP-SME-001",
+        title="专门面向中小企业却仍保留价格扣除",
+        dimension="中小企业政策风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.suspected,
+        rationale="当前仅看到条件政策矩阵，尚未看到本项目路径绑定。",
+        evidence_bundle=EvidenceBundle(),
+        legal_basis=[],
+        source_findings=[],
+    )
+    clauses = [
+        ExtractedClause(
+            category="政策条款",
+            field_name="是否专门面向中小企业",
+            content="（1）专门面向中小企业采购的项目，不再执行价格扣除比例。",
+            source_anchor="line:30",
+            normalized_value="",
+            relation_tags=["conditional_policy", "条件政策说明", "专门面向中小企业路径", "价格扣除不适用"],
+            clause_role=ClauseRole.policy_explanation,
+            semantic_zone=SemanticZoneType.policy_explanation,
+            effect_tags=[],
+        ),
+        ExtractedClause(
+            category="政策条款",
+            field_name="是否仍保留价格扣除条款",
+            content="（2）非专门面向中小企业采购的项目，应执行价格扣除比例。",
+            source_anchor="line:31",
+            normalized_value="",
+            relation_tags=["conditional_policy", "条件政策说明", "非专门面向中小企业路径", "价格扣除保留"],
+            clause_role=ClauseRole.policy_explanation,
+            semantic_zone=SemanticZoneType.policy_explanation,
+            effect_tags=[],
+        ),
+    ]
+
+    checks = build_applicability_checks([point], clauses)
+
+    assert checks[0].applicable is False
+    assert checks[0].requirement_chain_complete is False
+    assert any("条件政策说明" in item.detail or "本项目事实绑定" in item.detail for item in checks[0].requirement_results)
+
+
 def test_qualification_gate_tasks_activate_for_excessive_threshold_clauses() -> None:
     clauses = [
         ExtractedClause(

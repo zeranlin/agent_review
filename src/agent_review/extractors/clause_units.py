@@ -27,6 +27,7 @@ def build_clause_units(
         zone_type = zone.zone_type if zone is not None else SemanticZoneType.mixed_or_uncertain
         effect_tags = list(effect.effect_tags) if effect is not None else []
         unit_text = node.text.strip()
+        conditional_context = _infer_conditional_policy_context(node)
 
         if node.node_type == NodeType.table_row:
             zone_type, clause_type, effect_tags, confidence = _build_table_row_profile(
@@ -35,10 +36,11 @@ def build_clause_units(
                 effect_tags=effect_tags,
                 zone=zone,
                 effect=effect,
+                conditional_context=conditional_context,
             )
             title = _row_label(unit_text) or node.title.strip() or unit_text[:60]
         else:
-            clause_type = _infer_clause_semantic_type(node, zone_type, effect_tags)
+            clause_type = _infer_clause_semantic_type(node, zone_type, effect_tags, conditional_context)
             confidence = _unit_confidence(zone, effect, clause_type, effect_tags, node)
             title = node.title.strip() or unit_text[:60]
         legal_effect = infer_legal_effect(
@@ -69,6 +71,7 @@ def build_clause_units(
                 legal_effect_type=legal_effect,
                 legal_principle_tags=principle_tags,
                 clause_constraint=clause_constraint,
+                conditional_context=conditional_context,
             )
         )
 
@@ -79,6 +82,7 @@ def _infer_clause_semantic_type(
     node: DocumentNode,
     zone_type: SemanticZoneType,
     effect_tags: list[EffectTag],
+    conditional_context: dict[str, str] | None = None,
 ) -> ClauseSemanticType:
     text = " ".join(part for part in [node.title, node.text, node.path] if part)
     if EffectTag.template in effect_tags:
@@ -122,6 +126,8 @@ def _infer_clause_semantic_type(
         return ClauseSemanticType.contract_obligation
 
     if zone_type == SemanticZoneType.policy_explanation:
+        if conditional_context and conditional_context.get("conditional_policy") == "true":
+            return ClauseSemanticType.conditional_policy
         return ClauseSemanticType.policy_clause
 
     if zone_type == SemanticZoneType.catalog_or_navigation:
@@ -140,6 +146,7 @@ def _build_table_row_profile(
     effect_tags: list[EffectTag],
     zone: SemanticZone | None,
     effect: EffectTagResult | None,
+    conditional_context: dict[str, str] | None,
 ) -> tuple[SemanticZoneType, ClauseSemanticType, list[EffectTag], float]:
     row_text = node.text.strip()
     row_cells = _split_table_row_text(row_text)
@@ -161,9 +168,41 @@ def _build_table_row_profile(
             ),
         )
 
-    clause_type = _infer_clause_semantic_type(node, zone_type, effect_tags)
+    clause_type = _infer_clause_semantic_type(node, zone_type, effect_tags, conditional_context)
     confidence = _unit_confidence(zone, effect, clause_type, effect_tags, node)
     return zone_type, clause_type, effect_tags, confidence
+
+
+def _infer_conditional_policy_context(node: DocumentNode) -> dict[str, str]:
+    text = " ".join(part.strip() for part in [node.title, node.text] if part).strip()
+    if not text:
+        return {}
+    compact = "".join(text.split())
+    dedicated_branch = "专门面向中小企业采购的项目" in compact
+    nondedicated_branch = "非专门面向中小企业采购的项目" in compact
+    branch = ""
+    if dedicated_branch and not nondedicated_branch:
+        branch = "set_aside"
+    elif nondedicated_branch and not dedicated_branch:
+        branch = "non_set_aside"
+    project_binding = any(token in compact for token in ["本项目", "本包", "本采购包", "本次采购"])
+    has_price_deduction = "价格扣除" in compact
+    has_price_deduction_forbidden = any(token in compact for token in ["不再执行价格扣除", "不执行价格扣除", "价格扣除不适用"])
+    has_price_deduction_allowed = has_price_deduction and any(
+        token in compact for token in ["执行价格扣除", "给予", "扣除", "参与评审"]
+    ) and not has_price_deduction_forbidden
+    if not branch and not has_price_deduction:
+        return {}
+    if not branch and not (dedicated_branch or nondedicated_branch):
+        return {}
+    return {
+        "conditional_policy": "true",
+        "project_binding": "true" if project_binding else "false",
+        "policy_branch": branch,
+        "price_deduction_rule": (
+            "forbidden" if has_price_deduction_forbidden else "allowed" if has_price_deduction_allowed else ""
+        ),
+    }
 
 
 def _build_table_context(node: DocumentNode, unit_text: str) -> dict[str, object]:

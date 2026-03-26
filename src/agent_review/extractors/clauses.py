@@ -297,6 +297,8 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
             return "转包外包条款"
 
     if unit.zone_type == SemanticZoneType.policy_explanation:
+        if "价格扣除比例及采购标的所属行业的说明" in text:
+            return "所属行业划分"
         if "中小企业声明函" in text:
             return "中小企业声明函类型"
         if "专门面向中小企业" in text:
@@ -368,6 +370,7 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str) -> str:
     text = _unit_text_context(unit)
     if not text:
         return ""
+    conditional_context = unit.conditional_context or {}
     if field_name in {"项目属性"}:
         for token in ["货物", "服务", "工程"]:
             if token in text:
@@ -377,7 +380,11 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str) -> str:
             if token in text:
                 return token
     if field_name in {"是否专门面向中小企业", "是否仍保留价格扣除条款", "是否为预留份额采购", "是否涉及进口产品", "是否允许分包落实中小企业政策"}:
-        if any(token in text for token in ["不", "否", "不适用", "不再适用"]):
+        if conditional_context.get("conditional_policy") == "true" and conditional_context.get("project_binding") != "true":
+            return ""
+        if field_name == "是否专门面向中小企业" and "非专门面向中小企业" in text:
+            return "否"
+        if any(token in text for token in ["不适用", "不再适用", "不执行", "否"]):
             return "否"
         if any(token in text for token in ["是", "专门面向", "预留份额", "价格扣除", "进口产品", "允许分包"]):
             return "是"
@@ -401,6 +408,7 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str) -> str:
 
 def _infer_unit_relation_tags(unit: ClauseUnit, field_name: str) -> list[str]:
     tags: list[str] = []
+    conditional_context = unit.conditional_context or {}
     if field_name:
         tags.append(field_name)
     if unit.clause_semantic_type != ClauseSemanticType.unknown_clause:
@@ -415,6 +423,20 @@ def _infer_unit_relation_tags(unit: ClauseUnit, field_name: str) -> list[str]:
         tags.extend(item.value for item in unit.clause_constraint.constraint_types)
     if unit.legal_principle_tags:
         tags.extend(item.value for item in unit.legal_principle_tags)
+    if conditional_context.get("conditional_policy") == "true":
+        tags.append("conditional_policy")
+        if conditional_context.get("project_binding") == "true":
+            tags.append("项目事实绑定")
+        else:
+            tags.append("条件政策说明")
+        if conditional_context.get("policy_branch") == "set_aside":
+            tags.append("专门面向中小企业路径")
+        if conditional_context.get("policy_branch") == "non_set_aside":
+            tags.append("非专门面向中小企业路径")
+        if conditional_context.get("price_deduction_rule") == "allowed":
+            tags.append("价格扣除保留")
+        if conditional_context.get("price_deduction_rule") == "forbidden":
+            tags.append("价格扣除不适用")
     return list(dict.fromkeys(tag for tag in tags if tag))
 
 
@@ -736,8 +758,18 @@ def _boolean_policy_extractor(keywords: list[str], positive_tokens: list[str]) -
         for line_no, line in enumerate(lines, start=1):
             if not any(keyword in line for keyword in keywords):
                 continue
-            normalized_value = "是" if any(token in line for token in positive_tokens) else ""
-            tags = ["是"] if normalized_value == "是" else []
+            if _is_generic_conditional_policy_line(line):
+                continue
+            normalized_value = ""
+            tags: list[str] = []
+            if _is_project_bound_policy_line(line):
+                tags.append("项目事实绑定")
+            if "非专门面向中小企业" in line:
+                normalized_value = "否"
+                tags.append("否")
+            elif any(token in line for token in positive_tokens):
+                normalized_value = "是"
+                tags.append("是")
             return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=tags)
         return None
 
@@ -766,13 +798,33 @@ def _price_deduction_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
         if "价格扣除" not in line:
             continue
+        if "价格扣除比例及采购标的所属行业的说明" in line:
+            continue
+        if _is_generic_conditional_policy_line(line):
+            continue
         normalized_value = "是"
         relation_tags = ["价格扣除保留"]
-        if "不适用" in line or "不再适用" in line:
+        if _is_project_bound_policy_line(line):
+            relation_tags.append("项目事实绑定")
+        if any(token in line for token in ["不适用", "不再适用", "不执行"]):
             normalized_value = "否"
             relation_tags = ["价格扣除不适用"]
+            if _is_project_bound_policy_line(line):
+                relation_tags.append("项目事实绑定")
         return _build_clause(line, line_no, normalized_value=normalized_value, relation_tags=relation_tags)
     return None
+
+
+def _is_project_bound_policy_line(line: str) -> bool:
+    compact = "".join(line.split())
+    return any(token in compact for token in ["本项目", "本包", "本采购包", "本次采购"])
+
+
+def _is_generic_conditional_policy_line(line: str) -> bool:
+    compact = "".join(line.split())
+    if _is_project_bound_policy_line(line):
+        return False
+    return "专门面向中小企业采购的项目" in compact or "非专门面向中小企业采购的项目" in compact
 
 
 def _percentage_extractor(keywords: list[str]) -> ClauseExtractor:

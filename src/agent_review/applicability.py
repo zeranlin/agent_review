@@ -501,6 +501,33 @@ def _collect_tags(clause_mapping: dict[str, list[ExtractedClause]], field_name: 
     return tags
 
 
+def _is_project_bound_policy_clause(clause: ExtractedClause) -> bool:
+    if "项目事实绑定" in clause.relation_tags:
+        return True
+    compact = "".join((clause.content or "").split())
+    return any(token in compact for token in ["本项目", "本包", "本采购包", "本次采购"])
+
+
+def _is_conditional_policy_clause(clause: ExtractedClause) -> bool:
+    if "conditional_policy" in clause.relation_tags or "条件政策说明" in clause.relation_tags:
+        return True
+    compact = "".join((clause.content or "").split())
+    return "专门面向中小企业采购的项目" in compact or "非专门面向中小企业采购的项目" in compact
+
+
+def _is_effective_price_deduction_clause(clause: ExtractedClause) -> bool:
+    if _is_conditional_policy_clause(clause):
+        return False
+    compact = "".join((clause.content or "").split())
+    if "价格扣除比例及采购标的所属行业的说明" in compact:
+        return False
+    if "项目事实绑定" in clause.relation_tags:
+        return True
+    if any(tag in clause.relation_tags for tag in ["价格扣除保留", "价格扣除不适用"]):
+        return True
+    return "价格扣除" in compact and any(token in compact for token in ["给予", "扣除", "参与评审", "不适用", "不再适用"])
+
+
 def _texts_for_fields(clause_mapping: dict[str, list[ExtractedClause]], field_names: list[str]) -> list[str]:
     texts: list[str] = []
     for field_name in field_names:
@@ -568,6 +595,32 @@ def _equals_relation(field_name: str, expected_value: str, label: str) -> Relati
         if not actual:
             return ApplicabilityStatus.insufficient, [f"结构化字段缺失：{field_name}。"]
         return ApplicabilityStatus.unsatisfied, [f"结构化字段关系未成立：{field_name}={actual}，不满足{label}。"]
+
+    return evaluator
+
+
+def _project_bound_policy_relation(field_name: str, expected_value: str, label: str) -> RelationEvaluator:
+    def evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+        clauses = clause_mapping.get(field_name, [])
+        if not clauses:
+            return ApplicabilityStatus.insufficient, [f"结构化字段缺失：{field_name}。"]
+        if field_name == "是否仍保留价格扣除条款":
+            bound_clauses = [clause for clause in clauses if _is_effective_price_deduction_clause(clause)]
+            missing_detail = f"结构化字段虽已出现，但尚未形成可用于裁判的项目执行性价格扣除条款：{field_name}。"
+            weak_detail = f"当前仅命中条件政策说明：{field_name} 尚未完成本项目事实绑定。"
+        else:
+            bound_clauses = [clause for clause in clauses if _is_project_bound_policy_clause(clause)]
+            missing_detail = f"结构化字段虽已出现，但尚未形成可用于裁判的本项目事实绑定：{field_name}。"
+            weak_detail = f"当前仅命中条件政策说明：{field_name} 尚未完成本项目事实绑定。"
+        if not bound_clauses:
+            if any(_is_conditional_policy_clause(clause) for clause in clauses):
+                return ApplicabilityStatus.insufficient, [weak_detail]
+            return ApplicabilityStatus.insufficient, [missing_detail]
+
+        actual = bound_clauses[0].normalized_value or bound_clauses[0].content
+        if actual == expected_value:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：{field_name}={actual}，且已完成本项目事实绑定，满足{label}。"]
+        return ApplicabilityStatus.unsatisfied, [f"结构化字段关系未成立：{field_name}={actual}，且本项目实际路径不满足{label}。"]
 
     return evaluator
 
@@ -1256,8 +1309,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-QUAL-002", "存在特定资格要求"): _excessive_certificate_requirement_evaluator,
     ("RP-QUAL-002", "存在资质证书或材料负担信号"): _excessive_certificate_requirement_evaluator,
     ("RP-REQ-001", "存在技术或服务要求信号"): _technical_service_verifiability_evaluator,
-    ("RP-SME-001", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
-    ("RP-SME-001", "文件仍保留价格扣除"): _equals_relation("是否仍保留价格扣除条款", "是", "文件仍保留价格扣除"),
+    ("RP-SME-001", "项目专门面向中小企业"): _project_bound_policy_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
+    ("RP-SME-001", "文件仍保留价格扣除"): _project_bound_policy_relation("是否仍保留价格扣除条款", "是", "文件仍保留价格扣除"),
     ("RP-SME-002", "项目属性为服务"): _equals_relation("项目属性", "服务", "项目属性为服务"),
     ("RP-SME-002", "声明函出现制造商口径"): _contains_relation("中小企业声明函类型", "制造商", "声明函出现制造商口径"),
     ("RP-SME-003", "项目属性为货物"): _equals_relation("项目属性", "货物", "项目属性为货物"),
@@ -1300,8 +1353,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SME-005", "存在最高限价"): _amount_consistency_evaluator,
     ("RP-TPL-002", "项目属性为服务"): _service_template_mismatch_evaluator,
     ("RP-TPL-002", "声明函出现制造商口径"): _service_template_mismatch_evaluator,
-    ("RP-TPL-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
-    ("RP-TPL-003", "保留价格扣除模板"): _equals_relation("是否仍保留价格扣除条款", "是", "保留价格扣除模板"),
+    ("RP-TPL-003", "项目专门面向中小企业"): _project_bound_policy_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
+    ("RP-TPL-003", "保留价格扣除模板"): _project_bound_policy_relation("是否仍保留价格扣除条款", "是", "保留价格扣除模板"),
     ("RP-TPL-007", "存在合同模板残留"): _contract_template_residue_evaluator,
     ("RP-PRUD-001", "存在需求调查结论"): _demand_survey_review_evaluator,
     ("RP-PRUD-001", "项目存在复杂度信号"): _demand_survey_review_evaluator,
@@ -1311,8 +1364,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-PRUD-002", "已组织专家论证"): _equals_relation("专家论证结论", "需要", "已组织专家论证"),
     ("RP-PRUD-003", "存在违约或解约条款"): _procedural_fairness_evaluator,
     ("RP-PRUD-003", "已设置整改或申辩程序"): _procedural_fairness_evaluator,
-    ("RP-CONS-003", "项目专门面向中小企业"): _equals_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
-    ("RP-CONS-003", "存在价格扣除"): _equals_relation("是否仍保留价格扣除条款", "是", "存在价格扣除"),
+    ("RP-CONS-003", "项目专门面向中小企业"): _project_bound_policy_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
+    ("RP-CONS-003", "存在价格扣除"): _project_bound_policy_relation("是否仍保留价格扣除条款", "是", "存在价格扣除"),
     ("RP-CONS-004", "存在验收标准"): _contains_relation("验收标准", "存在", "存在验收标准"),
     ("RP-CONS-004", "存在付款节点"): _contains_relation("付款节点", "存在", "存在付款节点"),
     ("RP-CONS-005", "存在中小企业政策"): _equals_relation("是否专门面向中小企业", "是", "存在中小企业政策"),

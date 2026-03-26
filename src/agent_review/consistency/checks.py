@@ -77,9 +77,9 @@ def check_consistency(
     checks.append(
         ConsistencyCheck(
             topic="中小企业政策 vs 价格扣除政策",
-            status="issue" if ("专门面向中小企业" in text and "价格扣除" in text) else "ok",
+            status="issue" if _project_bound_policy_conflict(mapping) else "ok",
             detail="专门面向中小企业项目仍出现价格扣除条款，可能存在政策口径冲突。"
-            if ("专门面向中小企业" in text and "价格扣除" in text)
+            if _project_bound_policy_conflict(mapping)
             else "未发现明显中小企业政策冲突。",
         )
     )
@@ -274,3 +274,40 @@ def _clause_map(clauses: list[ExtractedClause]) -> dict[str, list[ExtractedClaus
 def _first_content(mapping: dict[str, list[ExtractedClause]], key: str) -> str:
     items = mapping.get(key) or []
     return items[0].content if items else ""
+
+
+def _project_bound_policy_conflict(mapping: dict[str, list[ExtractedClause]]) -> bool:
+    sme_clause = _first_project_bound(mapping, "是否专门面向中小企业")
+    price_clause = _first_effective_price_clause(mapping, "是否仍保留价格扣除条款")
+    return bool(
+        sme_clause is not None
+        and price_clause is not None
+        and sme_clause.normalized_value == "是"
+        and price_clause.normalized_value == "是"
+    )
+
+
+def _first_project_bound(mapping: dict[str, list[ExtractedClause]], key: str) -> ExtractedClause | None:
+    for clause in mapping.get(key) or []:
+        if "项目事实绑定" in clause.relation_tags:
+            return clause
+        compact = "".join((clause.content or "").split())
+        if any(token in compact for token in ["本项目", "本包", "本采购包", "本次采购"]):
+            return clause
+    return None
+
+
+def _first_effective_price_clause(mapping: dict[str, list[ExtractedClause]], key: str) -> ExtractedClause | None:
+    for clause in mapping.get(key) or []:
+        compact = "".join((clause.content or "").split())
+        if "专门面向中小企业采购的项目" in compact or "非专门面向中小企业采购的项目" in compact:
+            continue
+        if "价格扣除比例及采购标的所属行业的说明" in compact:
+            continue
+        if "项目事实绑定" in clause.relation_tags:
+            return clause
+        if any(tag in clause.relation_tags for tag in ["价格扣除保留", "价格扣除不适用"]):
+            return clause
+        if "价格扣除" in compact and any(token in compact for token in ["给予", "扣除", "参与评审", "不适用", "不再适用"]):
+            return clause
+    return None

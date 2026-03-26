@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..models import RiskHit, Severity
-from .common import clause_map
+from .common import clause_map, first_effective_price_deduction_clause, first_project_bound_clause
 
 
 def match_template_conflict_risks(text: str, clauses) -> list[RiskHit]:
@@ -35,13 +35,20 @@ def match_template_conflict_risks(text: str, clauses) -> list[RiskHit]:
             )
         )
 
-    if "专门面向中小企业" in text and "价格扣除" in text:
+    special_sme_clause = first_project_bound_clause(mapping, "是否专门面向中小企业")
+    price_deduction_clause = first_effective_price_deduction_clause(mapping, "是否仍保留价格扣除条款")
+    if (
+        special_sme_clause is not None
+        and price_deduction_clause is not None
+        and special_sme_clause.normalized_value == "是"
+        and price_deduction_clause.normalized_value == "是"
+    ):
         hits.append(
             RiskHit(
                 risk_group="模板残留与冲突风险",
                 rule_name="专门面向中小企业却保留价格扣除模板",
                 severity=Severity.high,
-                matched_text="专门面向中小企业 / 价格扣除",
+                matched_text=f"{special_sme_clause.content} {price_deduction_clause.content}".strip(),
                 rationale="政策模板冲突已直接影响评审口径和政策执行，应按高风险处理。",
                 source_anchor=_anchor(mapping, "是否专门面向中小企业", "是否仍保留价格扣除条款"),
             )

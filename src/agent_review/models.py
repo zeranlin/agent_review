@@ -616,6 +616,7 @@ class ClauseUnit:
     legal_effect_type: LegalEffectType = LegalEffectType.unknown
     legal_principle_tags: list[LegalPrincipleTag] = field(default_factory=list)
     clause_constraint: ClauseConstraint = field(default_factory=ClauseConstraint)
+    conditional_context: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -634,6 +635,7 @@ class ClauseUnit:
             "legal_effect_type": self.legal_effect_type.value,
             "legal_principle_tags": [item.value for item in self.legal_principle_tags],
             "clause_constraint": self.clause_constraint.to_dict(),
+            "conditional_context": self.conditional_context,
         }
 
 

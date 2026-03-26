@@ -67,6 +67,7 @@ class ClauseSemanticType(str, Enum):
     breach_term = "breach_term"
     termination_term = "termination_term"
     policy_clause = "policy_clause"
+    conditional_policy = "conditional_policy"
     template_instruction = "template_instruction"
     declaration_template = "declaration_template"
     example_clause = "example_clause"

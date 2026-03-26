@@ -57,7 +57,7 @@ def infer_legal_effect(
         ClauseSemanticType.termination_term,
     }:
         return LegalEffectType.contract_obligation
-    if clause_semantic_type == ClauseSemanticType.policy_clause:
+    if clause_semantic_type in {ClauseSemanticType.policy_clause, ClauseSemanticType.conditional_policy}:
         return LegalEffectType.policy_statement
     if clause_semantic_type in {ClauseSemanticType.template_instruction, ClauseSemanticType.declaration_template}:
         return LegalEffectType.template_instruction

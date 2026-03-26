@@ -150,3 +150,28 @@ def test_clause_unit_builder_marks_template_units() -> None:
     assert reference_unit.path.endswith("详见附件2。")
     assert reference_unit.table_context["heading_context"] == "ROOT > 第三章 投标文件格式、附件"
     assert reference_unit.confidence <= 0.5
+
+
+def test_clause_unit_marks_generic_sme_price_matrix_as_conditional_policy() -> None:
+    nodes = [
+        DocumentNode(node_id="root", node_type=NodeType.volume, title="ROOT", text="", path="ROOT"),
+        DocumentNode(
+            node_id="p-1",
+            node_type=NodeType.paragraph,
+            title="中小企业政策说明",
+            text="（1）专门面向中小企业采购的项目，不再执行价格扣除比例。",
+            path="ROOT > 政策说明 > 中小企业政策说明",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:12"),
+        ),
+    ]
+    zones = [SemanticZone("p-1", SemanticZoneType.policy_explanation, 0.95, ["policy"])]
+    effects = [EffectTagResult("p-1", [EffectTag.binding], 0.8, ["binding"])]
+
+    units = build_clause_units(nodes, zones, effects)
+    unit = units[0]
+
+    assert unit.clause_semantic_type == ClauseSemanticType.conditional_policy
+    assert unit.conditional_context["conditional_policy"] == "true"
+    assert unit.conditional_context["project_binding"] == "false"
+    assert unit.conditional_context["policy_branch"] == "set_aside"
