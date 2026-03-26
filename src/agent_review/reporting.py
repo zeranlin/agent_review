@@ -107,13 +107,6 @@ def render_reviewer_report(report: ReviewReport) -> str:
         "**一、审查结论**",
         f"经审查，该采购需求文件{_reviewer_conclusion_sentence(report)}",
     ]
-    enhancement_status = _build_llm_enhancement_status(report)
-    if enhancement_status:
-        lines.append(f"LLM增强状态：{enhancement_status}")
-    if report.parse_result.rule_hits or report.parse_result.review_point_instances:
-        lines.append(
-            f"新链摘要：RuleHit {len(report.parse_result.rule_hits)} 条，ReviewPointInstance {len(report.parse_result.review_point_instances)} 个。"
-        )
     lines.append("")
 
     if not issue_entries:

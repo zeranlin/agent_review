@@ -15,4 +15,5 @@ def test_reporting_surfaces_rule_hit_and_review_point_instance_sections() -> Non
 
     assert "## RuleHit" in markdown
     assert "## ReviewPointInstance" in markdown
-    assert "新链摘要：RuleHit" in reviewer
+    assert "LLM增强状态：" not in reviewer
+    assert "新链摘要：RuleHit" not in reviewer
