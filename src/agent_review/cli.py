@@ -41,8 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         choices=(ReviewMode.fast.value, ReviewMode.enhanced.value),
-        default=ReviewMode.fast.value,
-        help="运行模式：fast 只输出基础报告，enhanced 在基础报告上做 LLM 增强。",
+        default=ReviewMode.enhanced.value,
+        help="运行模式：默认 enhanced，可显式切换为 fast 关闭增强链。",
     )
     parser.add_argument(
         "--artifacts-dir",
@@ -57,7 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--parser-llm-assist",
         action="store_true",
-        help="启用 parser 低置信度歧义消解，仅对未知/低置信度节点调用 LLM。",
+        default=True,
+        help="启用 parser 低置信度歧义消解。默认开启。",
+    )
+    parser.add_argument(
+        "--disable-parser-llm-assist",
+        dest="parser_llm_assist",
+        action="store_false",
+        help="显式关闭 parser 低置信度歧义消解。",
     )
     return parser
 
