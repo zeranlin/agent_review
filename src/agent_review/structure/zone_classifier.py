@@ -5,6 +5,7 @@ from ..ontology import NodeType, SemanticZoneType
 
 
 ZONE_RULES: dict[SemanticZoneType, list[str]] = {
+    SemanticZoneType.administrative_info: ["关键信息", "项目属性", "项目编号", "项目名称", "预算金额", "最高限价"],
     SemanticZoneType.qualification: ["资格要求", "资格证明", "资质要求", "业绩要求", "投标人资格"],
     SemanticZoneType.technical: ["技术要求", "技术参数", "货物清单", "样品要求", "检测报告", "参数"],
     SemanticZoneType.business: ["商务要求", "交货", "售后", "服务要求", "实施方案", "培训"],

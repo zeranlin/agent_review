@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from ..models import ClauseRole, ExtractedClause
+from ..models import ClauseRole, ClauseUnit, ExtractedClause
+from ..ontology import EffectTag, SemanticZoneType
 
 
 ClauseExtractor = Callable[[list[str]], ExtractedClause | None]
@@ -30,10 +31,60 @@ def extract_clauses(text: str) -> list[ExtractedClause]:
     return clauses
 
 
+def extract_clauses_from_units(clause_units: list[ClauseUnit]) -> list[ExtractedClause]:
+    filtered_units = [
+        unit
+        for unit in clause_units
+        if unit.zone_type
+        in {
+            SemanticZoneType.administrative_info,
+            SemanticZoneType.qualification,
+            SemanticZoneType.technical,
+            SemanticZoneType.business,
+            SemanticZoneType.scoring,
+            SemanticZoneType.contract,
+            SemanticZoneType.policy_explanation,
+            SemanticZoneType.appendix_reference,
+        }
+        and EffectTag.catalog not in unit.effect_tags
+        and EffectTag.public_copy_noise not in unit.effect_tags
+    ]
+    if not filtered_units:
+        return []
+
+    synthetic_text = "\n".join(unit.text for unit in filtered_units if unit.text.strip())
+    clauses = extract_clauses(synthetic_text)
+    unit_anchor_map = {unit.text: unit.anchor.line_hint or _anchor_to_hint(unit) for unit in filtered_units}
+    for clause in clauses:
+        for unit in filtered_units:
+            if clause.content and clause.content in unit.text:
+                clause.source_anchor = unit.anchor.line_hint or _anchor_to_hint(unit)
+                break
+        else:
+            for unit_text, anchor in unit_anchor_map.items():
+                if unit_text and unit_text[:40] in clause.content:
+                    clause.source_anchor = anchor
+                    break
+    return clauses
+
+
 def classify_extracted_clauses(clauses: list[ExtractedClause]) -> list[ExtractedClause]:
     for clause in clauses:
         clause.clause_role = classify_clause_role(clause.content)
     return clauses
+
+
+def _anchor_to_hint(unit: ClauseUnit) -> str:
+    anchor = unit.anchor
+    if anchor.line_hint:
+        return anchor.line_hint
+    if anchor.table_no is not None and anchor.row_no is not None:
+        return f"table:{anchor.table_no}:row:{anchor.row_no}"
+    if anchor.paragraph_no is not None:
+        return f"paragraph:{anchor.paragraph_no}"
+    if anchor.block_no is not None:
+        return f"block:{anchor.block_no}"
+    return unit.path or unit.source_node_id
 
 
 def classify_clause_role(text: str) -> ClauseRole:

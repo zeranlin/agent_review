@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..models import FileInfo, FileType, ParseResult, SectionIndex
+from ..extractors.clause_units import build_clause_units
 from .effect_tagger import tag_effects
 from .tree_builder import build_document_tree
 from .zone_classifier import classify_semantic_zones
@@ -101,4 +102,9 @@ def enrich_parse_result_structure(parse_result: ParseResult) -> ParseResult:
     parse_result.document_nodes = build_document_tree(parse_result)
     parse_result.semantic_zones = classify_semantic_zones(parse_result.document_nodes)
     parse_result.effect_tag_results = tag_effects(parse_result.document_nodes, parse_result.semantic_zones)
+    parse_result.clause_units = build_clause_units(
+        parse_result.document_nodes,
+        parse_result.semantic_zones,
+        parse_result.effect_tag_results,
+    )
     return parse_result

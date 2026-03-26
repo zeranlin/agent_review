@@ -450,6 +450,7 @@ class ParseResult:
     document_nodes: list[DocumentNode] = field(default_factory=list)
     semantic_zones: list[SemanticZone] = field(default_factory=list)
     effect_tag_results: list[EffectTagResult] = field(default_factory=list)
+    clause_units: list[ClauseUnit] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -466,6 +467,7 @@ class ParseResult:
             "document_nodes": [item.to_dict() for item in self.document_nodes],
             "semantic_zones": [item.to_dict() for item in self.semantic_zones],
             "effect_tag_results": [item.to_dict() for item in self.effect_tag_results],
+            "clause_units": [item.to_dict() for item in self.clause_units],
             "warnings": self.warnings,
         }
 
