@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -212,6 +213,10 @@ def render_markdown(report: ReviewReport) -> str:
                 f"- {item.document_name}: {item.source_format}，解析器 {item.parser_name}，页数 {page_text}"
             )
         lines.append("")
+
+    middle_trace_lines = _build_middle_trace_summary_lines(report)
+    if middle_trace_lines:
+        lines.extend(middle_trace_lines)
 
     lines.extend(
         [
@@ -507,6 +512,78 @@ def render_markdown(report: ReviewReport) -> str:
     lines.append(f"- {', '.join(report.reviewed_dimensions)}")
 
     return "\n".join(lines)
+
+
+def _build_middle_trace_summary_lines(report: ReviewReport) -> list[str]:
+    profile = report.parse_result.document_profile
+    if profile is None and not report.quality_gates:
+        return []
+
+    lines: list[str] = [
+        "## 中间产物摘要",
+        "",
+    ]
+    if profile is not None:
+        candidate_text = _format_profile_candidates(profile.domain_profile_candidates[:3])
+        zone_text = _format_profile_zone_stats(profile)
+        quality_flags = "、".join(profile.quality_flags[:3]) if profile.quality_flags else "无"
+        unknown_flags = (
+            "、".join(profile.unknown_structure_flags[:3]) if profile.unknown_structure_flags else "无"
+        )
+        anchor_text = "、".join(profile.representative_anchors[:3]) if profile.representative_anchors else "未记录"
+        lines.extend(
+            [
+                f"- 文档画像: {profile.procurement_kind}（置信度 {profile.procurement_kind_confidence:.2f}）",
+                f"- 域匹配: {candidate_text}",
+                f"- 结构分布: {zone_text}",
+                f"- 质量标记: {quality_flags}",
+                f"- 未知结构信号: {unknown_flags}",
+                f"- 代表锚点: {anchor_text}",
+            ]
+        )
+    if report.quality_gates:
+        counts = Counter(item.status.value for item in report.quality_gates)
+        status_text = "，".join(
+            f"{status} {counts.get(status, 0)}"
+            for status in ["passed", "manual_confirmation", "filtered"]
+        )
+        top_gate_text = _format_quality_gate_snippet(report.quality_gates[:3])
+        lines.extend(
+            [
+                f"- 质量关卡: {status_text}",
+                f"- 质量关卡样本: {top_gate_text}",
+            ]
+        )
+    lines.append("")
+    return lines
+
+
+def _format_profile_candidates(candidates) -> str:
+    if not candidates:
+        return "未形成候选"
+    return "；".join(
+        f"{item.profile_id} {item.confidence:.2f}"
+        for item in candidates
+    )
+
+
+def _format_profile_zone_stats(profile: ReviewReport | object) -> str:
+    dominant_zones = getattr(profile, "dominant_zones", [])
+    if not dominant_zones:
+        return "未形成区域统计"
+    return "；".join(
+        f"{item.zone_type.value}:{item.ratio:.2f}"
+        for item in dominant_zones[:3]
+    )
+
+
+def _format_quality_gate_snippet(quality_gates) -> str:
+    if not quality_gates:
+        return "未生成质量关卡样本"
+    return "；".join(
+        f"{item.point_id}:{item.status.value}"
+        for item in quality_gates
+    )
 
 
 def render_opinion_letter(report: ReviewReport) -> str:

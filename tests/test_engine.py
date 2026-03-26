@@ -1579,6 +1579,7 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert manifest["artifact_paths"]["review_point_trace"] == bundle.review_point_trace_path
     assert manifest["artifact_paths"]["document_profile"] == bundle.document_profile_path
     assert manifest["artifact_paths"]["domain_profile_match"] == bundle.domain_profile_match_path
+    assert "debug_summary" in manifest
     assert manifest["stage_records"]
     assert "core_modules" in manifest["rule_selection"]
     assert "enhancement_modules" in manifest["rule_selection"]
@@ -1597,6 +1598,40 @@ def test_write_review_artifacts_outputs_base_and_final(tmp_path: Path) -> None:
     assert profile_payload["document_profile"]["procurement_kind"]
     domain_match_payload = json.loads(Path(bundle.domain_profile_match_path).read_text(encoding="utf-8"))
     assert domain_match_payload["count"] >= 1
+
+
+def test_write_review_artifacts_exposes_profile_and_quality_summaries(tmp_path: Path) -> None:
+    text = """
+    项目名称：东北师范大学附属中学深圳学校家具采购
+    项目属性：货物
+    采购内容：课桌、书柜、会议桌、文件柜。
+    评分标准：样品10分，检测报告10分，财务报告10分。
+    验收标准：按合同约定执行。
+    """
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    enhanced_report = TenderReviewEngine(
+        review_enhancer=FakeEnhancer(),
+        review_mode=ReviewMode.enhanced,
+    ).review_text(text, document_name="demo.txt")
+
+    bundle = write_review_artifacts(enhanced_report, base_report, tmp_path)
+    markdown = Path(bundle.final_markdown_path).read_text(encoding="utf-8")
+    manifest = json.loads(Path(bundle.manifest_path).read_text(encoding="utf-8"))
+    profile_payload = json.loads(Path(bundle.document_profile_path).read_text(encoding="utf-8"))
+    domain_match_payload = json.loads(Path(bundle.domain_profile_match_path).read_text(encoding="utf-8"))
+    trace_payload = json.loads(Path(bundle.review_point_trace_path).read_text(encoding="utf-8"))
+
+    assert "## 中间产物摘要" in markdown
+    assert "- 文档画像:" in markdown
+    assert "- 质量关卡:" in markdown
+    assert manifest["debug_summary"]["document_profile"]["present"] is True
+    assert manifest["debug_summary"]["document_profile"]["candidate_count"] >= 1
+    assert manifest["debug_summary"]["domain_profile_match"]["candidate_count"] >= 1
+    assert manifest["debug_summary"]["quality_gates"]["count"] == len(enhanced_report.quality_gates)
+    assert profile_payload["summary"]["candidate_count"] >= 1
+    assert domain_match_payload["summary"]["candidate_count"] >= 1
+    assert trace_payload["summary"]["quality_gates"]["count"] == len(enhanced_report.quality_gates)
+    assert trace_payload["summary"]["document_profile"]["present"] is True
 
 
 def test_write_review_artifacts_outputs_review_point_trace(tmp_path: Path) -> None:

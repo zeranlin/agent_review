@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -255,6 +256,7 @@ def _build_run_manifest(
             "warnings": report.parse_result.warnings,
         },
         "document_profile": _build_document_profile_payload(report),
+        "debug_summary": _build_debug_summary(report),
         "rule_selection": report.rule_selection.to_dict(),
         "review_point_summary": {
             "count": len(report.review_points),
@@ -350,6 +352,7 @@ def _build_review_point_trace_payload(report: ReviewReport) -> dict[str, object]
         "review_mode": report.review_mode.value,
         "llm_enhanced": report.llm_enhanced,
         "count": len(report.review_points),
+        "summary": _build_debug_summary(report),
         "items": [
             _build_review_point_trace_item(
                 point=point,
@@ -364,16 +367,19 @@ def _build_review_point_trace_payload(report: ReviewReport) -> dict[str, object]
 
 def _build_document_profile_payload(report: ReviewReport) -> dict[str, object]:
     profile = report.parse_result.document_profile
+    summary = _build_document_profile_summary(profile)
     return {
         "document_name": report.file_info.document_name,
         "review_mode": report.review_mode.value,
         "document_profile": profile.to_dict() if profile else None,
+        "summary": summary,
     }
 
 
 def _build_domain_profile_match_payload(report: ReviewReport) -> dict[str, object]:
     profile = report.parse_result.document_profile
     candidates = profile.domain_profile_candidates if profile else []
+    summary = _build_domain_profile_match_summary(profile, candidates)
     return {
         "document_name": report.file_info.document_name,
         "review_mode": report.review_mode.value,
@@ -382,6 +388,85 @@ def _build_domain_profile_match_payload(report: ReviewReport) -> dict[str, objec
         "risk_activation_hints": profile.risk_activation_hints if profile else [],
         "count": len(candidates),
         "items": [item.to_dict() for item in candidates],
+        "summary": summary,
+    }
+
+
+def _build_debug_summary(report: ReviewReport) -> dict[str, object]:
+    profile = report.parse_result.document_profile
+    return {
+        "document_profile": _build_document_profile_summary(profile),
+        "domain_profile_match": _build_domain_profile_match_summary(
+            profile,
+            profile.domain_profile_candidates if profile else [],
+        ),
+        "quality_gates": _build_quality_gate_summary(report),
+    }
+
+
+def _build_document_profile_summary(profile) -> dict[str, object]:
+    if profile is None:
+        return {
+            "present": False,
+            "candidate_count": 0,
+            "summary": "未生成文档画像。",
+        }
+    candidates = profile.domain_profile_candidates[:3]
+    return {
+        "present": True,
+        "document_id": profile.document_id,
+        "procurement_kind": profile.procurement_kind,
+        "procurement_kind_confidence": profile.procurement_kind_confidence,
+        "candidate_count": len(profile.domain_profile_candidates),
+        "top_candidates": [item.to_dict() for item in candidates],
+        "dominant_zones": [item.to_dict() for item in profile.dominant_zones[:3]],
+        "effect_distribution": [item.to_dict() for item in profile.effect_distribution[:3]],
+        "clause_semantic_distribution": [item.to_dict() for item in profile.clause_semantic_distribution[:3]],
+        "structure_flags": profile.structure_flags[:5],
+        "quality_flags": profile.quality_flags[:5],
+        "unknown_structure_flags": profile.unknown_structure_flags[:5],
+        "representative_anchors": profile.representative_anchors[:5],
+        "summary": profile.summary,
+    }
+
+
+def _build_domain_profile_match_summary(profile, candidates) -> dict[str, object]:
+    if profile is None:
+        return {
+            "present": False,
+            "candidate_count": 0,
+            "summary": "未生成域匹配结果。",
+        }
+    top_candidate = candidates[0].to_dict() if candidates else None
+    return {
+        "present": True,
+        "procurement_kind": profile.procurement_kind,
+        "candidate_count": len(candidates),
+        "top_candidate": top_candidate,
+        "top_candidates": [item.to_dict() for item in candidates[:3]],
+        "risk_activation_hints": profile.risk_activation_hints[:5],
+        "unknown_structure_flags": profile.unknown_structure_flags[:5],
+        "summary": profile.summary,
+    }
+
+
+def _build_quality_gate_summary(report: ReviewReport) -> dict[str, object]:
+    counts = Counter(item.status.value for item in report.quality_gates)
+    return {
+        "count": len(report.quality_gates),
+        "status_counts": {
+            "passed": counts.get("passed", 0),
+            "manual_confirmation": counts.get("manual_confirmation", 0),
+            "filtered": counts.get("filtered", 0),
+        },
+        "sample": [
+            {
+                "point_id": item.point_id,
+                "status": item.status.value,
+                "reasons": item.reasons[:3],
+            }
+            for item in report.quality_gates[:3]
+        ],
     }
 
 
