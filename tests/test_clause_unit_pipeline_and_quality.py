@@ -33,7 +33,12 @@ def test_pipeline_clause_extraction_prefers_clause_units() -> None:
     report = TenderReviewEngine().review_text(text, document_name="demo.txt")
 
     assert report.parse_result.clause_units
-    assert any(item.field_name == "项目属性" for item in report.extracted_clauses)
+    field_names = {item.field_name for item in report.extracted_clauses}
+    assert "项目属性" in field_names
+    assert any(field_name in field_names for field_name in {"一般资格要求", "资格条件明细"})
+    assert "评分方法" in field_names
+    assert any(item.catalog_id == "RP-QUAL-001" for item in report.review_points)
+    assert any(item.catalog_id == "RP-SCORE-008" for item in report.review_points)
     clause_stage = next(item for item in report.stage_records if item.stage_name == "clause_extraction")
     assert "ClauseUnit" in clause_stage.detail
 

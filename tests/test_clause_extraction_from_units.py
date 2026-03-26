@@ -60,6 +60,24 @@ def _build_nodes() -> tuple[list[DocumentNode], list[SemanticZone], list[EffectT
             anchor=SourceAnchor(table_no=1, row_no=2, line_hint="line:6"),
             metadata={"row_index": 2, "is_header": False, "table_kind": "scoring"},
         ),
+        DocumentNode(
+            node_id="n-6",
+            node_type=NodeType.section,
+            title="第四章 合同条款",
+            text="第四章 合同条款",
+            path="ROOT > 第四章 合同条款",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:8"),
+        ),
+        DocumentNode(
+            node_id="n-7",
+            node_type=NodeType.paragraph,
+            title="付款方式：验收合格后10个工作日内一次性付清。",
+            text="付款方式：验收合格后10个工作日内一次性付清。",
+            path="ROOT > 第四章 合同条款 > 付款方式：验收合格后10个工作日内一次性付清。",
+            parent_id="n-6",
+            anchor=SourceAnchor(line_hint="line:9"),
+        ),
     ]
 
     zones = [
@@ -69,6 +87,8 @@ def _build_nodes() -> tuple[list[DocumentNode], list[SemanticZone], list[EffectT
         SemanticZone("n-3", SemanticZoneType.scoring, 0.92, ["scoring_heading"]),
         SemanticZone("n-4", SemanticZoneType.scoring, 0.95, ["scoring_header"]),
         SemanticZone("n-5", SemanticZoneType.scoring, 0.94, ["scoring_row"]),
+        SemanticZone("n-6", SemanticZoneType.contract, 0.91, ["contract_heading"]),
+        SemanticZone("n-7", SemanticZoneType.contract, 0.93, ["contract_clause"]),
     ]
 
     effects = [
@@ -78,6 +98,8 @@ def _build_nodes() -> tuple[list[DocumentNode], list[SemanticZone], list[EffectT
         EffectTagResult("n-3", [EffectTag.binding], 0.8, ["binding"]),
         EffectTagResult("n-4", [EffectTag.binding], 0.78, ["binding"]),
         EffectTagResult("n-5", [EffectTag.binding], 0.88, ["binding"]),
+        EffectTagResult("n-6", [EffectTag.binding], 0.81, ["binding"]),
+        EffectTagResult("n-7", [EffectTag.binding], 0.9, ["binding"]),
     ]
 
     return nodes, zones, effects
@@ -92,5 +114,11 @@ def test_extract_clauses_from_units_can_extract_structured_fields() -> None:
     contents = [item.content for item in clauses]
 
     assert "项目属性" in field_names
+    assert "评分方法" in field_names
+    assert "付款节点" in field_names
+    assert "验收标准" in field_names
+    assert any(field_name in field_names for field_name in {"一般资格要求", "资格条件明细"})
+    assert any(field_name in field_names for field_name in {"评分项明细", "评分方法"})
     assert any(item.source_anchor == "line:2" for item in clauses)
-    assert all("评分项" not in content for content in contents)
+    assert any("检测报告" in content for content in contents)
+    assert all("目录" not in content for content in contents)

@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from ..models import ClauseRole, ClauseUnit, ExtractedClause
-from ..ontology import EffectTag, SemanticZoneType
+from ..models import AdoptionStatus, ClauseRole, ClauseUnit, ExtractedClause
+from ..ontology import ClauseSemanticType, EffectTag, SemanticZoneType
 
 
 ClauseExtractor = Callable[[list[str]], ExtractedClause | None]
@@ -54,22 +54,10 @@ def extract_clauses_from_units(clause_units: list[ClauseUnit]) -> list[Extracted
     if not filtered_units:
         return []
 
+    unit_clauses = [_clause_from_unit(unit) for unit in filtered_units if unit.text.strip()]
     synthetic_text = "\n".join(unit.text for unit in filtered_units if unit.text.strip())
-    clauses = extract_clauses(synthetic_text)
-    unit_anchor_map = {unit.text: unit.anchor.line_hint or _anchor_to_hint(unit) for unit in filtered_units}
-    for clause in clauses:
-        for unit in filtered_units:
-            if clause.content and clause.content in unit.text:
-                clause.source_anchor = unit.anchor.line_hint or _anchor_to_hint(unit)
-                clause.semantic_zone = unit.zone_type
-                clause.effect_tags = list(unit.effect_tags)
-                break
-        else:
-            for unit_text, anchor in unit_anchor_map.items():
-                if unit_text and unit_text[:40] in clause.content:
-                    clause.source_anchor = anchor
-                    break
-    return clauses
+    fallback_clauses = extract_clauses(synthetic_text)
+    return _merge_extracted_clauses(unit_clauses, fallback_clauses)
 
 
 def classify_extracted_clauses(clauses: list[ExtractedClause]) -> list[ExtractedClause]:
@@ -89,6 +77,314 @@ def _anchor_to_hint(unit: ClauseUnit) -> str:
     if anchor.block_no is not None:
         return f"block:{anchor.block_no}"
     return unit.path or unit.source_node_id
+
+
+def _clause_from_unit(unit: ClauseUnit) -> ExtractedClause:
+    field_name = _infer_unit_field_name(unit)
+    content = unit.text.strip()
+    return ExtractedClause(
+        category=_infer_unit_category(unit, field_name),
+        field_name=field_name,
+        content=content,
+        source_anchor=unit.anchor.line_hint or _anchor_to_hint(unit),
+        normalized_value=_infer_unit_normalized_value(unit, field_name),
+        relation_tags=_infer_unit_relation_tags(unit, field_name),
+        clause_role=classify_clause_role(content),
+        semantic_zone=unit.zone_type,
+        effect_tags=list(unit.effect_tags),
+        adoption_status=AdoptionStatus.rule_based,
+    )
+
+
+def _infer_unit_category(unit: ClauseUnit, field_name: str) -> str:
+    if field_name in {"项目名称", "项目编号", "采购方式", "采购方式适用理由", "采购标的", "品目名称", "项目属性", "预算金额", "最高限价", "合同履行期限", "合同类型", "采购内容构成", "是否含持续性服务", "采购包数量", "采购包划分说明", "需求调查结论", "专家论证结论"}:
+        return "项目基本信息"
+    if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "信用要求", "是否允许联合体", "是否允许分包"}:
+        return "资格条款"
+    if field_name in {"样品要求", "现场演示要求", "是否指定品牌", "是否要求专利", "是否要求检测报告", "是否要求认证证书", "证书检测报告负担特征", "检测报告适用阶段", "证书材料适用阶段", "是否设置★实质性条款", "是否有限制产地厂家商标", "技术服务可验证性信号"}:
+        return "技术条款"
+    if field_name in {"评分方法", "价格分", "技术分", "商务分", "证书加分", "业绩加分", "方案评分", "售后加分", "财务指标加分", "人员评分要求", "样品分", "评分项明细", "证书类评分总分", "信用评价要求", "信用修复条款", "异议救济条款", "行业相关性存疑评分项", "方案评分扣分模式"}:
+        return "评分条款"
+    if field_name in {"付款节点", "验收标准", "争议解决方式", "违约责任", "质保期", "履约保证金", "考核条款", "满意度条款", "扣款条款", "解约条款", "整改条款", "申辩条款", "单方解释权", "合同成果模板术语", "合同模板残留", "验收弹性条款", "转包外包条款"}:
+        return "合同条款"
+    if field_name in {"性别限制", "年龄限制", "身高限制", "容貌体形要求", "学历职称要求", "采购人审批录用", "采购人批准更换", "团队稳定性要求", "人员更换限制", "采购人直接指挥"}:
+        return "人员条款"
+    if field_name in {"是否专门面向中小企业", "是否为预留份额采购", "是否允许分包落实中小企业政策", "所属行业划分", "中小企业声明函类型", "是否仍保留价格扣除条款", "是否涉及进口产品", "分包比例", "面向中小企业采购金额"}:
+        return "政策条款"
+    if field_name in {"投标文件格式", "附件引用"}:
+        return "投标文件模板"
+    return {
+        SemanticZoneType.administrative_info: "项目基本信息",
+        SemanticZoneType.qualification: "资格条款",
+        SemanticZoneType.technical: "技术条款",
+        SemanticZoneType.business: "商务条款",
+        SemanticZoneType.scoring: "评分条款",
+        SemanticZoneType.contract: "合同条款",
+        SemanticZoneType.policy_explanation: "政策条款",
+        SemanticZoneType.appendix_reference: "附件引用",
+        SemanticZoneType.template: "投标文件模板",
+        SemanticZoneType.catalog_or_navigation: "目录导航",
+        SemanticZoneType.public_copy_or_noise: "公开噪声",
+        SemanticZoneType.mixed_or_uncertain: "未分类",
+    }.get(unit.zone_type, "未分类")
+
+
+def _infer_unit_field_name(unit: ClauseUnit) -> str:
+    text = _unit_text_context(unit)
+    title = str(unit.table_context.get("title", "")).strip()
+    row_label = str(unit.table_context.get("row_label", "")).strip()
+    clause_type = unit.clause_semantic_type
+
+    if clause_type in {ClauseSemanticType.declaration_template, ClauseSemanticType.template_instruction}:
+        if "中小企业声明函" in text:
+            return "中小企业声明函类型"
+        return "投标文件格式"
+    if clause_type == ClauseSemanticType.reference_clause:
+        return "附件引用"
+    if clause_type == ClauseSemanticType.catalog_clause:
+        return "目录导航"
+    if clause_type == ClauseSemanticType.noise_clause:
+        return "公开噪声"
+
+    if unit.zone_type == SemanticZoneType.administrative_info:
+        if "项目名称" in text:
+            return "项目名称"
+        if "项目编号" in text:
+            return "项目编号"
+        if "采购方式" in text:
+            return "采购方式适用理由" if any(token in text for token in ["理由", "适用理由"]) else "采购方式"
+        if any(token in text for token in ["采购标的", "采购内容", "采购需求"]):
+            return "采购标的"
+        if "品目名称" in text:
+            return "品目名称"
+        if "项目属性" in text:
+            return "项目属性"
+        if "预算金额" in text:
+            return "预算金额"
+        if "最高限价" in text:
+            return "最高限价"
+        if "合同履行期限" in text:
+            return "合同履行期限"
+        if any(token in text for token in ["采购包数量", "第1包", "第2包", "包组"]):
+            return "采购包数量"
+        if any(token in text for token in ["采购包划分", "不划分采购包", "不分包采购", "划分采购包"]):
+            return "采购包划分说明"
+        if "需求调查" in text:
+            return "需求调查结论"
+        if "专家论证" in text:
+            return "专家论证结论"
+
+    if unit.zone_type == SemanticZoneType.qualification:
+        if "特定资格要求" in text or "资质要求" in text:
+            return "特定资格要求"
+        if any(token in text for token in ["投标人资格要求", "供应商资格", "一般资格要求", "资格要求"]):
+            return "一般资格要求"
+        if any(
+            token in text
+            for token in ["资质证书", "认证证书", "管理体系认证", "检测报告", "业绩要求", "项目负责人", "项目经理", "项目主管", "保安服务许可证", "职称证书", "信用评价", "信用等级"]
+        ):
+            return "资格条件明细"
+
+    if unit.zone_type == SemanticZoneType.technical:
+        if "样品" in text:
+            return "样品要求"
+        if "演示" in text:
+            return "现场演示要求"
+        if "专利" in text:
+            return "是否要求专利"
+        if any(token in text for token in ["检测报告", "认证证书", "证书", "管理体系认证"]):
+            return "是否要求检测报告" if "检测报告" in text else "是否要求认证证书"
+        if "★" in text:
+            return "是否设置★实质性条款"
+        if any(token in text for token in ["产地", "厂家", "商标", "品牌", "原厂"]):
+            return "是否有限制产地厂家商标"
+        if any(token in text for token in ["高质量完成", "满足采购人要求", "由采购人认定", "按行业标准", "优质服务"]):
+            return "技术服务可验证性信号"
+
+    if unit.zone_type == SemanticZoneType.scoring:
+        if any(token in text for token in ["评分方法", "综合评分", "评标办法"]):
+            return "评分方法"
+        if any(token in text for token in ["评分项", "评分标准"]):
+            return "评分项明细"
+        if any(token in text for token in ["检测报告", "认证证书", "资质证书", "管理体系认证", "软件企业认定证书", "ITSS"]):
+            return "行业相关性存疑评分项"
+        if any(token in text for token in ["财务", "利润率", "营业收入", "注册资本", "资产规模"]):
+            return "财务指标加分"
+        if any(token in text for token in ["项目负责人", "人员配置", "社保", "学历", "职称", "业绩"]):
+            return "人员评分要求"
+        if any(token in text for token in ["信用评价", "信用分", "信用等级", "征信"]):
+            return "信用评价要求"
+        if any(token in text for token in ["方案", "缺陷", "扣分", "无缺陷得满分", "每缺项扣", "每处缺陷扣"]):
+            return "方案评分扣分模式"
+        if any(token in text for token in ["证书总分", "证书类评分总分", "检测报告总分"]):
+            return "证书类评分总分"
+
+    if unit.zone_type == SemanticZoneType.business:
+        if any(token in text for token in ["采购内容", "供货", "安装", "驻场", "运维"]):
+            return "采购内容构成"
+        if any(token in text for token in ["持续性服务", "长期服务", "驻场"]):
+            return "是否含持续性服务"
+        if "商务要求" in text:
+            return "商务要求"
+
+    if unit.zone_type == SemanticZoneType.contract:
+        if any(token in text for token in ["付款", "支付", "尾款"]):
+            return "付款节点"
+        if "验收" in text:
+            return "验收标准"
+        if "考核" in text:
+            return "考核条款"
+        if "满意度" in text:
+            return "满意度条款"
+        if any(token in text for token in ["扣款", "扣罚", "罚款"]):
+            return "扣款条款"
+        if any(token in text for token in ["解除合同", "解约", "解除"]):
+            return "解约条款"
+        if "违约" in text:
+            return "违约责任"
+        if "质保" in text or "保修" in text:
+            return "质保期"
+        if "履约保证金" in text:
+            return "履约保证金"
+        if any(token in text for token in ["整改", "限期改正"]):
+            return "整改条款"
+        if any(token in text for token in ["申辩", "陈述意见", "说明理由"]):
+            return "申辩条款"
+        if any(token in text for token in ["解释权", "采购人意见为准", "采购人解释"]):
+            return "单方解释权"
+        if any(token in text for token in ["转包", "外包", "分包"]):
+            return "转包外包条款"
+
+    if unit.zone_type == SemanticZoneType.policy_explanation:
+        if "中小企业声明函" in text:
+            return "中小企业声明函类型"
+        if "专门面向中小企业" in text:
+            return "是否专门面向中小企业"
+        if "价格扣除" in text:
+            return "是否仍保留价格扣除条款"
+        if "预留份额" in text:
+            return "是否为预留份额采购"
+        if "所属行业" in text:
+            return "所属行业划分"
+        if "分包比例" in text or "预留比例" in text or "小微企业比例" in text:
+            return "分包比例"
+        if "面向中小企业采购金额" in text:
+            return "面向中小企业采购金额"
+        if "是否允许分包" in text:
+            return "是否允许分包落实中小企业政策"
+        if "进口产品" in text:
+            return "是否涉及进口产品"
+
+    if unit.zone_type == SemanticZoneType.qualification and "采购方式" in title and "资格" in text:
+        return "一般资格要求"
+    if row_label and row_label not in {"评分项", "分值", "评分标准"}:
+        if unit.zone_type == SemanticZoneType.scoring and any(token in text for token in ["分值", "得分"]):
+            return "评分项明细"
+        if unit.zone_type == SemanticZoneType.qualification:
+            return "资格条件明细"
+        if unit.zone_type == SemanticZoneType.contract:
+            return "合同条款"
+        if unit.zone_type == SemanticZoneType.business:
+            return "商务要求"
+        if unit.zone_type == SemanticZoneType.technical:
+            return "技术要求"
+
+    if title and len(title) <= 60:
+        if unit.zone_type == SemanticZoneType.scoring:
+            if any(token in title for token in ["评分办法", "综合评分", "评标办法"]):
+                return "评分方法"
+            if any(token in title for token in ["评分项", "评分标准"]):
+                return "评分项明细"
+        if unit.zone_type == SemanticZoneType.contract and "合同条款" in title:
+            return "合同条款"
+        if unit.zone_type == SemanticZoneType.qualification and any(token in title for token in ["投标人资格", "供应商资格", "资格要求"]):
+            return "一般资格要求"
+        if unit.zone_type == SemanticZoneType.business and any(token in title for token in ["商务要求", "商务部分"]):
+            return "商务要求"
+        if unit.zone_type == SemanticZoneType.administrative_info:
+            if "项目属性" in title:
+                return "项目属性"
+            if "采购方式" in title:
+                return "采购方式"
+            if "采购内容" in title or "采购需求" in title:
+                return "采购标的"
+            if "预算金额" in title:
+                return "预算金额"
+            if "最高限价" in title:
+                return "最高限价"
+            if "合同履行期限" in title:
+                return "合同履行期限"
+    return ""
+
+
+def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str) -> str:
+    text = _unit_text_context(unit)
+    if not text:
+        return ""
+    if field_name in {"项目属性"}:
+        for token in ["货物", "服务", "工程"]:
+            if token in text:
+                return token
+    if field_name in {"采购方式"}:
+        for token in ["公开招标", "竞争性磋商", "竞争性谈判", "单一来源", "询价", "框架协议"]:
+            if token in text:
+                return token
+    if field_name in {"是否专门面向中小企业", "是否仍保留价格扣除条款", "是否为预留份额采购", "是否涉及进口产品", "是否允许分包落实中小企业政策"}:
+        if any(token in text for token in ["不", "否", "不适用", "不再适用"]):
+            return "否"
+        if any(token in text for token in ["是", "专门面向", "预留份额", "价格扣除", "进口产品", "允许分包"]):
+            return "是"
+    if field_name in {"预算金额", "最高限价", "面向中小企业采购金额", "分包比例"}:
+        match = re.search(r"(\d+(?:\.\d+)?)\s*%?", text)
+        if match:
+            value = match.group(1)
+            return f"{value}%" if "比例" in field_name or "%" in text else value
+    if field_name == "采购包数量":
+        match = re.search(r"(\d+)", text)
+        if match:
+            return match.group(1)
+    if field_name in {"是否要求检测报告", "是否要求认证证书", "是否要求专利", "是否设置★实质性条款"}:
+        return "存在" if text else ""
+    if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "评分项明细", "是否仍保留价格扣除条款", "是否专门面向中小企业", "是否为预留份额采购", "是否涉及进口产品"}:
+        return "存在"
+    if field_name in {"付款节点", "验收标准", "考核条款", "满意度条款", "扣款条款", "解约条款", "违约责任", "质保期", "履约保证金", "整改条款", "申辩条款", "单方解释权", "转包外包条款"}:
+        return "存在"
+    return unit.clause_semantic_type.value if unit.clause_semantic_type != ClauseSemanticType.unknown_clause else ""
+
+
+def _infer_unit_relation_tags(unit: ClauseUnit, field_name: str) -> list[str]:
+    tags: list[str] = []
+    if field_name:
+        tags.append(field_name)
+    if unit.clause_semantic_type != ClauseSemanticType.unknown_clause:
+        tags.append(unit.clause_semantic_type.value)
+    if unit.table_context.get("row_label"):
+        tags.append(str(unit.table_context.get("row_label")))
+    if unit.effect_tags:
+        tags.extend(tag.value for tag in unit.effect_tags)
+    return list(dict.fromkeys(tag for tag in tags if tag))
+
+
+def _unit_text_context(unit: ClauseUnit) -> str:
+    parts = [
+        str(unit.table_context.get("title", "")).strip(),
+        str(unit.table_context.get("row_label", "")).strip(),
+        unit.text.strip(),
+        unit.path.strip(),
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def _merge_extracted_clauses(primary: list[ExtractedClause], fallback: list[ExtractedClause]) -> list[ExtractedClause]:
+    merged: list[ExtractedClause] = []
+    seen: set[tuple[str, str, str]] = set()
+    for clause in [*primary, *fallback]:
+        key = (clause.field_name, clause.source_anchor, clause.content[:120])
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(clause)
+    return merged
 
 
 def classify_clause_role(text: str) -> ClauseRole:
