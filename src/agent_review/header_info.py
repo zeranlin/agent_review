@@ -11,12 +11,14 @@ from .ontology import SemanticZoneType
 @dataclass(slots=True)
 class HeaderInfo:
     project_name: str
+    project_code: str
     purchaser_name: str
 
 
 def resolve_header_info(report: ReviewReport) -> HeaderInfo:
     return HeaderInfo(
         project_name=_resolve_project_name(report),
+        project_code=_resolve_project_code(report),
         purchaser_name=_resolve_purchaser_name(report),
     )
 
@@ -69,6 +71,30 @@ def _resolve_purchaser_name(report: ReviewReport) -> str:
     return candidates[0][0]
 
 
+def _resolve_project_code(report: ReviewReport) -> str:
+    candidates = []
+    for clause in report.extracted_clauses:
+        if clause.field_name != "项目编号":
+            continue
+        value = _extract_project_code_value(clause.content)
+        if not value:
+            continue
+        candidates.append((value, _score_project_code_candidate(clause.content, clause.source_anchor)))
+    text_value = _search_text_value(
+        report.parse_result.text or "",
+        [
+            r"项目编号[:：]\s*([^\n]+)",
+            r"项目编号\s*\|\s*([^\|\n]+)",
+        ],
+    )
+    if text_value:
+        candidates.append((text_value, 120))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: (-item[1], len(item[0])))
+    return candidates[0][0]
+
+
 def _extract_project_name_value(text: str) -> str:
     cleaned = _strip_field_prefix(text, "项目名称")
     cleaned = _clean_header_value(cleaned)
@@ -97,6 +123,16 @@ def _extract_purchaser_value(text: str) -> str:
             continue
         return cleaned
     return ""
+
+
+def _extract_project_code_value(text: str) -> str:
+    cleaned = _strip_field_prefix(text, "项目编号")
+    cleaned = _clean_header_value(cleaned)
+    if not cleaned:
+        return ""
+    if any(token in cleaned for token in _PROJECT_CODE_REJECT_TOKENS):
+        return ""
+    return cleaned
 
 
 def _score_project_name_candidate(text: str, anchor: str, clause) -> int:
@@ -141,6 +177,23 @@ def _score_purchaser_candidate(text: str, anchor: str, clause) -> int:
         score += 100
     score += _score_anchor(anchor)
     if len(value) > 40:
+        score -= 40
+    return score
+
+
+def _score_project_code_candidate(text: str, anchor: str) -> int:
+    score = 0
+    value = _extract_project_code_value(text)
+    if not value:
+        return -999
+    if re.match(r"^\s*项目编号[:：]", text):
+        score += 140
+    if " | " in text and "项目编号" in text:
+        score += 60
+    if any(token in text for token in _PROJECT_CODE_REJECT_TOKENS):
+        score -= 300
+    score += _score_anchor(anchor)
+    if len(value) > 80:
         score -= 40
     return score
 
@@ -191,6 +244,12 @@ _PROJECT_NAME_REJECT_TOKENS = {
     "项目名称及项目编号",
     "下划线处如实填写",
     "采购活动",
+}
+
+_PROJECT_CODE_REJECT_TOKENS = {
+    "项目名称及项目编号",
+    "导入《投标文件制作软件》",
+    "包号一致",
 }
 
 _PURCHASER_REJECT_TOKENS = {

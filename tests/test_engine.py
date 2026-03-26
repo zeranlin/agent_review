@@ -2260,6 +2260,7 @@ def test_header_info_resolver_prefers_true_project_name_over_sample_instruction(
     reviewer = render_reviewer_report(report)
 
     assert header_info.project_name == "清华大学深圳国际研究生院教室课桌椅及食堂等家具采购"
+    assert header_info.project_code == "SZCG-001"
     assert header_info.purchaser_name == "清华大学深圳国际研究生院"
     assert "项目名称：清华大学深圳国际研究生院教室课桌椅及食堂等家具采购" in reviewer
     assert "采购单位：清华大学深圳国际研究生院" in reviewer
