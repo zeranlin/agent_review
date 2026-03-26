@@ -85,6 +85,16 @@ def _classify_effect(
     if weak_tags and (zone_type in WEAK_ZONES or node.node_type == NodeType.appendix):
         return _finalize_effect(weak_tags, 0.94 if zone_type in WEAK_ZONES else 0.92, weak_evidence)
 
+    if zone_type in SUBSTANTIVE_ZONES and _has_binding_signals(node, zone_type, haystack):
+        tags = [EffectTag.binding]
+        if node.node_type == NodeType.table:
+            evidence.append("table_binding_signal")
+        elif node.node_type == NodeType.table_row:
+            evidence.append("table_row_binding_signal")
+        else:
+            evidence.append(f"zone:{zone_type.value}")
+        return _finalize_effect(tags, 0.93, evidence)
+
     if zone_type == SemanticZoneType.policy_explanation or _contains_any(haystack, POLICY_MARKERS):
         tags = [EffectTag.policy_background]
         evidence.append("zone:policy_explanation" if zone_type == SemanticZoneType.policy_explanation else "policy_keyword")

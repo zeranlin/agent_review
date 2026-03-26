@@ -1047,7 +1047,7 @@ def _structured_active_task_tags(extracted_clauses: list[ExtractedClause]) -> se
     if _has_clause_support(
         extracted_clauses,
         field_names={"资格条件明细", "一般资格要求", "特定资格要求", "是否要求认证证书", "证书材料适用阶段"},
-        expected_zones={SemanticZoneType.qualification, SemanticZoneType.mixed_or_uncertain},
+        expected_zones={SemanticZoneType.qualification, SemanticZoneType.technical, SemanticZoneType.mixed_or_uncertain},
         allowed_roles={ClauseRole.qualification_or_scoring, ClauseRole.policy_explanation, ClauseRole.unknown},
         allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},
     ):

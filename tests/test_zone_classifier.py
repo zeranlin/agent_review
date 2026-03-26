@@ -1,44 +1,6 @@
-from __future__ import annotations
-
-import importlib.util
-import sys
-from pathlib import Path
-import types
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_ROOT = REPO_ROOT / "src" / "agent_review"
-
-
-def _ensure_package(name: str, path: Path) -> types.ModuleType:
-    module = sys.modules.get(name)
-    if module is None:
-        module = types.ModuleType(name)
-        module.__path__ = [str(path)]  # type: ignore[attr-defined]
-        sys.modules[name] = module
-    return module
-
-
-def _load_module(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to load module: {name}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_ensure_package("agent_review", SRC_ROOT)
-_ensure_package("agent_review.structure", SRC_ROOT / "structure")
-ontology = _load_module("agent_review.ontology", SRC_ROOT / "ontology.py")
-models = _load_module("agent_review.models", SRC_ROOT / "models.py")
-zone_classifier = _load_module("agent_review.structure.zone_classifier", SRC_ROOT / "structure" / "zone_classifier.py")
-
-DocumentNode = models.DocumentNode
-NodeType = ontology.NodeType
-SemanticZoneType = ontology.SemanticZoneType
-SourceAnchor = models.SourceAnchor
-classify_semantic_zones = zone_classifier.classify_semantic_zones
+from agent_review.models import DocumentNode, SourceAnchor
+from agent_review.ontology import NodeType, SemanticZoneType
+from agent_review.structure.zone_classifier import classify_semantic_zones
 
 
 def _node(

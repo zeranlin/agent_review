@@ -194,13 +194,31 @@ def _is_ambiguous_zone(
     runner_up_zone: SemanticZoneType,
     runner_up_score: float,
 ) -> bool:
+    compact = re.sub(r"\s+", "", haystack)
+    has_short_appendix_ref = any(token in haystack for token in SHORT_REFERENCE_TOKENS)
+    has_template_signal = any(token in haystack for token in TEMPLATE_STRONG_TOKENS)
+    if (
+        best_zone == SemanticZoneType.appendix_reference
+        and has_short_appendix_ref
+        and not has_template_signal
+    ):
+        return False
+    if (
+        best_zone == SemanticZoneType.appendix_reference
+        and any(token in haystack for token in APPENDIX_STRONG_TOKENS)
+        and len(compact) <= 90
+        and not has_template_signal
+    ):
+        return False
     if best_score - runner_up_score < 0.18:
         return True
     if {best_zone, runner_up_zone} <= {SemanticZoneType.template, SemanticZoneType.appendix_reference}:
         if any(token in haystack for token in TEMPLATE_STRONG_TOKENS) and any(
             token in haystack for token in APPENDIX_STRONG_TOKENS
         ):
-            return runner_up_score >= 0.8 and (node.node_type == NodeType.appendix or len(re.sub(r"\s+", "", haystack)) < 90)
+            if best_zone == SemanticZoneType.appendix_reference and has_short_appendix_ref and not has_template_signal:
+                return False
+            return runner_up_score >= 0.8 and (node.node_type == NodeType.appendix or len(compact) < 90)
     return False
 
 
