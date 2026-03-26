@@ -61,6 +61,7 @@ from .quality import derive_conclusion_by_evidence
 from .rules import build_recommendations, execute_rule_registry
 from .review_point_catalog import resolve_review_point_definition
 from .structure import (
+    NullParserSemanticAssistant,
     build_file_info,
     build_document_profile,
     build_scope_statement,
@@ -105,11 +106,14 @@ class ReviewPipeline:
     def __init__(
         self,
         dimensions: list[ReviewDimension] | None = None,
+        parser_semantic_assistant: object | None = None,
     ) -> None:
         self.dimensions = dimensions or DEFAULT_DIMENSIONS
+        self.parser_semantic_assistant = parser_semantic_assistant or NullParserSemanticAssistant()
         self.stages = (
             self._stage_document_structure,
             self._stage_document_profiling,
+            self._stage_parser_semantic_assist,
             self._stage_clause_extraction,
             self._stage_clause_role_classification,
             self._stage_review_task_planning,
@@ -213,6 +217,36 @@ class ReviewPipeline:
                     f"完成文档画像，识别 {state.document_profile.procurement_kind} 倾向，"
                     f"形成 {candidate_count} 个领域候选。"
                 ),
+            )
+        )
+
+    def _stage_parser_semantic_assist(self, state: ReviewPipelineState) -> None:
+        parse_result, trace = self.parser_semantic_assistant.assist(state.parse_result, state.document_profile)
+        state.parse_result = parse_result
+        state.parse_result.parser_semantic_trace = trace
+        if trace.warnings:
+            state.parse_result.warnings.extend(
+                item for item in trace.warnings if item not in state.parse_result.warnings
+            )
+        if trace.applied_count > 0:
+            state.document_profile = build_document_profile(state.parse_result, state.document_name)
+            state.parse_result.document_profile = state.document_profile
+        detail = (
+            "parser 语义补偿未激活，继续沿用规则主链结果。"
+            if not trace.activated
+            else (
+                f"parser 语义补偿已审查 {trace.reviewed_count} 个低置信度节点，"
+                f"应用 {trace.applied_count} 处标签修正。"
+            )
+        )
+        if trace.activation_reasons:
+            detail += f" 触发原因：{','.join(trace.activation_reasons[:3])}。"
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="parser_semantic_assist",
+                status="completed",
+                item_count=trace.applied_count,
+                detail=detail,
             )
         )
 

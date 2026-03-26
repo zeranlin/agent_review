@@ -544,6 +544,82 @@ class DocumentProfile:
 
 
 @dataclass(slots=True)
+class ParserSemanticCandidate:
+    node_id: str
+    unit_id: str
+    path: str
+    text: str
+    reasons: list[str] = field(default_factory=list)
+    current_zone_type: SemanticZoneType = SemanticZoneType.mixed_or_uncertain
+    current_clause_semantic_type: ClauseSemanticType = ClauseSemanticType.unknown_clause
+    current_effect_tags: list[EffectTag] = field(default_factory=list)
+    current_confidence: float = 0.0
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "node_id": self.node_id,
+            "unit_id": self.unit_id,
+            "path": self.path,
+            "text": self.text,
+            "reasons": self.reasons,
+            "current_zone_type": self.current_zone_type.value,
+            "current_clause_semantic_type": self.current_clause_semantic_type.value,
+            "current_effect_tags": [item.value for item in self.current_effect_tags],
+            "current_confidence": self.current_confidence,
+        }
+
+
+@dataclass(slots=True)
+class ParserSemanticResolution:
+    node_id: str
+    proposed_zone_type: SemanticZoneType | None = None
+    proposed_clause_semantic_type: ClauseSemanticType | None = None
+    proposed_effect_tags: list[EffectTag] = field(default_factory=list)
+    confidence: float = 0.0
+    reason: str = ""
+    applied: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "node_id": self.node_id,
+            "proposed_zone_type": self.proposed_zone_type.value if self.proposed_zone_type else "",
+            "proposed_clause_semantic_type": (
+                self.proposed_clause_semantic_type.value if self.proposed_clause_semantic_type else ""
+            ),
+            "proposed_effect_tags": [item.value for item in self.proposed_effect_tags],
+            "confidence": self.confidence,
+            "reason": self.reason,
+            "applied": self.applied,
+        }
+
+
+@dataclass(slots=True)
+class ParserSemanticTrace:
+    activated: bool = False
+    strategy: str = "rule_primary_llm_disambiguation"
+    activation_reasons: list[str] = field(default_factory=list)
+    candidate_count: int = 0
+    reviewed_count: int = 0
+    applied_count: int = 0
+    warnings: list[str] = field(default_factory=list)
+    candidates: list[ParserSemanticCandidate] = field(default_factory=list)
+    resolutions: list[ParserSemanticResolution] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "activated": self.activated,
+            "strategy": self.strategy,
+            "activation_reasons": self.activation_reasons,
+            "candidate_count": self.candidate_count,
+            "reviewed_count": self.reviewed_count,
+            "applied_count": self.applied_count,
+            "warnings": self.warnings,
+            "candidates": [item.to_dict() for item in self.candidates],
+            "resolutions": [item.to_dict() for item in self.resolutions],
+        }
+
+
+@dataclass(slots=True)
 class ParseResult:
     parser_name: str
     source_path: str
@@ -559,6 +635,7 @@ class ParseResult:
     effect_tag_results: list[EffectTagResult] = field(default_factory=list)
     clause_units: list[ClauseUnit] = field(default_factory=list)
     document_profile: DocumentProfile | None = None
+    parser_semantic_trace: ParserSemanticTrace | None = None
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -577,6 +654,7 @@ class ParseResult:
             "effect_tag_results": [item.to_dict() for item in self.effect_tag_results],
             "clause_units": [item.to_dict() for item in self.clause_units],
             "document_profile": self.document_profile.to_dict() if self.document_profile else None,
+            "parser_semantic_trace": self.parser_semantic_trace.to_dict() if self.parser_semantic_trace else None,
             "warnings": self.warnings,
         }
 

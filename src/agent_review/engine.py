@@ -16,12 +16,16 @@ class TenderReviewEngine:
         self,
         dimensions: list[ReviewDimension] | None = None,
         review_enhancer: object | None = None,
+        parser_semantic_assistant: object | None = None,
         review_mode: ReviewMode = ReviewMode.fast,
     ) -> None:
         self.dimensions = dimensions or DEFAULT_DIMENSIONS
         self.review_enhancer = review_enhancer or NullReviewEnhancer()
         self.review_mode = review_mode
-        self.pipeline = ReviewPipeline(dimensions=self.dimensions)
+        self.pipeline = ReviewPipeline(
+            dimensions=self.dimensions,
+            parser_semantic_assistant=parser_semantic_assistant,
+        )
 
     def review_text(self, text: str, document_name: str = "input.txt") -> ReviewReport:
         normalized_text = normalize_text(text)

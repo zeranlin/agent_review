@@ -167,6 +167,7 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     assert [item.stage_name for item in report.stage_records] == [
         "document_structure",
         "document_profiling",
+        "parser_semantic_assist",
         "clause_extraction",
         "clause_role_classification",
         "review_task_planning",

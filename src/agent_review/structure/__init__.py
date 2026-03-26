@@ -9,6 +9,7 @@ from .document_structure import (
 )
 from .document_profile import build_document_profile
 from .effect_tagger import tag_effects
+from .parser_semantic_assist import NullParserSemanticAssistant, QwenParserSemanticAssistant
 from .tree_builder import build_document_tree
 from .zone_classifier import classify_semantic_zones
 
@@ -20,6 +21,8 @@ __all__ = [
     "locate_sections",
     "build_document_profile",
     "tag_effects",
+    "NullParserSemanticAssistant",
+    "QwenParserSemanticAssistant",
     "build_document_tree",
     "classify_semantic_zones",
 ]

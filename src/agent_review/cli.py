@@ -9,6 +9,7 @@ from .engine import TenderReviewEngine
 from .llm import QwenReviewEnhancer
 from .models import ReviewMode
 from .outputs import write_review_artifacts
+from .structure import QwenParserSemanticAssistant
 from .reporting import (
     render_formal_review_opinion,
     render_json,
@@ -53,6 +54,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=1800.0,
         help="LLM 单次调用超时时间（秒），默认 1800。",
     )
+    parser.add_argument(
+        "--parser-llm-assist",
+        action="store_true",
+        help="启用 parser 低置信度歧义消解，仅对未知/低置信度节点调用 LLM。",
+    )
     return parser
 
 
@@ -64,7 +70,13 @@ def main() -> int:
     enhanced_enabled = args.use_llm or review_mode == ReviewMode.enhanced
     review_target = args.input if len(args.input) > 1 else args.input[0]
 
-    base_engine = TenderReviewEngine(review_mode=ReviewMode.fast)
+    parser_semantic_assistant = (
+        QwenParserSemanticAssistant(timeout=args.llm_timeout) if args.parser_llm_assist else None
+    )
+    base_engine = TenderReviewEngine(
+        review_mode=ReviewMode.fast,
+        parser_semantic_assistant=parser_semantic_assistant,
+    )
     if isinstance(review_target, list):
         base_report = base_engine.review_files(review_target)
     else:
