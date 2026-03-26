@@ -250,6 +250,90 @@ def test_quality_gate_keeps_real_policy_clause_with_project_specific_terms() -> 
     assert any("通过质量关卡" in reason for reason in gates[0].reasons)
 
 
+def test_quality_gate_filters_attachment_reference_and_template_noise() -> None:
+    point = ReviewPoint(
+        point_id="RP-ATTACH-NOISE",
+        catalog_id="RP-CONTRACT-009",
+        title="附件引用噪声",
+        dimension="合同与履约风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.confirmed,
+        rationale="测试附件和模板痕迹。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="资格要求详见附件一，评分办法见附表。", section_hint="line:8")],
+            supporting_evidence=[],
+            conflicting_evidence=[],
+            rebuttal_evidence=[],
+            missing_evidence_notes=[],
+            clause_roles=[ClauseRole.appendix_reference],
+            sufficiency_summary="证据较充分。",
+            evidence_level=EvidenceLevel.strong,
+            evidence_score=0.8,
+        ),
+        legal_basis=[],
+        source_findings=[],
+    )
+
+    gates = build_review_quality_gates([point], [])
+
+    assert gates[0].status == QualityGateStatus.filtered
+    assert any("附件" in reason or "模板" in reason or "目录" in reason for reason in gates[0].reasons)
+
+
+def test_quality_gate_keeps_real_qualification_and_technical_burden_with_weak_roles() -> None:
+    point = ReviewPoint(
+        point_id="RP-KEEP-QUAL-TECH",
+        catalog_id="RP-QUAL-009",
+        title="资格和技术负担证据",
+        dimension="资格与技术风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.confirmed,
+        rationale="保留真实资格和技术约束证据。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="投标人应具备独立法人资格，项目经理须驻场服务，并提供售后响应方案。", section_hint="line:15")],
+            supporting_evidence=[],
+            conflicting_evidence=[],
+            rebuttal_evidence=[],
+            missing_evidence_notes=[],
+            clause_roles=[ClauseRole.document_definition],
+            sufficiency_summary="证据较充分。",
+            evidence_level=EvidenceLevel.strong,
+            evidence_score=0.85,
+        ),
+        legal_basis=[],
+        source_findings=[],
+    )
+    clause = ExtractedClause(
+        category="说明文本",
+        field_name="资格和技术要求",
+        content="投标人应具备独立法人资格，项目经理须驻场服务，并提供售后响应方案。",
+        source_anchor="line:15",
+        clause_role=ClauseRole.document_definition,
+        semantic_zone=SemanticZoneType.appendix_reference,
+        effect_tags=[EffectTag.reference_only],
+    )
+
+    gates = build_review_quality_gates([point], [clause])
+    checks = [
+        ApplicabilityCheck(
+            point_id="RP-KEEP-QUAL-TECH",
+            catalog_id="RP-QUAL-009",
+            applicable=True,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=[],
+            missing_conditions=[],
+            blocking_conditions=[],
+            requirement_chain_complete=True,
+            summary="要件链成立。",
+        )
+    ]
+    formal = build_formal_adjudication([point], checks, gates, "无关文本", [clause], [])
+
+    assert gates[0].status == QualityGateStatus.passed
+    assert formal[0].quality_gate_status == QualityGateStatus.passed
+
+
 def test_formal_adjudication_keeps_real_scoring_row_evidence() -> None:
     point = ReviewPoint(
         point_id="RP-SCORE-KEEP",

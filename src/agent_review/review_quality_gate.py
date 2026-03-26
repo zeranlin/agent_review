@@ -21,6 +21,54 @@ WEAK_ZONE_TYPES = {
     SemanticZoneType.public_copy_or_noise,
 }
 
+PROCUREMENT_SIGNAL_MARKERS = {
+    "资格",
+    "评分",
+    "技术",
+    "商务",
+    "合同",
+    "履约",
+    "项目经理",
+    "检测报告",
+    "证书",
+    "售后",
+    "驻场",
+    "验收",
+    "工期",
+    "交货",
+    "维保",
+    "培训",
+    "响应",
+    "承诺",
+    "资质",
+    "要求",
+    "条件",
+    "提供",
+    "具备",
+    "具有",
+    "须",
+    "应",
+    "必须",
+    "不少于",
+    "至少",
+    "达到",
+    "分值",
+    "得分",
+}
+
+REFERENCE_ONLY_MARKERS = {
+    "详见附件",
+    "见附件",
+    "附件一",
+    "附件二",
+    "附件三",
+    "详见附表",
+    "见附表",
+    "附表",
+    "附录",
+    "附件：",
+}
+
 
 def build_review_quality_gates(
     review_points: list[ReviewPoint],
@@ -50,7 +98,7 @@ def build_review_quality_gates(
             }
             for role in point.evidence_bundle.clause_roles
         )
-        if weak_roles:
+        if weak_roles and not _point_has_substantive_procurement_signal(point, extracted_clauses):
             status = QualityGateStatus.filtered
             reasons.append(_describe_weak_roles(point.evidence_bundle.clause_roles))
 
@@ -108,7 +156,11 @@ def _point_effects_are_weak_only(
     all_tags = {tag for clause in matched for tag in clause.effect_tags}
     if not all_tags:
         return False
-    return all(tag in WEAK_EFFECT_TAGS for tag in all_tags) and EffectTag.binding not in all_tags
+    return (
+        all(tag in WEAK_EFFECT_TAGS for tag in all_tags)
+        and EffectTag.binding not in all_tags
+        and not _point_has_substantive_procurement_signal(point, extracted_clauses)
+    )
 
 
 def _matched_clauses(point: ReviewPoint, extracted_clauses: list[ExtractedClause]) -> list[ExtractedClause]:
@@ -131,7 +183,10 @@ def _point_zones_are_weak_only(
     matched = _matched_clauses(point, extracted_clauses)
     if not matched:
         return False
-    return all(clause.semantic_zone in WEAK_ZONE_TYPES for clause in matched)
+    return all(clause.semantic_zone in WEAK_ZONE_TYPES for clause in matched) and not _point_has_substantive_procurement_signal(
+        point,
+        extracted_clauses,
+    )
 
 
 def _point_evidence_is_noise_only(
@@ -141,9 +196,13 @@ def _point_evidence_is_noise_only(
     family_key = _formal_family_key(point.title)
     evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
     if evidence and all(_quote_looks_like_noise(item.quote, family_key) for item in evidence if item.quote):
+        if _point_has_substantive_procurement_signal(point, extracted_clauses):
+            return False
         return True
     matched = _matched_clauses(point, extracted_clauses)
     if matched and all(_clause_looks_like_noise(clause, family_key) for clause in matched):
+        if _point_has_substantive_procurement_signal(point, extracted_clauses):
+            return False
         return True
     return False
 
@@ -154,9 +213,13 @@ def _point_policy_background_is_noise_only(
 ) -> bool:
     evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
     if evidence and all(_quote_looks_like_policy_background(item.quote) for item in evidence if item.quote):
+        if _point_has_substantive_procurement_signal(point, extracted_clauses):
+            return False
         return True
     matched = _matched_clauses(point, extracted_clauses)
     if matched and all(_clause_looks_like_policy_background(clause) for clause in matched):
+        if _point_has_substantive_procurement_signal(point, extracted_clauses):
+            return False
         return True
     return False
 
@@ -176,6 +239,8 @@ def _clause_looks_like_noise(clause: ExtractedClause, family_key: str) -> bool:
         return True
     if _quote_looks_like_policy_background(normalized):
         return True
+    if _quote_looks_like_template_noise(normalized):
+        return True
     return False
 
 
@@ -194,6 +259,8 @@ def _quote_looks_like_noise(quote: str, family_key: str) -> bool:
     if _quote_looks_like_catalog_navigation(normalized):
         return True
     if _quote_looks_like_policy_background(normalized):
+        return True
+    if _quote_looks_like_template_noise(normalized):
         return True
     return False
 
@@ -251,6 +318,29 @@ def _quote_looks_like_policy_background(text: str) -> bool:
     return len(normalized) < 180
 
 
+def _quote_looks_like_reference_only(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return False
+    if any(marker in normalized for marker in REFERENCE_ONLY_MARKERS):
+        return True
+    return bool(re.search(r"附件[一二三四五六七八九十0-9]+", normalized))
+
+
+def _quote_looks_like_template_noise(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return False
+    template_markers = ["格式", "示例", "填写", "填报", "盖章", "签字", "模板", "范本", "空白", "此处", "打印"]
+    if not any(marker in normalized for marker in template_markers):
+        return False
+    if _quote_looks_like_catalog_navigation(normalized) or _quote_looks_like_policy_background(normalized):
+        return True
+    if any(marker in normalized for marker in ["资格", "评分", "技术", "商务", "合同", "履约", "项目经理", "检测报告", "证书"]):
+        return False
+    return True
+
+
 def _clause_looks_like_policy_background(clause: ExtractedClause) -> bool:
     text = (clause.content or clause.normalized_value or "").strip()
     if not text:
@@ -265,6 +355,36 @@ def _clause_looks_like_policy_background(clause: ExtractedClause) -> bool:
         ):
             return len(normalized) < 180
     return False
+
+
+def _point_has_substantive_procurement_signal(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+) -> bool:
+    evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
+    texts = [item.quote for item in evidence if item.quote]
+    matched = _matched_clauses(point, extracted_clauses)
+    texts.extend(
+        clause.content or clause.normalized_value or ""
+        for clause in matched
+        if (clause.content or clause.normalized_value)
+    )
+    return any(_quote_has_substantive_procurement_signal(text) for text in texts)
+
+
+def _quote_has_substantive_procurement_signal(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return False
+    if _quote_looks_like_catalog_navigation(normalized) or _quote_looks_like_policy_background(normalized):
+        return False
+    if _quote_looks_like_reference_only(normalized):
+        return False
+    if not any(marker in normalized for marker in PROCUREMENT_SIGNAL_MARKERS):
+        return False
+    if any(marker in normalized for marker in ["目录", "附件", "附表", "附录", "格式", "示例", "填写"]):
+        return False
+    return True
 
 
 def _formal_family_key(title: str) -> str:
