@@ -331,10 +331,31 @@ def _quote_looks_like_template_noise(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", text).strip()
     if not normalized:
         return False
-    template_markers = ["格式", "示例", "填写", "填报", "盖章", "签字", "模板", "范本", "空白", "此处", "打印"]
+    if _quote_looks_like_catalog_navigation(normalized) or _quote_looks_like_policy_background(normalized):
+        return True
+    template_markers = [
+        "格式",
+        "示例",
+        "填写",
+        "填报",
+        "盖章",
+        "签字",
+        "模板",
+        "范本",
+        "样例",
+        "空白",
+        "此处",
+        "打印",
+        "占位",
+        "演示",
+    ]
     if not any(marker in normalized for marker in template_markers):
         return False
-    if _quote_looks_like_catalog_navigation(normalized) or _quote_looks_like_policy_background(normalized):
+    if any(marker in normalized for marker in ["示例", "模板", "范本", "样例", "空白", "此处", "打印", "占位", "演示"]):
+        return True
+    if any(marker in normalized for marker in ["格式", "填写", "填报"]) and any(
+        marker in normalized for marker in PROCUREMENT_SIGNAL_MARKERS
+    ):
         return True
     if any(marker in normalized for marker in ["资格", "评分", "技术", "商务", "合同", "履约", "项目经理", "检测报告", "证书"]):
         return False
@@ -375,6 +396,8 @@ def _point_has_substantive_procurement_signal(
 def _quote_has_substantive_procurement_signal(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", text).strip()
     if not normalized:
+        return False
+    if _quote_looks_like_template_noise(normalized):
         return False
     if _quote_looks_like_catalog_navigation(normalized) or _quote_looks_like_policy_background(normalized):
         return False

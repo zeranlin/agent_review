@@ -334,6 +334,66 @@ def test_quality_gate_keeps_real_qualification_and_technical_burden_with_weak_ro
     assert formal[0].quality_gate_status == QualityGateStatus.passed
 
 
+def test_quality_gate_filters_template_noise_even_with_procurement_keywords() -> None:
+    point = ReviewPoint(
+        point_id="RP-TEMPLATE-KEYWORD-NOISE",
+        catalog_id="RP-QUAL-010",
+        title="资格要求模板示意",
+        dimension="资格与技术风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.confirmed,
+        rationale="模板示意不应被采购关键词救回。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[
+                Evidence(
+                    quote="资格要求示例：投标人应具备相关资质；技术要求示例：项目经理须驻场服务。",
+                    section_hint="line:6",
+                )
+            ],
+            supporting_evidence=[],
+            conflicting_evidence=[],
+            rebuttal_evidence=[],
+            missing_evidence_notes=[],
+            clause_roles=[ClauseRole.form_template],
+            sufficiency_summary="证据较充分。",
+            evidence_level=EvidenceLevel.strong,
+            evidence_score=0.8,
+        ),
+        legal_basis=[],
+        source_findings=[],
+    )
+    clause = ExtractedClause(
+        category="模板",
+        field_name="资格要求",
+        content="资格要求示例：投标人应具备相关资质；技术要求示例：项目经理须驻场服务。",
+        source_anchor="line:6",
+        clause_role=ClauseRole.form_template,
+        semantic_zone=SemanticZoneType.template,
+        effect_tags=[EffectTag.template, EffectTag.example],
+    )
+    gates = build_review_quality_gates([point], [clause])
+    checks = [
+        ApplicabilityCheck(
+            point_id="RP-TEMPLATE-KEYWORD-NOISE",
+            catalog_id="RP-QUAL-010",
+            applicable=True,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=[],
+            missing_conditions=[],
+            blocking_conditions=[],
+            requirement_chain_complete=True,
+            summary="要件链成立。",
+        )
+    ]
+    formal = build_formal_adjudication([point], checks, gates, "资格要求示例：投标人应具备相关资质；技术要求示例：项目经理须驻场服务。", [clause], [])
+
+    assert gates[0].status == QualityGateStatus.filtered
+    assert any("模板" in reason or "弱来源" in reason for reason in gates[0].reasons)
+    assert formal[0].quality_gate_status == QualityGateStatus.filtered
+    assert formal[0].included_in_formal is False
+
+
 def test_formal_adjudication_keeps_real_scoring_row_evidence() -> None:
     point = ReviewPoint(
         point_id="RP-SCORE-KEEP",

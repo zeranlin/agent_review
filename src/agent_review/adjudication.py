@@ -1154,9 +1154,60 @@ def _formal_quote_is_noise_like(quote: str, family_key: str) -> bool:
         return True
     if _formal_quote_is_legal_citation(normalized):
         return True
+    if _formal_quote_is_template_noise(normalized):
+        return True
     if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
         return True
     if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    return False
+
+
+def _formal_quote_is_template_noise(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return True
+    compact = re.sub(r"\s+", "", normalized)
+    if "目录" in normalized and any(token in normalized for token in ["第一章", "第二章", "第三章", "第四章"]):
+        return True
+    chapter_hits = sum(1 for token in ["第一章", "第二章", "第三章", "第四章", "第五章", "第六章"] if token in normalized)
+    if chapter_hits >= 2 and len(compact) < 180:
+        return True
+    if (
+        re.search(r"第[一二三四五六七八九十0-9]+章", normalized)
+        and any(token in normalized for token in ["招标公告", "采购需求", "投标文件格式", "合同条款", "评分办法"])
+        and len(compact) < 140
+    ):
+        return True
+    policy_markers = ["根据", "依据", "按照", "参照", "执行", "适用", "规定", "办法", "通知", "财政部", "管理办法"]
+    if any(token in normalized for token in policy_markers):
+        if not any(token in normalized for token in ["本项目", "采购标的", "项目属性", "价格扣除", "专门面向中小企业采购", "招标文件", "采购需求"]):
+            return len(normalized) < 180
+    if _formal_quote_is_legal_citation(normalized):
+        return True
+    template_markers = [
+        "格式",
+        "示例",
+        "填写",
+        "填报",
+        "盖章",
+        "签字",
+        "模板",
+        "范本",
+        "样例",
+        "空白",
+        "此处",
+        "打印",
+        "占位",
+        "演示",
+    ]
+    if not any(marker in normalized for marker in template_markers):
+        return False
+    if any(marker in normalized for marker in ["示例", "模板", "范本", "样例", "空白", "此处", "打印", "占位", "演示"]):
+        return True
+    if any(marker in normalized for marker in ["格式", "填写", "填报"]) and any(
+        marker in normalized for marker in ["资格", "评分", "技术", "商务", "合同", "履约", "项目经理", "检测报告", "证书", "中小企业", "价格扣除"]
+    ):
         return True
     return False
 
