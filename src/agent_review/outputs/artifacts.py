@@ -177,6 +177,10 @@ def write_review_artifacts(
     )
 
 
+def build_output_evaluation_summary(report: ReviewReport) -> dict[str, object]:
+    return _build_evaluation_summary(report)
+
+
 def _write_specialist_tables(
     target_dir: Path,
     base_report: ReviewReport,

@@ -6,19 +6,14 @@ from datetime import datetime
 import argparse
 import json
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
-from ..adjudication import build_review_points_from_task_library, build_formal_adjudication
-from ..applicability import build_applicability_checks
-from ..domain_profiles import (
-    build_document_profile as build_domain_profile,
-    profile_activation_tags,
-)
-from ..extractors import classify_extracted_clauses, extract_clauses, extract_clauses_from_units
-from ..models import FormalAdjudication, QualityGateStatus, ReviewMode
-from ..parsers import load_document
-from ..review_quality_gate import build_review_quality_gates
-from ..structure.document_profile import build_document_profile as build_structure_profile
+from ..domain_profiles import profile_activation_tags
+from ..engine import TenderReviewEngine
+from ..enhancement import run_review_enhancement_with_watchdog
+from ..llm import QwenReviewEnhancer
+from ..models import ReviewMode
+from ..outputs import build_output_evaluation_summary
 
 
 @dataclass(slots=True)
@@ -26,10 +21,12 @@ class RegressionRunOptions:
     input_paths: list[Path] = field(default_factory=list)
     output_dir: Path = Path("runs/unknown_sample_regression")
     review_mode: ReviewMode = ReviewMode.fast
+    llm_timeout: float = 1800.0
     max_candidates: int = 3
     write_outputs: bool = True
     emit_manifest: bool = False
     manifest_label: str = "baseline"
+    review_enhancer_factory: Callable[[float], object] | None = None
 
 
 @dataclass(slots=True)
@@ -117,76 +114,69 @@ def run_unknown_sample_regression(options: RegressionRunOptions) -> BatchRegress
 
 def _run_single_file(path: Path, options: RegressionRunOptions) -> FileRegressionSummary:
     target = Path(path).expanduser().resolve()
-    document_name, parse_result = load_document(target)
-    extracted_clauses = _build_extracted_clauses(parse_result)
-    structure_profile = parse_result.document_profile or build_structure_profile(parse_result, document_name)
-    domain_profile = build_domain_profile(
-        parse_result.text,
-        extracted_clauses,
-        document_id=parse_result.source_path or str(target),
-        source_path=parse_result.source_path or str(target),
-    )
+    try:
+        report = _build_review_report(target, options)
+    except Exception as exc:  # pragma: no cover - regression should preserve batch progress on broken samples
+        return FileRegressionSummary(
+            document_name=target.name,
+            source_path=str(target),
+            status="failed",
+            parse_summary={},
+            document_profile={},
+            domain_profile={},
+            quality_gate_summary={},
+            formal_summary={},
+            review_point_summary={},
+            evaluation_summary={},
+            error=f"{type(exc).__name__}: {exc}",
+        )
 
-    review_points = build_review_points_from_task_library(parse_result.text, extracted_clauses)
-    applicability_checks = build_applicability_checks(review_points, extracted_clauses)
-    quality_gates = build_review_quality_gates(review_points, extracted_clauses)
-
-    formal_summary, formal_items, formal_error = _build_formal_summary(
-        review_points,
-        applicability_checks,
-        quality_gates,
-        parse_result.text,
-        extracted_clauses,
-        parse_result.tables,
-    )
-
+    parse_result = report.parse_result
+    structure_profile = parse_result.document_profile
+    domain_profile = structure_profile
+    formal_summary = _build_formal_summary(report)
+    formal_items = [_formal_item_to_dict(item) for item in report.formal_adjudication]
     return FileRegressionSummary(
-        document_name=document_name,
+        document_name=report.file_info.document_name,
         source_path=str(target),
-        status="ok" if not formal_error else "partial",
-        parse_summary=_build_parse_summary(parse_result, len(extracted_clauses)),
+        status=_build_file_status(report),
+        parse_summary=_build_parse_summary(report),
         document_profile=_build_structure_profile_summary(structure_profile),
         domain_profile=_build_domain_profile_summary(domain_profile, options.max_candidates),
-        quality_gate_summary=_build_quality_gate_summary(quality_gates),
+        quality_gate_summary=_build_quality_gate_summary(report.quality_gates),
         formal_summary={
             **formal_summary,
             "items": formal_items[: options.max_candidates],
         },
-        review_point_summary=_build_review_point_summary(review_points, applicability_checks),
-        evaluation_summary=_build_file_evaluation_summary(
-            parse_result,
-            extracted_clauses,
-            review_points,
-            applicability_checks,
-            quality_gates,
-            formal_summary,
-            domain_profile,
-        ),
-        error=formal_error,
+        review_point_summary=_build_review_point_summary(report.review_points, report.applicability_checks),
+        evaluation_summary=_build_file_evaluation_summary(report, domain_profile),
+        error="; ".join(report.llm_warnings),
     )
 
 
-def _build_extracted_clauses(parse_result):
-    clause_units = parse_result.clause_units or []
-    clauses = extract_clauses_from_units(clause_units) if clause_units else []
-    fallback_clauses = extract_clauses(parse_result.text)
-    clauses = _merge_clauses(clauses, fallback_clauses)
-    return classify_extracted_clauses(clauses)
+def _build_review_report(target: Path, options: RegressionRunOptions):
+    base_report = TenderReviewEngine(review_mode=ReviewMode.fast).review_file(target)
+    if options.review_mode != ReviewMode.enhanced:
+        return base_report
+
+    enhancer_factory = options.review_enhancer_factory or (lambda timeout: QwenReviewEnhancer(timeout=timeout))
+    enhancer = enhancer_factory(options.llm_timeout)
+    report, _ = run_review_enhancement_with_watchdog(
+        base_report=base_report,
+        enhancer=enhancer,
+        timeout_seconds=options.llm_timeout,
+    )
+    return report
 
 
-def _merge_clauses(primary, fallback):
-    seen: set[tuple[str, str, str]] = set()
-    merged = []
-    for clause in [*primary, *fallback]:
-        key = (clause.field_name, clause.source_anchor, clause.content)
-        if key in seen:
-            continue
-        seen.add(key)
-        merged.append(clause)
-    return merged
+def _build_file_status(report) -> str:
+    if report.review_mode == ReviewMode.enhanced and report.llm_warnings:
+        return "partial"
+    return "ok"
 
 
-def _build_parse_summary(parse_result, extracted_clause_count: int) -> dict[str, object]:
+def _build_parse_summary(report) -> dict[str, object]:
+    parse_result = report.parse_result
     return {
         "parser_name": parse_result.parser_name,
         "source_format": parse_result.source_format,
@@ -194,12 +184,24 @@ def _build_parse_summary(parse_result, extracted_clause_count: int) -> dict[str,
         "document_node_count": len(parse_result.document_nodes),
         "semantic_zone_count": len(parse_result.semantic_zones),
         "clause_unit_count": len(parse_result.clause_units),
-        "extracted_clause_count": extracted_clause_count,
+        "extracted_clause_count": len(report.extracted_clauses),
         "warning_count": len(parse_result.warnings),
     }
 
 
 def _build_structure_profile_summary(profile) -> dict[str, object]:
+    if profile is None:
+        return {
+            "document_id": "",
+            "procurement_kind": "unknown",
+            "procurement_kind_confidence": 0.0,
+            "domain_profile_candidates": [],
+            "structure_flags": [],
+            "quality_flags": [],
+            "unknown_structure_flags": [],
+            "risk_activation_hints": [],
+            "summary": "未生成文档画像。",
+        }
     return {
         "document_id": profile.document_id,
         "procurement_kind": profile.procurement_kind,
@@ -216,6 +218,18 @@ def _build_structure_profile_summary(profile) -> dict[str, object]:
 
 
 def _build_domain_profile_summary(profile, max_candidates: int) -> dict[str, object]:
+    if profile is None:
+        return {
+            "document_id": "",
+            "procurement_kind": "unknown",
+            "procurement_kind_confidence": 0.0,
+            "top_candidates": [],
+            "activation_tags": [],
+            "structure_flags": [],
+            "quality_flags": [],
+            "unknown_structure_flags": [],
+            "summary": "未生成领域画像候选。",
+        }
     return {
         "document_id": profile.document_id,
         "procurement_kind": profile.procurement_kind,
@@ -269,64 +283,66 @@ def _build_review_point_summary(review_points, applicability_checks) -> dict[str
     }
 
 
-def _build_file_evaluation_summary(
-    parse_result,
-    extracted_clauses,
-    review_points,
-    applicability_checks,
-    quality_gates,
-    formal_summary,
-    domain_profile,
-) -> dict[str, object]:
-    quality_counts = Counter(item.status.value for item in quality_gates)
-    applicable_count = sum(1 for item in applicability_checks if item.applicable)
-    formal_included_count = int(formal_summary.get("included_count", 0) or 0)
+def _build_file_evaluation_summary(report, domain_profile) -> dict[str, object]:
+    parse_result = report.parse_result
+    quality_counts = Counter(item.status.value for item in report.quality_gates)
+    applicable_count = sum(1 for item in report.applicability_checks if item.applicable)
+    formal_included_count = sum(1 for item in report.formal_adjudication if item.included_in_formal)
+    planning_contract = report.review_planning_contract
+    planning_counts = {
+        "route_tag_count": len(planning_contract.route_tags) if planning_contract else 0,
+        "routing_flag_count": len(planning_contract.routing_flags) if planning_contract else 0,
+        "planned_catalog_count": len(planning_contract.planned_catalog_ids) if planning_contract else 0,
+        "priority_dimension_count": len(planning_contract.priority_dimensions) if planning_contract else 0,
+        "base_extraction_demand_count": len(planning_contract.base_extraction_demands) if planning_contract else 0,
+        "required_task_extraction_demand_count": (
+            len(planning_contract.required_task_extraction_demands) if planning_contract else 0
+        ),
+        "optional_enhancement_extraction_demand_count": (
+            len(planning_contract.optional_enhancement_extraction_demands) if planning_contract else 0
+        ),
+        "enhancement_extraction_demand_count": (
+            len(planning_contract.enhancement_extraction_demands) if planning_contract else 0
+        ),
+        "unknown_fallback_extraction_demand_count": (
+            len(planning_contract.unknown_fallback_extraction_demands) if planning_contract else 0
+        ),
+        "total_extraction_demand_count": len(planning_contract.extraction_demands) if planning_contract else 0,
+    }
+    output_evaluation = build_output_evaluation_summary(report)
+    llm_task_status_counts = Counter(
+        item.status.value for item in report.task_records if item.task_name.startswith("llm_")
+    )
     return {
         "input_chars": len(parse_result.text),
         "document_node_count": len(parse_result.document_nodes),
         "clause_unit_count": len(parse_result.clause_units),
-        "extracted_clause_count": len(extracted_clauses),
-        "review_point_count": len(review_points),
+        "extracted_clause_count": len(report.extracted_clauses),
+        "review_point_count": len(report.review_points),
         "applicable_count": applicable_count,
-        "quality_gate_count": len(quality_gates),
+        "quality_gate_count": len(report.quality_gates),
         "quality_gate_status_counts": _sorted_counter_dict(quality_counts),
         "formal_included_count": formal_included_count,
-        "formal_mode": formal_summary.get("mode", "unknown"),
-        "domain_candidate_count": len(domain_profile.get("top_candidates", [])),
+        "formal_mode": "actual",
+        "domain_candidate_count": len(domain_profile.domain_profile_candidates) if domain_profile else 0,
+        "llm_enhanced": report.llm_enhanced,
+        "llm_warning_count": len(report.llm_warnings),
+        "llm_task_status_counts": _sorted_counter_dict(llm_task_status_counts),
+        "review_planning_contract": planning_counts,
+        "prompt_volume": output_evaluation["prompt_volume"],
+        "task_duration": output_evaluation["task_duration"],
+        "dynamic_task_counts": output_evaluation["dynamic_task_counts"],
+        "semantic_review": output_evaluation["semantic_review"],
     }
 
 
-def _build_formal_summary(
-    review_points,
-    applicability_checks,
-    quality_gates,
-    report_text: str,
-    extracted_clauses,
-    parse_tables,
-) -> tuple[dict[str, object], list[dict[str, object]], str]:
-    try:
-        adjudications: list[FormalAdjudication] = build_formal_adjudication(
-            review_points,
-            applicability_checks,
-            quality_gates,
-            report_text,
-            extracted_clauses,
-            parse_tables,
-        )
-        return _summarize_formal_adjudication(adjudications, mode="actual"), [
-            _formal_item_to_dict(item) for item in adjudications
-        ], ""
-    except Exception as exc:  # pragma: no cover - fallback path is useful in broken pipelines
-        formal_error = f"{type(exc).__name__}: {exc}"
-        return _summarize_formal_fallback(review_points, applicability_checks, quality_gates), [], formal_error
-
-
-def _summarize_formal_adjudication(adjudications: list[FormalAdjudication], *, mode: str) -> dict[str, object]:
+def _build_formal_summary(report) -> dict[str, object]:
+    adjudications = report.formal_adjudication
     counts = Counter(item.disposition.value for item in adjudications)
     included = [item for item in adjudications if item.included_in_formal]
     manual = [item for item in adjudications if item.disposition.value == "manual_confirmation"]
     return {
-        "mode": mode,
+        "mode": "actual",
         "count": len(adjudications),
         "disposition_counts": dict(counts),
         "included_count": len(included),
@@ -345,42 +361,7 @@ def _summarize_formal_adjudication(adjudications: list[FormalAdjudication], *, m
     }
 
 
-def _summarize_formal_fallback(review_points, applicability_checks, quality_gates) -> dict[str, object]:
-    quality_map = {item.point_id: item for item in quality_gates}
-    applicability_map = {item.point_id: item for item in applicability_checks}
-    ready = []
-    blocked = []
-    manual = []
-    for point in review_points:
-        quality = quality_map.get(point.point_id)
-        applicability = applicability_map.get(point.point_id)
-        quality_status = quality.status.value if quality else "unknown"
-        applicable = bool(applicability.applicable) if applicability else False
-        if quality_status == QualityGateStatus.filtered.value:
-            blocked.append(point)
-        elif quality_status == QualityGateStatus.manual_confirmation.value or not applicable:
-            manual.append(point)
-        else:
-            ready.append(point)
-    return {
-        "mode": "fallback",
-        "count": len(review_points),
-        "included_count": len(ready),
-        "manual_confirmation_count": len(manual),
-        "filtered_count": len(blocked),
-        "top_ready": [
-            {
-                "point_id": item.point_id,
-                "catalog_id": item.catalog_id,
-                "title": item.title,
-                "severity": item.severity.value,
-            }
-            for item in ready[:5]
-        ],
-    }
-
-
-def _formal_item_to_dict(item: FormalAdjudication) -> dict[str, object]:
+def _formal_item_to_dict(item) -> dict[str, object]:
     return {
         "point_id": item.point_id,
         "catalog_id": item.catalog_id,
@@ -407,11 +388,24 @@ def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, 
         quality_gate_counter.update(item.quality_gate_summary.get("status_counts", {}))
     formal_mode_counter = Counter(item.formal_summary.get("mode", "unknown") for item in results)
     evaluation_gate_counter = Counter()
+    largest_prompt_counter = Counter()
+    llm_task_status_counter = Counter()
     for item in results:
         evaluation_gate_counter.update(item.evaluation_summary.get("quality_gate_status_counts", {}))
+        largest_prompt = item.evaluation_summary.get("prompt_volume", {}).get("largest_task", "")
+        if largest_prompt:
+            largest_prompt_counter.update([largest_prompt])
+        llm_task_status_counter.update(item.evaluation_summary.get("llm_task_status_counts", {}))
     average_input_chars = _average(item.evaluation_summary.get("input_chars", 0) for item in results)
     average_review_points = _average(item.evaluation_summary.get("review_point_count", 0) for item in results)
     average_quality_gates = _average(item.evaluation_summary.get("quality_gate_count", 0) for item in results)
+    average_prompt_chars = _average(
+        item.evaluation_summary.get("prompt_volume", {}).get("total_chars", 0) for item in results
+    )
+    average_planned_catalogs = _average(
+        item.evaluation_summary.get("review_planning_contract", {}).get("planned_catalog_count", 0)
+        for item in results
+    )
     return {
         "procurement_kind_counts": _sorted_counter_dict(procurement_counter),
         "domain_profile_hit_counts": _sorted_counter_dict(domain_counter),
@@ -423,24 +417,60 @@ def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, 
             "average_input_chars": average_input_chars,
             "average_review_point_count": average_review_points,
             "average_quality_gate_count": average_quality_gates,
+            "average_total_prompt_chars": average_prompt_chars,
+            "average_planned_catalog_count": average_planned_catalogs,
             "quality_gate_status_counts": _sorted_counter_dict(evaluation_gate_counter),
+            "largest_prompt_name_counts": _sorted_counter_dict(largest_prompt_counter),
+            "llm_task_status_counts": _sorted_counter_dict(llm_task_status_counter),
         },
     }
 
 
 def _build_batch_evaluation_summary(results: list[FileRegressionSummary]) -> dict[str, object]:
     quality_counts = Counter()
+    llm_task_status_counts = Counter()
+    largest_prompt_name_counts = Counter()
     input_chars = []
     review_points = []
     quality_gate_counts = []
     formal_included = []
+    prompt_chars = []
+    planned_catalog_counts = []
+    base_demand_counts = []
+    required_demand_counts = []
+    optional_demand_counts = []
+    fallback_demand_counts = []
+    dynamic_task_totals = []
+    llm_total_seconds = []
+    llm_average_seconds = []
+    llm_warning_counts = []
+    llm_enhanced_count = 0
     for item in results:
         evaluation = item.evaluation_summary
         quality_counts.update(evaluation.get("quality_gate_status_counts", {}))
+        llm_task_status_counts.update(evaluation.get("llm_task_status_counts", {}))
+        largest_prompt = evaluation.get("prompt_volume", {}).get("largest_task", "")
+        if largest_prompt:
+            largest_prompt_name_counts.update([largest_prompt])
         input_chars.append(evaluation.get("input_chars", 0))
         review_points.append(evaluation.get("review_point_count", 0))
         quality_gate_counts.append(evaluation.get("quality_gate_count", 0))
         formal_included.append(evaluation.get("formal_included_count", 0))
+        prompt_chars.append(evaluation.get("prompt_volume", {}).get("total_chars", 0))
+        planning = evaluation.get("review_planning_contract", {})
+        planned_catalog_counts.append(planning.get("planned_catalog_count", 0))
+        base_demand_counts.append(planning.get("base_extraction_demand_count", 0))
+        required_demand_counts.append(planning.get("required_task_extraction_demand_count", 0))
+        optional_demand_counts.append(planning.get("optional_enhancement_extraction_demand_count", 0))
+        fallback_demand_counts.append(planning.get("unknown_fallback_extraction_demand_count", 0))
+        dynamic_task_totals.append(
+            evaluation.get("dynamic_task_counts", {}).get("total_dynamic_review_task_count", 0)
+        )
+        llm_total_seconds.append(evaluation.get("task_duration", {}).get("total_seconds", 0))
+        llm_average_seconds.append(evaluation.get("task_duration", {}).get("average_seconds", 0))
+        llm_warning_counts.append(evaluation.get("llm_warning_count", 0))
+        if evaluation.get("llm_enhanced"):
+            llm_enhanced_count += 1
 
     total_quality_gates = sum(float(item) for item in quality_gate_counts)
     total_manual_or_filtered = sum(
@@ -452,7 +482,20 @@ def _build_batch_evaluation_summary(results: list[FileRegressionSummary]) -> dic
         "average_review_point_count": _average(review_points),
         "average_quality_gate_count": _average(quality_gate_counts),
         "average_formal_included_count": _average(formal_included),
+        "average_total_prompt_chars": _average(prompt_chars),
+        "average_planned_catalog_count": _average(planned_catalog_counts),
+        "average_base_extraction_demand_count": _average(base_demand_counts),
+        "average_required_task_extraction_demand_count": _average(required_demand_counts),
+        "average_optional_enhancement_extraction_demand_count": _average(optional_demand_counts),
+        "average_unknown_fallback_extraction_demand_count": _average(fallback_demand_counts),
+        "average_dynamic_review_task_count": _average(dynamic_task_totals),
+        "average_llm_total_seconds": _average(llm_total_seconds),
+        "average_llm_task_seconds": _average(llm_average_seconds),
+        "average_llm_warning_count": _average(llm_warning_counts),
+        "llm_enhanced_count": llm_enhanced_count,
         "quality_gate_status_counts": _sorted_counter_dict(quality_counts),
+        "llm_task_status_counts": _sorted_counter_dict(llm_task_status_counts),
+        "largest_prompt_name_counts": _sorted_counter_dict(largest_prompt_name_counts),
         "manual_or_filtered_rate": round(total_manual_or_filtered / total_quality_gates, 3)
         if total_quality_gates
         else 0.0,
@@ -601,6 +644,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=ReviewMode.fast.value,
         help="运行模式，默认 fast。",
     )
+    parser.add_argument("--llm-timeout", type=float, default=1800.0, help="LLM 单次调用超时时间（秒），默认 1800。")
     parser.add_argument("--max-candidates", type=int, default=3, help="保留的领域候选上限。")
     parser.add_argument("--no-write-outputs", action="store_true", help="仅打印，不落盘。")
     parser.add_argument("--emit-manifest", action="store_true", help="写出规范化 baseline manifest。")
@@ -631,6 +675,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         input_paths=input_paths,
         output_dir=Path(args.output_dir),
         review_mode=ReviewMode(args.review_mode),
+        llm_timeout=args.llm_timeout,
         max_candidates=args.max_candidates,
         write_outputs=not args.no_write_outputs,
         emit_manifest=args.emit_manifest,

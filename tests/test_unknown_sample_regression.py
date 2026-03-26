@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from agent_review.eval.unknown_sample_regression import (
     build_manifest_text,
     run_unknown_sample_regression,
 )
+from agent_review.models import ReviewMode, TaskRecord, TaskStatus
 
 
 def _make_summary_item(path: Path, *, document_name: str, procurement_kind: str) -> FileRegressionSummary:
@@ -68,6 +70,41 @@ def _make_summary_item(path: Path, *, document_name: str, procurement_kind: str)
             "formal_included_count": 1,
             "formal_mode": "actual",
             "domain_candidate_count": 1,
+            "llm_enhanced": False,
+            "llm_warning_count": 0,
+            "llm_task_status_counts": {"completed": 1},
+            "review_planning_contract": {
+                "planned_catalog_count": 2,
+                "base_extraction_demand_count": 3,
+                "required_task_extraction_demand_count": 1,
+                "optional_enhancement_extraction_demand_count": 1,
+                "unknown_fallback_extraction_demand_count": 0,
+            },
+            "prompt_volume": {
+                "task_char_counts": {"scenario_review": 100},
+                "total_chars": 100,
+                "largest_task": "scenario_review",
+            },
+            "task_duration": {
+                "tasks_with_duration": 1,
+                "tasks_without_duration": 0,
+                "task_seconds": {"llm_scenario_review": 1.25},
+                "total_seconds": 1.25,
+                "average_seconds": 1.25,
+                "max_seconds": 1.25,
+            },
+            "dynamic_task_counts": {
+                "scenario_review_task_count": 1,
+                "scoring_review_task_count": 0,
+                "total_dynamic_review_task_count": 1,
+            },
+            "semantic_review": {
+                "clause_supplement_count": 0,
+                "role_review_count": 0,
+                "evidence_review_count": 0,
+                "applicability_review_count": 0,
+                "verdict_review_present": False,
+            },
         },
     )
 
@@ -138,9 +175,65 @@ def test_unknown_sample_regression_writes_batch_summary_and_manifest(
     assert batch_summary["aggregate"]["procurement_kind_counts"] == {"mixed": 1, "unknown": 1}
     assert batch_summary["evaluation_summary"]["average_input_chars"] == 12.0
     assert batch_summary["evaluation_summary"]["quality_gate_status_counts"] == {"passed": 2}
+    assert batch_summary["evaluation_summary"]["average_total_prompt_chars"] == 100.0
+    assert batch_summary["evaluation_summary"]["average_planned_catalog_count"] == 2.0
+    assert batch_summary["evaluation_summary"]["llm_task_status_counts"] == {"completed": 2}
+    assert batch_summary["aggregate"]["evaluation"]["largest_prompt_name_counts"] == {"scenario_review": 2}
     assert batch_summary_md.startswith("# 未知品目真实样本回归摘要")
     assert "- 输入数量：2" in batch_summary_md
     assert manifest_text.splitlines()[-2:] == [str(input_b.resolve()), str(input_a.resolve())]
     assert manifest_json["label"] == "baseline"
     assert manifest_json["count"] == 2
     assert manifest_json["paths"] == [str(input_b.resolve()), str(input_a.resolve())]
+
+
+def test_unknown_sample_regression_enhanced_mode_uses_review_report_metrics(tmp_path: Path) -> None:
+    input_path = tmp_path / "demo.txt"
+    input_path.write_text(
+        """
+        项目属性：服务
+        采购标的：驻场运维服务
+        评分标准：综合评分法
+        本项目专门面向中小企业采购。
+        """,
+        encoding="utf-8",
+    )
+
+    class FakeEnhancer:
+        def __init__(self, timeout: float | None = None) -> None:
+            self.timeout = timeout
+
+        def enhance(self, report):
+            return replace(
+                report,
+                review_mode=ReviewMode.enhanced,
+                llm_enhanced=True,
+                task_records=[
+                    *report.task_records,
+                    TaskRecord(
+                        task_name="llm_scenario_review",
+                        status=TaskStatus.completed,
+                        detail="任务已完成。预算 1800.0 秒，截止 2026-03-26T00:00:00。耗时 1.50 秒。",
+                        item_count=1,
+                    ),
+                ],
+            )
+
+    summary = run_unknown_sample_regression(
+        RegressionRunOptions(
+            input_paths=[input_path],
+            output_dir=tmp_path / "runs",
+            review_mode=ReviewMode.enhanced,
+            llm_timeout=1800.0,
+            review_enhancer_factory=lambda timeout: FakeEnhancer(timeout),
+        )
+    )
+
+    item = summary.items[0]
+    assert item.status == "ok"
+    assert item.evaluation_summary["llm_enhanced"] is True
+    assert item.evaluation_summary["review_planning_contract"]["planned_catalog_count"] >= 1
+    assert item.evaluation_summary["prompt_volume"]["total_chars"] > 0
+    assert item.evaluation_summary["task_duration"]["total_seconds"] == 1.5
+    assert item.evaluation_summary["llm_task_status_counts"]["completed"] >= 1
+    assert summary.evaluation_summary["llm_enhanced_count"] == 1

@@ -10,10 +10,11 @@
 
 ## 行为约定
 
-1. CLI 先运行 fast 结果作为基础报告。
+1. 任何需要 enhanced 模式的入口都先运行 fast 结果作为基础报告。
 2. enhanced 结果在独立的 daemon 线程里执行，并受 `--llm-timeout` 约束。
 3. 超时或异常时，最终结果回退到基础报告，但会补写 `llm_warnings` 和 `llm_enhancement_watchdog` stage 记录。
 4. 报告正文会显式显示增强链状态。
+5. `unknown_sample_regression` 在 `--review-mode enhanced` 下复用同一套看门狗逻辑，保证真实样本回归和单文件运行口径一致。
 
 ## 产物
 
@@ -44,3 +45,5 @@
 - `task_duration.task_seconds`
 - `dynamic_task_counts`
 - `quality_gates.status_counts`
+
+未知样本批量回归时，对应字段会进入 `batch_summary.json -> evaluation_summary`，用于做升级前后对比。

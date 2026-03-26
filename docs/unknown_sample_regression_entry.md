@@ -2,13 +2,13 @@
 
 ## 目标
 
-这个入口用于在本地隔离环境里批量跑一组未知品目真实文件，输出最小但可持续回归的摘要：
+这个入口用于在本地隔离环境里批量跑一组未知品目真实文件，输出可持续对比的回归摘要：
 
 - 文档画像
 - 领域 profile 候选
 - quality gate 摘要
 - formal 候选摘要
-- 评测闭环摘要：输入复杂度、review point 数量、quality gate 状态和 formal 结果
+- 评测闭环摘要：输入复杂度、planning contract、prompt 体积、LLM 任务状态/耗时、quality gate 状态和 formal 结果
 
 它的设计目标是轻量、可执行，并且不会污染默认全量单测。
 
@@ -27,6 +27,16 @@ python tests/run_unknown_sample_regression.py \
   /path/to/a.docx \
   /path/to/b.pdf \
   --output-dir runs/unknown_sample_regression
+```
+
+如果要直接跑增强模式：
+
+```bash
+python tests/run_unknown_sample_regression.py \
+  --manifest /path/to/baseline_manifest.txt \
+  --review-mode enhanced \
+  --llm-timeout 1800 \
+  --output-dir runs/unknown_sample_regression_enhanced
 ```
 
 ## baseline manifest 机制
@@ -74,7 +84,10 @@ python tests/run_unknown_sample_regression.py \
 其中 `batch_summary.json` 还包含每个样本的 `evaluation_summary`，便于快速对比：
 
 - 输入字符数和 clause 规模
-- review point 数量
+- review point / planning contract 数量
+- prompt volume 与最大 prompt 名称
+- LLM task 状态分布与耗时
+- dynamic review task 数量
 - quality gate 状态分布
 - formal 纳入数量
 
@@ -96,13 +109,14 @@ PYTHONPATH=src python tests/run_unknown_sample_regression.py \
 
 - `docs/unknown_sample_regression_manifest_v1.txt` 负责冻结输入集合，变更时先说明原因再更新文件。
 - `batch_summary.json` 是主要对比对象，优先看 `input_count`、`succeeded_count`、`failed_count` 和 `aggregate`。
-- `evaluation_summary` 是辅助对比对象，优先看 `input_chars`、`review_point_count` 和 `quality_gate_status_counts`。
+- `evaluation_summary` 是辅助对比对象，优先看 `average_total_prompt_chars`、`average_planned_catalog_count`、`llm_task_status_counts`、`quality_gate_status_counts` 和 `manual_or_filtered_rate`。
 - `files/*.json` 只作为单文件调试视图，用来定位某个样本的画像、领域候选、quality gate 和 formal 摘要是否漂移。
+- enhanced 模式下，单文件 `evaluation_summary` 会额外包含 `review_planning_contract`、`prompt_volume`、`task_duration`、`dynamic_task_counts` 和 `semantic_review`。
 - manifest、batch summary 和 files 输出都已经做了规范化排序，便于直接做 baseline diff。
 
 ## 行为约束
 
-1. 默认运行模式是 `fast`，适合先批量扫样本。
+1. 默认运行模式是 `fast`，适合先批量扫样本；`enhanced` 适合做主链升级前后的真实基线对比。
 2. 入口会对每个文件单独处理，不把样本互相合并。
 3. formal 摘要采用 best-effort 策略，若现有主流程在 formal 阶段报错，入口会保留错误信息并继续输出前置摘要。
 4. 这个入口不属于默认单测主链，不会自动参与日常 `pytest`。
