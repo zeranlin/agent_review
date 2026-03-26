@@ -109,7 +109,7 @@ def _clause_from_unit(unit: ClauseUnit) -> ExtractedClause:
 
 
 def _infer_unit_category(unit: ClauseUnit, field_name: str) -> str:
-    if field_name in {"项目名称", "项目编号", "采购方式", "采购方式适用理由", "采购标的", "品目名称", "项目属性", "预算金额", "最高限价", "合同履行期限", "合同类型", "采购内容构成", "是否含持续性服务", "采购包数量", "采购包划分说明", "需求调查结论", "专家论证结论"}:
+    if field_name in {"项目名称", "项目编号", "采购人", "采购单位", "采购代理机构", "采购方式", "采购方式适用理由", "采购标的", "品目名称", "项目属性", "预算金额", "最高限价", "合同履行期限", "合同类型", "采购内容构成", "是否含持续性服务", "采购包数量", "采购包划分说明", "需求调查结论", "专家论证结论"}:
         return "项目基本信息"
     if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "信用要求", "是否允许联合体", "是否允许分包"}:
         return "资格条款"
@@ -163,6 +163,12 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
             return "项目名称"
         if "项目编号" in text:
             return "项目编号"
+        if "采购代理机构" in text:
+            return "采购代理机构"
+        if "采购单位" in text:
+            return "采购单位"
+        if "采购人" in text:
+            return "采购人"
         if "采购方式" in text:
             return "采购方式适用理由" if any(token in text for token in ["理由", "适用理由"]) else "采购方式"
         if any(token in text for token in ["采购标的", "采购内容", "采购需求"]):
@@ -314,6 +320,12 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
         if unit.zone_type == SemanticZoneType.business and any(token in title for token in ["商务要求", "商务部分"]):
             return "商务要求"
         if unit.zone_type == SemanticZoneType.administrative_info:
+            if "采购代理机构" in title:
+                return "采购代理机构"
+            if "采购单位" in title:
+                return "采购单位"
+            if "采购人" in title:
+                return "采购人"
             if "项目属性" in title:
                 return "项目属性"
             if "采购方式" in title:

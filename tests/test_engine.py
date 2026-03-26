@@ -2266,6 +2266,27 @@ def test_header_info_resolver_prefers_true_project_name_over_sample_instruction(
     assert "采购单位：清华大学深圳国际研究生院" in reviewer
 
 
+def test_header_info_resolver_extracts_agency_budget_and_max_price() -> None:
+    text = """
+    项目名称：某采购项目
+    项目编号：SZCG-002
+    采购人：某学校
+    采购代理机构：某公共资源交易中心
+    预算金额（元）：2,899,600.00元
+    最高限价（元）：2,680,443.18
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+
+    header_info = resolve_header_info(report)
+
+    assert header_info.project_name == "某采购项目"
+    assert header_info.project_code == "SZCG-002"
+    assert header_info.purchaser_name == "某学校"
+    assert header_info.agency_name == "某公共资源交易中心"
+    assert header_info.budget_amount == "2899600.00"
+    assert header_info.max_price == "2680443.18"
+
+
 def test_reviewer_report_merges_related_issue_families() -> None:
     text = """
     （三）项目所属分类：货物

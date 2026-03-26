@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from agent_review.extractors import extract_clauses_from_units
 from agent_review.ontology import EffectTag, SemanticZoneType
 from agent_review.parsers import load_document
 
@@ -90,3 +91,32 @@ def test_sprint1_parser_marks_catalog_and_noise_as_non_binding(tmp_path: Path) -
     assert effect_by_node[catalog_node.node_id] == [EffectTag.catalog]
     assert zone_by_node[noise_node.node_id] == SemanticZoneType.public_copy_or_noise
     assert EffectTag.public_copy_noise in effect_by_node[noise_node.node_id]
+
+
+def test_parser_recognizes_administrative_header_fields_for_purchaser_and_agency(tmp_path: Path) -> None:
+    file_path = tmp_path / "header_fields.txt"
+    file_path.write_text(
+        "\n".join(
+            [
+                "项目名称：某采购项目",
+                "项目编号：SZCG-003",
+                "采购人：某学校",
+                "采购代理机构：某公共资源交易中心",
+                "预算金额（元）：1000000.00元",
+                "最高限价（元）：900000.00元",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    _, parse_result = load_document(file_path)
+    extracted = extract_clauses_from_units(parse_result.clause_units)
+
+    assert any(
+        zone.zone_type == SemanticZoneType.administrative_info
+        for zone in parse_result.semantic_zones
+    )
+    assert any(item.field_name == "采购人" for item in extracted)
+    assert any(item.field_name == "采购代理机构" for item in extracted)
+    assert any(item.field_name == "预算金额" for item in extracted)
+    assert any(item.field_name == "最高限价" for item in extracted)
