@@ -391,6 +391,24 @@ def test_unknown_sample_regression_writes_comparison_summary_against_baseline(
     assert comparison_summary["changed_counter_count"] >= 1
     assert any(item["path"] == "evaluation_summary.average_total_prompt_chars" for item in comparison_summary["metric_diffs"])
     assert any(item["path"] == "aggregate.routing_mode_counts" for item in comparison_summary["counter_diffs"])
+    assert comparison_summary["regression_verdict"]["level"] in {
+        "improved",
+        "regressed",
+        "review_needed",
+        "distribution_shift",
+        "stable",
+    }
+    prompt_diff = next(
+        item for item in comparison_summary["metric_diffs"] if item["path"] == "evaluation_summary.average_total_prompt_chars"
+    )
+    assert prompt_diff["assessment"]["verdict"] == "regressed"
+    routing_diff = next(
+        item for item in comparison_summary["counter_diffs"] if item["path"] == "aggregate.routing_mode_counts"
+    )
+    assert routing_diff["assessment"]["verdict"] == "distribution_shift"
     assert batch_summary["comparison_summary"]["baseline_label"] == "2026-03-25T12:00:00"
     assert comparison_summary_md.startswith("# 未知品目回归升级前后对比")
     assert "- changed_metric_count：" in comparison_summary_md
+    assert "- regression_verdict：" in comparison_summary_md
+    assert "verdict=regressed" in comparison_summary_md
+    assert "verdict=distribution_shift" in comparison_summary_md

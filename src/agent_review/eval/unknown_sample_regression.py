@@ -811,6 +811,7 @@ def _build_comparison_summary(summary: BatchRegressionSummary, baseline_payload:
                 "baseline": float(baseline_value),
                 "current": float(current_value),
                 "delta": delta,
+                "assessment": _assess_metric_change(path, delta),
             }
         )
     counter_diffs = []
@@ -822,6 +823,9 @@ def _build_comparison_summary(summary: BatchRegressionSummary, baseline_payload:
         diff = _build_counter_diff(path, baseline_value, current_value)
         if diff["changed_keys"]:
             counter_diffs.append(diff)
+    metric_assessment_counts = Counter(item["assessment"]["verdict"] for item in metric_diffs)
+    counter_assessment_counts = Counter(item["assessment"]["verdict"] for item in counter_diffs)
+    overall_verdict = _build_regression_verdict(metric_diffs, counter_diffs)
     return {
         "baseline_label": str(
             baseline_payload.get("generated_at")
@@ -836,6 +840,9 @@ def _build_comparison_summary(summary: BatchRegressionSummary, baseline_payload:
         "counter_diffs": counter_diffs,
         "changed_metric_count": len(metric_diffs),
         "changed_counter_count": len(counter_diffs),
+        "metric_assessment_counts": _sorted_counter_dict(metric_assessment_counts),
+        "counter_assessment_counts": _sorted_counter_dict(counter_assessment_counts),
+        "regression_verdict": overall_verdict,
     }
 
 
@@ -867,10 +874,12 @@ def _build_counter_diff(path: str, baseline_value: dict[str, object], current_va
     return {
         "path": path,
         "changed_keys": changed_keys,
+        "assessment": _assess_counter_change(path, changed_keys),
     }
 
 
 def _render_comparison_markdown(comparison_summary: dict[str, object]) -> str:
+    verdict = comparison_summary.get("regression_verdict", {})
     lines = [
         "# 未知品目回归升级前后对比",
         "",
@@ -881,6 +890,12 @@ def _render_comparison_markdown(comparison_summary: dict[str, object]) -> str:
         f"- current_input_count：{comparison_summary.get('current_input_count', 0)}",
         f"- changed_metric_count：{comparison_summary.get('changed_metric_count', 0)}",
         f"- changed_counter_count：{comparison_summary.get('changed_counter_count', 0)}",
+        f"- regression_verdict：{verdict.get('level', 'stable')} / {verdict.get('summary', '')}",
+        "",
+        "## 判读摘要",
+        f"- metric_assessment_counts：{comparison_summary.get('metric_assessment_counts', {})}",
+        f"- counter_assessment_counts：{comparison_summary.get('counter_assessment_counts', {})}",
+        f"- highlights：{verdict.get('highlights', [])}",
         "",
         "## 指标变化",
     ]
@@ -888,7 +903,7 @@ def _render_comparison_markdown(comparison_summary: dict[str, object]) -> str:
     if metric_diffs:
         for item in metric_diffs:
             lines.append(
-                f"- {item.get('path')}：baseline={item.get('baseline')}, current={item.get('current')}, delta={item.get('delta')}"
+                f"- {item.get('path')}：baseline={item.get('baseline')}, current={item.get('current')}, delta={item.get('delta')}, verdict={item.get('assessment', {}).get('verdict')}, reason={item.get('assessment', {}).get('reason')}"
             )
     else:
         lines.append("- 无数值指标变化")
@@ -896,11 +911,147 @@ def _render_comparison_markdown(comparison_summary: dict[str, object]) -> str:
     counter_diffs = comparison_summary.get("counter_diffs", [])
     if counter_diffs:
         for item in counter_diffs:
-            lines.append(f"- {item.get('path')}：{item.get('changed_keys')}")
+            lines.append(
+                f"- {item.get('path')}：verdict={item.get('assessment', {}).get('verdict')}, reason={item.get('assessment', {}).get('reason')}, changes={item.get('changed_keys')}"
+            )
     else:
         lines.append("- 无计数器变化")
     lines.append("")
     return "\n".join(lines)
+
+
+def _assess_metric_change(path: str, delta: float) -> dict[str, str]:
+    positive_paths = {
+        "evaluation_summary.average_planned_catalog_count": "规划激活更充分，通常意味着结构画像到任务激活链更完整。",
+        "evaluation_summary.average_target_zone_count": "目标分区覆盖增加，定向抽取命中面更广。",
+        "evaluation_summary.average_matched_extraction_field_count": "抽取字段命中增加，说明 planning 到 extraction 的衔接更好。",
+        "evaluation_summary.average_base_hit_field_count": "基础必抽字段命中增加，属于正向稳定性提升。",
+        "evaluation_summary.average_required_hit_field_count": "任务必需字段命中增加，说明任务抽取更有效。",
+        "evaluation_summary.average_optional_hit_field_count": "增强字段命中增加，说明增量信息获取更充分。",
+        "evaluation_summary.parser_semantic_assist_applied_count": "低置信度歧义消解更多被成功应用，通常说明未知结构补偿更有效。",
+        "evaluation_summary.llm_enhanced_count": "增强链命中更多样本，增强覆盖面上升。",
+    }
+    negative_paths = {
+        "evaluation_summary.average_unknown_fallback_hit_field_count": "unknown fallback 命中增加，说明定向抽取不足，更多依赖兜底。",
+        "evaluation_summary.average_text_fallback_clause_count": "全文 fallback 子句增加，说明 ClauseUnit 定向抽取精度可能下降。",
+        "evaluation_summary.average_total_prompt_chars": "提示词体积上升，会带来本地模型上下文与时延压力。",
+        "evaluation_summary.average_llm_total_seconds": "LLM 总耗时上升，增强链成本变高。",
+    }
+    if path in positive_paths:
+        verdict = "improved" if delta > 0 else "regressed"
+        if delta == 0:
+            verdict = "stable"
+        reason = positive_paths[path]
+    elif path in negative_paths:
+        verdict = "regressed" if delta > 0 else "improved"
+        if delta == 0:
+            verdict = "stable"
+        reason = negative_paths[path]
+    else:
+        verdict = "changed"
+        reason = "该指标发生变化，但需要结合样本与上下文进一步判断。"
+    return {"verdict": verdict, "reason": reason}
+
+
+def _assess_counter_change(path: str, changed_keys: list[dict[str, int]]) -> dict[str, str]:
+    if path in {"aggregate.procurement_kind_counts", "aggregate.routing_mode_counts", "evaluation_summary.routing_mode_counts"}:
+        return {
+            "verdict": "distribution_shift",
+            "reason": "分布变化更可能来自样本构成或路由策略变化，不能直接判定为能力提升或退化。",
+        }
+    if path == "aggregate.result_status_counts":
+        partial_or_failed_up = any(
+            item["key"] in {"failed", "partial"} and item["delta"] > 0 for item in changed_keys
+        )
+        ok_up = any(item["key"] == "ok" and item["delta"] > 0 for item in changed_keys)
+        if partial_or_failed_up:
+            return {
+                "verdict": "regressed",
+                "reason": "失败或降级状态增加，属于明确退化信号。",
+            }
+        if ok_up:
+            return {
+                "verdict": "improved",
+                "reason": "成功状态增加，属于正向稳定性变化。",
+            }
+    if path == "evaluation_summary.quality_gate_status_counts":
+        filtered_or_manual_up = any(
+            item["key"] in {"manual_confirmation", "filtered"} and item["delta"] > 0 for item in changed_keys
+        )
+        if filtered_or_manual_up:
+            return {
+                "verdict": "review_needed",
+                "reason": "人工确认或过滤量增加，可能是误报治理变化，也可能是样本更复杂，需要结合明细复核。",
+            }
+    if path == "evaluation_summary.llm_task_status_counts":
+        failed_up = any(item["key"] in {"failed", "timeout"} and item["delta"] > 0 for item in changed_keys)
+        completed_up = any(item["key"] == "completed" and item["delta"] > 0 for item in changed_keys)
+        if failed_up:
+            return {
+                "verdict": "regressed",
+                "reason": "LLM 任务失败或超时增加，增强链稳定性下降。",
+            }
+        if completed_up:
+            return {
+                "verdict": "improved",
+                "reason": "LLM 完成任务数增加，增强链可用性提升。",
+            }
+    return {
+        "verdict": "changed",
+        "reason": "该计数字典发生变化，需要结合样本与具体键值解读。",
+    }
+
+
+def _build_regression_verdict(metric_diffs: list[dict[str, object]], counter_diffs: list[dict[str, object]]) -> dict[str, object]:
+    highlights: list[str] = []
+    has_regression = False
+    has_review_needed = False
+    has_improvement = False
+    has_distribution_shift = False
+    for item in metric_diffs:
+        assessment = item.get("assessment", {})
+        verdict = assessment.get("verdict", "")
+        if verdict == "regressed":
+            has_regression = True
+            highlights.append(f"{item.get('path')} 出现退化")
+        elif verdict == "improved":
+            has_improvement = True
+            highlights.append(f"{item.get('path')} 有所改善")
+    for item in counter_diffs:
+        assessment = item.get("assessment", {})
+        verdict = assessment.get("verdict", "")
+        if verdict == "regressed":
+            has_regression = True
+            highlights.append(f"{item.get('path')} 显示失败/退化增长")
+        elif verdict == "review_needed":
+            has_review_needed = True
+            highlights.append(f"{item.get('path')} 需要人工复核")
+        elif verdict == "improved":
+            has_improvement = True
+            highlights.append(f"{item.get('path')} 呈现正向变化")
+        elif verdict == "distribution_shift":
+            has_distribution_shift = True
+            highlights.append(f"{item.get('path')} 主要体现样本分布变化")
+    if has_regression:
+        level = "regressed"
+        summary = "本轮相较基线存在明确退化信号，建议优先检查失败状态、fallback 增长和抽取命中下降。"
+    elif has_review_needed:
+        level = "review_needed"
+        summary = "本轮未见明确退化，但存在需要结合样本明细人工判读的变化。"
+    elif has_improvement and not has_distribution_shift:
+        level = "improved"
+        summary = "本轮主要表现为正向改进，结构化规划与抽取命中整体更好。"
+    elif has_distribution_shift:
+        level = "distribution_shift"
+        summary = "本轮变化主要由样本或路由分布变化驱动，不能直接判定主链能力升降。"
+    else:
+        level = "stable"
+        summary = "本轮与基线整体稳定，未观察到需要重点处理的显著变化。"
+    return {
+        "level": level,
+        "summary": summary,
+        "highlights": highlights[:8],
+    }
 
 
 def _average(values) -> float:
