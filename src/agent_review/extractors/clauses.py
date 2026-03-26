@@ -38,6 +38,7 @@ def extract_clauses(text: str, field_names: set[str] | None = None) -> list[Extr
 def extract_clauses_from_units(
     clause_units: list[ClauseUnit],
     field_names: set[str] | None = None,
+    target_zones: set[str] | None = None,
 ) -> list[ExtractedClause]:
     filtered_units = [
         unit
@@ -55,6 +56,7 @@ def extract_clauses_from_units(
         }
         and EffectTag.catalog not in unit.effect_tags
         and EffectTag.public_copy_noise not in unit.effect_tags
+        and (target_zones is None or unit.zone_type.value in target_zones)
     ]
     if not filtered_units:
         return []

@@ -304,6 +304,7 @@ def _build_file_evaluation_summary(report, domain_profile) -> dict[str, object]:
         "suppressed_risk_family_count": len(planning_contract.suppressed_risk_families) if planning_contract else 0,
         "planned_catalog_count": len(planning_contract.planned_catalog_ids) if planning_contract else 0,
         "priority_dimension_count": len(planning_contract.priority_dimensions) if planning_contract else 0,
+        "target_zone_count": len(planning_contract.target_zones) if planning_contract else 0,
         "base_extraction_demand_count": len(planning_contract.base_extraction_demands) if planning_contract else 0,
         "required_task_extraction_demand_count": (
             len(planning_contract.required_task_extraction_demands) if planning_contract else 0
@@ -318,6 +319,13 @@ def _build_file_evaluation_summary(report, domain_profile) -> dict[str, object]:
             len(planning_contract.unknown_fallback_extraction_demands) if planning_contract else 0
         ),
         "high_value_field_count": len(planning_contract.high_value_fields) if planning_contract else 0,
+        "matched_extraction_field_count": len(planning_contract.matched_extraction_fields) if planning_contract else 0,
+        "base_hit_field_count": len(planning_contract.base_hit_fields) if planning_contract else 0,
+        "required_hit_field_count": len(planning_contract.required_hit_fields) if planning_contract else 0,
+        "optional_hit_field_count": len(planning_contract.optional_hit_fields) if planning_contract else 0,
+        "unknown_fallback_hit_field_count": len(planning_contract.unknown_fallback_hit_fields) if planning_contract else 0,
+        "clause_unit_targeted_count": planning_contract.clause_unit_targeted_count if planning_contract else 0,
+        "text_fallback_clause_count": planning_contract.text_fallback_clause_count if planning_contract else 0,
         "total_extraction_demand_count": len(planning_contract.extraction_demands) if planning_contract else 0,
     }
     output_evaluation = build_output_evaluation_summary(report)

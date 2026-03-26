@@ -849,6 +849,7 @@ class ReviewPlanningContract:
     activation_reasons: list[str] = field(default_factory=list)
     activated_risk_families: list[str] = field(default_factory=list)
     suppressed_risk_families: list[str] = field(default_factory=list)
+    target_zones: list[str] = field(default_factory=list)
     planned_catalog_ids: list[str] = field(default_factory=list)
     priority_dimensions: list[str] = field(default_factory=list)
     base_extraction_demands: list[str] = field(default_factory=list)
@@ -858,6 +859,13 @@ class ReviewPlanningContract:
     unknown_fallback_extraction_demands: list[str] = field(default_factory=list)
     extraction_demands: list[str] = field(default_factory=list)
     high_value_fields: list[str] = field(default_factory=list)
+    matched_extraction_fields: list[str] = field(default_factory=list)
+    base_hit_fields: list[str] = field(default_factory=list)
+    required_hit_fields: list[str] = field(default_factory=list)
+    optional_hit_fields: list[str] = field(default_factory=list)
+    unknown_fallback_hit_fields: list[str] = field(default_factory=list)
+    clause_unit_targeted_count: int = 0
+    text_fallback_clause_count: int = 0
     summary: str = ""
 
     def to_dict(self) -> dict[str, object]:

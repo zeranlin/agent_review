@@ -451,6 +451,14 @@ def _build_evaluation_summary(report: ReviewReport) -> dict[str, object]:
         "activated_risk_family_count": len(planning_contract.activated_risk_families) if planning_contract else 0,
         "suppressed_risk_family_count": len(planning_contract.suppressed_risk_families) if planning_contract else 0,
         "high_value_field_count": len(planning_contract.high_value_fields) if planning_contract else 0,
+        "target_zone_count": len(planning_contract.target_zones) if planning_contract else 0,
+        "matched_extraction_field_count": len(planning_contract.matched_extraction_fields) if planning_contract else 0,
+        "base_hit_field_count": len(planning_contract.base_hit_fields) if planning_contract else 0,
+        "required_hit_field_count": len(planning_contract.required_hit_fields) if planning_contract else 0,
+        "optional_hit_field_count": len(planning_contract.optional_hit_fields) if planning_contract else 0,
+        "unknown_fallback_hit_field_count": len(planning_contract.unknown_fallback_hit_fields) if planning_contract else 0,
+        "clause_unit_targeted_count": planning_contract.clause_unit_targeted_count if planning_contract else 0,
+        "text_fallback_clause_count": planning_contract.text_fallback_clause_count if planning_contract else 0,
     }
 
     quality_summary = _build_quality_gate_summary(report)

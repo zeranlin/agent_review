@@ -246,6 +246,7 @@ def test_review_task_planning_exposes_a_clear_contract_for_unknown_documents() -
     assert isinstance(contract.activated_risk_families, list)
     assert isinstance(contract.suppressed_risk_families, list)
     assert isinstance(contract.high_value_fields, list)
+    assert isinstance(contract.target_zones, list)
     assert contract.planned_catalog_ids
     assert contract.extraction_demands
     assert "抽取需求" in planning_stage.detail
@@ -271,6 +272,11 @@ def test_planning_guided_extraction_reuses_contract_demands() -> None:
     assert "付款节点" in report.review_planning_contract.extraction_demands
     assert report.review_planning_contract.required_task_extraction_demands
     assert isinstance(report.review_planning_contract.optional_enhancement_extraction_demands, list)
+    assert report.review_planning_contract.target_zones
+    assert report.review_planning_contract.matched_extraction_fields
+    assert report.review_planning_contract.required_hit_fields
+    assert report.review_planning_contract.clause_unit_targeted_count >= 0
+    assert report.review_planning_contract.text_fallback_clause_count >= 0
     assert "抽取需求" in planning_stage.detail
     assert "extraction demand" in guided_stage.detail
 

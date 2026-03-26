@@ -334,25 +334,48 @@ class ReviewPipeline:
             return
 
         before_count = len(state.extracted_clauses)
+        target_zones = set(state.review_planning_contract.target_zones) if state.review_planning_contract else set()
         if state.parse_result.clause_units:
             unit_targeted = extract_clauses_from_units(
                 state.parse_result.clause_units,
                 field_names=target_fields,
+                target_zones=target_zones or None,
             )
+            matched_unit_fields = {item.field_name for item in unit_targeted if item.field_name}
+            missing_fields = target_fields - matched_unit_fields
             text_targeted = extract_clauses(
                 state.normalized_text,
-                field_names=target_fields,
-            )
+                field_names=missing_fields or set(),
+            ) if missing_fields else []
             targeted = _merge_extracted_clauses(unit_targeted, text_targeted)
         else:
             targeted = extract_clauses(
                 state.normalized_text,
                 field_names=target_fields,
             )
+            unit_targeted = []
+            text_targeted = targeted
         state.extracted_clauses = classify_extracted_clauses(
             _merge_extracted_clauses(state.extracted_clauses, targeted)
         )
         added_count = len(state.extracted_clauses) - before_count
+        matched_fields = _ordered_unique(item.field_name for item in targeted if item.field_name)
+        if state.review_planning_contract:
+            state.review_planning_contract.matched_extraction_fields = matched_fields
+            state.review_planning_contract.base_hit_fields = _ordered_unique(
+                field for field in matched_fields if field in state.review_planning_contract.base_extraction_demands
+            )
+            state.review_planning_contract.required_hit_fields = _ordered_unique(
+                field for field in matched_fields if field in state.review_planning_contract.required_task_extraction_demands
+            )
+            state.review_planning_contract.optional_hit_fields = _ordered_unique(
+                field for field in matched_fields if field in state.review_planning_contract.optional_enhancement_extraction_demands
+            )
+            state.review_planning_contract.unknown_fallback_hit_fields = _ordered_unique(
+                field for field in matched_fields if field in state.review_planning_contract.unknown_fallback_extraction_demands
+            )
+            state.review_planning_contract.clause_unit_targeted_count = len(unit_targeted)
+            state.review_planning_contract.text_fallback_clause_count = len(text_targeted)
         base_preview = ",".join(state.review_planning_contract.base_extraction_demands[:3])
         required_preview = ",".join(state.review_planning_contract.required_task_extraction_demands[:3])
         optional_preview = ",".join(state.review_planning_contract.optional_enhancement_extraction_demands[:3])
@@ -363,7 +386,9 @@ class ReviewPipeline:
                 status="completed",
                 item_count=added_count,
                 detail=(
-                    f"按 review planning 的 extraction demand 定向抽取 {len(target_fields)} 个字段，新增 {added_count} 条结构化条款。"
+                    f"按 review planning 的 extraction demand 定向抽取 {len(target_fields)} 个字段，"
+                    f"目标 zone {len(target_zones)} 个，新增 {added_count} 条结构化条款。"
+                    f" ClauseUnit命中 {len(unit_targeted)} 条，文本fallback {len(text_targeted)} 条。"
                     + (f" 基础必抽：{base_preview}。" if base_preview else "")
                     + (f" 任务必需：{required_preview}。" if required_preview else "")
                     + (f" 可选增强：{optional_preview}。" if optional_preview else "")
@@ -808,6 +833,7 @@ def _build_review_planning_contract(
     priority_dimensions = _ordered_unique(point.dimension for point in review_points)
     activated_risk_families = _ordered_unique(definition.risk_family for definition in definitions if definition.risk_family)
     suppressed_risk_families = _suppressed_risk_families(document_profile, activated_risk_families)
+    target_zones = _ordered_unique(zone for definition in definitions for zone in (definition.target_zones or []))
     activation_reasons = _ordered_unique(
         [
             *document_profile.routing_reasons,
@@ -867,6 +893,7 @@ def _build_review_planning_contract(
         activation_reasons=activation_reasons,
         activated_risk_families=activated_risk_families,
         suppressed_risk_families=suppressed_risk_families,
+        target_zones=target_zones,
         planned_catalog_ids=planned_catalog_ids,
         priority_dimensions=priority_dimensions,
         base_extraction_demands=base_extraction_demands,

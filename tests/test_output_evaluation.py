@@ -97,6 +97,7 @@ def test_write_review_artifacts_emits_evaluation_summary(tmp_path: Path) -> None
     assert "review_point_metadata" in evaluation_summary
     assert "parser_semantic_assist" in evaluation_summary
     assert "review_planning_contract" in evaluation_summary
+    assert "target_zone_count" in evaluation_summary["review_planning_contract"]
     assert evaluation_summary["review_point_metadata"]["required_field_count"] >= 1
     assert evaluation_summary["prompt_volume"]["task_char_counts"]["scenario_review"] == len(
         build_scenario_review_prompt(enhanced_report)
