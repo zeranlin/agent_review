@@ -1,59 +1,184 @@
+from __future__ import annotations
+
+import importlib.util
+import sys
 from pathlib import Path
+import types
 
-from docx import Document
-
-from agent_review.parsers import load_document
-from agent_review.ontology import SemanticZoneType
-
-
-def _zone_map(parse_result):
-    return {item.node_id: item for item in parse_result.semantic_zones}
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src" / "agent_review"
 
 
-def test_zone_classifier_identifies_template_and_scoring(tmp_path: Path) -> None:
-    file_path = tmp_path / "zone.docx"
-    document = Document()
-    document.add_paragraph("第三章 投标文件格式、附件", style="Heading 1")
-    document.add_paragraph("中小企业声明函（格式）", style="Heading 2")
-    document.add_paragraph("投标人应按以下格式填写。")
-    document.add_paragraph("综合评分法评标信息", style="Heading 1")
-    table = document.add_table(rows=2, cols=3)
-    table.rows[0].cells[0].text = "评分项"
-    table.rows[0].cells[1].text = "分值"
-    table.rows[0].cells[2].text = "评分标准"
-    table.rows[1].cells[0].text = "检测报告"
-    table.rows[1].cells[1].text = "5"
-    table.rows[1].cells[2].text = "提供得分"
-    document.save(file_path)
-
-    _, parse_result = load_document(file_path)
-    zones = _zone_map(parse_result)
-    node_map = {item.node_id: item for item in parse_result.document_nodes}
-
-    template_node = next(item for item in parse_result.document_nodes if "中小企业声明函（格式）" in item.title)
-    scoring_table_row = next(item for item in parse_result.document_nodes if item.node_type.value == "table_row")
-
-    assert zones[template_node.node_id].zone_type == SemanticZoneType.template
-    assert zones[scoring_table_row.node_id].zone_type == SemanticZoneType.scoring
-    assert "投标文件格式" in node_map[template_node.node_id].path
+def _ensure_package(name: str, path: Path) -> types.ModuleType:
+    module = sys.modules.get(name)
+    if module is None:
+        module = types.ModuleType(name)
+        module.__path__ = [str(path)]  # type: ignore[attr-defined]
+        sys.modules[name] = module
+    return module
 
 
-def test_zone_classifier_identifies_qualification_and_technical(tmp_path: Path) -> None:
-    file_path = tmp_path / "zone2.docx"
-    document = Document()
-    document.add_paragraph("第一章 招标公告", style="Heading 1")
-    document.add_paragraph("投标人资格要求", style="Heading 2")
-    document.add_paragraph("投标人须具备相关资质。")
-    document.add_paragraph("第二章 招标项目需求", style="Heading 1")
-    document.add_paragraph("四、具体技术要求", style="Heading 2")
-    document.add_paragraph("家具甲醛释放量应符合国家标准。")
-    document.save(file_path)
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load module: {name}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
-    _, parse_result = load_document(file_path)
-    zones = _zone_map(parse_result)
 
-    qualification_node = next(item for item in parse_result.document_nodes if item.title == "投标人资格要求")
-    technical_node = next(item for item in parse_result.document_nodes if item.title == "四、具体技术要求")
+_ensure_package("agent_review", SRC_ROOT)
+_ensure_package("agent_review.structure", SRC_ROOT / "structure")
+ontology = _load_module("agent_review.ontology", SRC_ROOT / "ontology.py")
+models = _load_module("agent_review.models", SRC_ROOT / "models.py")
+zone_classifier = _load_module("agent_review.structure.zone_classifier", SRC_ROOT / "structure" / "zone_classifier.py")
+
+DocumentNode = models.DocumentNode
+NodeType = ontology.NodeType
+SemanticZoneType = ontology.SemanticZoneType
+SourceAnchor = models.SourceAnchor
+classify_semantic_zones = zone_classifier.classify_semantic_zones
+
+
+def _node(
+    node_id: str,
+    *,
+    node_type: NodeType,
+    title: str,
+    text: str,
+    path: str,
+    table_kind: str = "",
+) -> DocumentNode:
+    return DocumentNode(
+        node_id=node_id,
+        node_type=node_type,
+        title=title,
+        text=text,
+        path=path,
+        anchor=SourceAnchor(line_hint=f"line:{node_id}"),
+        metadata={"table_kind": table_kind} if table_kind else {},
+    )
+
+
+def _zone_map(nodes: list[DocumentNode]):
+    return {item.node_id: item for item in classify_semantic_zones(nodes)}
+
+
+def test_zone_classifier_identifies_qualification_and_technical() -> None:
+    qualification_node = _node(
+        "q-1",
+        node_type=NodeType.paragraph,
+        title="投标人资格要求",
+        text="投标人须具备相关资质。",
+        path="ROOT > 第一章 招标公告 > 投标人资格要求",
+    )
+    technical_node = _node(
+        "t-1",
+        node_type=NodeType.paragraph,
+        title="四、具体技术要求",
+        text="家具甲醛释放量应符合国家标准。",
+        path="ROOT > 第二章 招标项目需求 > 四、具体技术要求",
+    )
+
+    zones = _zone_map([qualification_node, technical_node])
 
     assert zones[qualification_node.node_id].zone_type == SemanticZoneType.qualification
     assert zones[technical_node.node_id].zone_type == SemanticZoneType.technical
+
+
+def test_zone_classifier_uses_path_for_business_and_contract_boundaries() -> None:
+    business_node = _node(
+        "b-1",
+        node_type=NodeType.paragraph,
+        title="商务部分",
+        text="交货和售后服务要求。",
+        path="ROOT > 第二章 商务要求 > 商务部分",
+    )
+    contract_node = _node(
+        "c-1",
+        node_type=NodeType.paragraph,
+        title="专用条款",
+        text="付款方式为验收合格后支付。",
+        path="ROOT > 第四章 合同条款 > 专用条款",
+    )
+    payment_node = _node(
+        "c-2",
+        node_type=NodeType.paragraph,
+        title="付款方式为验收合格后支付。",
+        text="付款方式为验收合格后支付。",
+        path="ROOT > 第四章 合同条款 > 付款方式",
+    )
+
+    zones = _zone_map([business_node, contract_node, payment_node])
+
+    assert zones[business_node.node_id].zone_type == SemanticZoneType.business
+    assert zones[contract_node.node_id].zone_type == SemanticZoneType.contract
+    assert zones[payment_node.node_id].zone_type == SemanticZoneType.contract
+
+
+def test_zone_classifier_prefers_scoring_for_table_headers_and_rows() -> None:
+    scoring_table = _node(
+        "s-table",
+        node_type=NodeType.table,
+        title="第三章 评标办法",
+        text="评审项 | 分值 | 评分标准\n检测报告 | 5 | 材料要求",
+        path="ROOT > 第三章 评标办法 > 综合评分法评标信息",
+        table_kind="scoring",
+    )
+    scoring_row = _node(
+        "s-row",
+        node_type=NodeType.table_row,
+        title="检测报告 | 5 | 材料要求",
+        text="检测报告 | 5 | 材料要求",
+        path="ROOT > 第三章 评标办法 > 综合评分法评标信息 > row:2",
+    )
+
+    zones = _zone_map([scoring_table, scoring_row])
+
+    assert zones[scoring_table.node_id].zone_type == SemanticZoneType.scoring
+    assert zones[scoring_row.node_id].zone_type == SemanticZoneType.scoring
+
+
+def test_zone_classifier_distinguishes_template_from_short_attachment_reference() -> None:
+    template_node = _node(
+        "a-1",
+        node_type=NodeType.appendix,
+        title="中小企业声明函（格式）详见附件1。",
+        text="中小企业声明函（格式）详见附件1。",
+        path="ROOT > 第四章 投标文件格式、附件 > 中小企业声明函（格式）详见附件1。",
+    )
+    appendix_node = _node(
+        "a-2",
+        node_type=NodeType.paragraph,
+        title="详见附件2评审资料清单。",
+        text="详见附件2评审资料清单。",
+        path="ROOT > 第四章 附件 > 详见附件2评审资料清单。",
+    )
+
+    zones = _zone_map([template_node, appendix_node])
+
+    assert zones[template_node.node_id].zone_type == SemanticZoneType.mixed_or_uncertain
+    assert zones[appendix_node.node_id].zone_type == SemanticZoneType.appendix_reference
+
+
+def test_zone_classifier_marks_policy_explanation_and_catalog_nodes() -> None:
+    catalog_node = _node(
+        "cat-1",
+        node_type=NodeType.catalog_entry,
+        title="第一章 招标公告",
+        text="第一章 招标公告",
+        path="ROOT > 目录 > 第一章 招标公告",
+    )
+    policy_node = _node(
+        "p-1",
+        node_type=NodeType.paragraph,
+        title="依据《政府采购促进中小企业发展管理办法》执行。",
+        text="依据《政府采购促进中小企业发展管理办法》执行。",
+        path="ROOT > 政策说明 > 依据《政府采购促进中小企业发展管理办法》执行。",
+    )
+
+    zones = _zone_map([catalog_node, policy_node])
+
+    assert zones[catalog_node.node_id].zone_type == SemanticZoneType.catalog_or_navigation
+    assert zones[policy_node.node_id].zone_type == SemanticZoneType.policy_explanation
