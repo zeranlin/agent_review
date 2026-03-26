@@ -111,3 +111,21 @@ LLM 只用于低置信语义判定，不接管 parser 主流程。
 - 条款单元
 
 逐步接入 `ReviewPipeline`。
+
+## 第二阶段收口状态
+
+当前仓库已经把第二阶段的主链路落到事实工件上，顺序如下：
+
+`RawBlock` / `RawTable` -> `DocumentNode` -> `SemanticZone` -> `EffectTagResult` -> `ClauseUnit` -> `clause_extraction` -> `review_quality_gate` -> `formal_adjudication`
+
+这条链路的含义是：
+
+- `ClauseUnit` 现在是条款抽取的优先输入，而不是唯一输入
+- 全文抽取仍作为补位路径保留，用于覆盖结构化单元暂时未命中的内容
+- `template`、`example`、`reference_only` 等弱效力信号会影响质量门和正式裁定
+- 模板、附件、评分表、资格条件、商务/技术区分这几类结构，应该优先通过区域和效力来判断，而不是单纯靠全文关键词
+
+第二阶段回归样例与验收口径集中写在：
+
+- [docs/parser_second_phase_eval.md](/Users/linzeran/code/2026-zn/agent_review/docs/parser_second_phase_eval.md)
+- [tests/test_parser_second_phase_regression.py](/Users/linzeran/code/2026-zn/agent_review/tests/test_parser_second_phase_regression.py)
