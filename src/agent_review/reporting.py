@@ -780,7 +780,9 @@ def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
         if not title or title in formal_titles:
             continue
         family_key = _review_family_key(title)
-        if family_key in formal_families or family_key in seen_families:
+        if family_key in seen_families:
+            continue
+        if family_key in formal_families and family_key not in {"prudential"}:
             continue
         section_hint = adjudication.section_hint or "未明确定位"
         quote = adjudication.primary_quote or "当前自动抽取未定位到可直接引用的原文。"

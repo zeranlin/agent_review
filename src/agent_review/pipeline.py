@@ -262,6 +262,9 @@ class ReviewPipeline:
         profile_summary = state.document_profile.procurement_kind if state.document_profile else "unknown"
         activation_hint_summary = ",".join(state.document_profile.risk_activation_hints[:3]) if state.document_profile else ""
         demand_count = len(state.review_planning_contract.extraction_demands) if state.review_planning_contract else 0
+        base_count = len(state.review_planning_contract.base_extraction_demands) if state.review_planning_contract else 0
+        enhancement_count = len(state.review_planning_contract.enhancement_extraction_demands) if state.review_planning_contract else 0
+        fallback_count = len(state.review_planning_contract.unknown_fallback_extraction_demands) if state.review_planning_contract else 0
         state.stage_records.append(
             RunStageRecord(
                 stage_name="review_task_planning",
@@ -270,6 +273,7 @@ class ReviewPipeline:
                 detail=(
                     f"已基于 {profile_summary} 画像与 activation hints 规划 {len(planned_points)} 个待执行审查点，"
                     f"形成 {demand_count} 项抽取需求。"
+                    f" 需求分层：基础必抽 {base_count}、任务增强 {enhancement_count}、unknown fallback {fallback_count}。"
                     + (f" 关键提示：{activation_hint_summary}。" if activation_hint_summary else "")
                 ),
             )
@@ -308,7 +312,9 @@ class ReviewPipeline:
             _merge_extracted_clauses(state.extracted_clauses, targeted)
         )
         added_count = len(state.extracted_clauses) - before_count
-        demand_preview = ",".join(state.review_planning_contract.extraction_demands[:5])
+        base_preview = ",".join(state.review_planning_contract.base_extraction_demands[:3])
+        enhancement_preview = ",".join(state.review_planning_contract.enhancement_extraction_demands[:3])
+        fallback_preview = ",".join(state.review_planning_contract.unknown_fallback_extraction_demands[:3])
         state.stage_records.append(
             RunStageRecord(
                 stage_name="planning_guided_extraction",
@@ -316,7 +322,9 @@ class ReviewPipeline:
                 item_count=added_count,
                 detail=(
                     f"按 review planning 的 extraction demand 定向抽取 {len(target_fields)} 个字段，新增 {added_count} 条结构化条款。"
-                    + (f" 重点字段：{demand_preview}。" if demand_preview else "")
+                    + (f" 基础必抽：{base_preview}。" if base_preview else "")
+                    + (f" 任务增强：{enhancement_preview}。" if enhancement_preview else "")
+                    + (f" unknown fallback：{fallback_preview}。" if fallback_preview else "")
                 ),
             )
         )
@@ -751,7 +759,24 @@ def _build_review_planning_contract(
     )
     planned_catalog_ids = _ordered_unique(point.catalog_id for point in review_points)
     priority_dimensions = _ordered_unique(point.dimension for point in review_points)
-    extraction_demands = _collect_extraction_demands(review_points)
+    base_extraction_demands = _build_base_extraction_demands(document_profile, route_tags)
+    enhancement_extraction_demands = [
+        field
+        for field in _collect_enhancement_extraction_demands(review_points)
+        if field not in base_extraction_demands
+    ]
+    unknown_fallback_extraction_demands = [
+        field
+        for field in _build_unknown_fallback_extraction_demands(document_profile, route_tags)
+        if field not in base_extraction_demands and field not in enhancement_extraction_demands
+    ]
+    extraction_demands = _ordered_unique(
+        [
+            *base_extraction_demands,
+            *enhancement_extraction_demands,
+            *unknown_fallback_extraction_demands,
+        ]
+    )
     summary = (
         f"已将 {document_profile.procurement_kind} 画像转成 {len(planned_catalog_ids)} 个待执行审查点，"
         f"并显式暴露 {len(extraction_demands)} 项抽取需求。"
@@ -763,6 +788,9 @@ def _build_review_planning_contract(
         routing_flags=routing_flags,
         planned_catalog_ids=planned_catalog_ids,
         priority_dimensions=priority_dimensions,
+        base_extraction_demands=base_extraction_demands,
+        enhancement_extraction_demands=enhancement_extraction_demands,
+        unknown_fallback_extraction_demands=unknown_fallback_extraction_demands,
         extraction_demands=extraction_demands,
         summary=summary,
     )
@@ -788,7 +816,7 @@ def _route_tags_from_profile(document_profile: DocumentProfile) -> list[str]:
     return tags
 
 
-def _collect_extraction_demands(review_points: list[ReviewPoint]) -> list[str]:
+def _collect_enhancement_extraction_demands(review_points: list[ReviewPoint]) -> list[str]:
     demands: list[str] = []
     for point in review_points:
         definition = resolve_review_point_definition(point.title, point.dimension, point.severity)
@@ -800,6 +828,46 @@ def _collect_extraction_demands(review_points: list[ReviewPoint]) -> list[str]:
             if field_name and field_name not in demands:
                 demands.append(field_name)
     return demands
+
+
+def _build_base_extraction_demands(
+    document_profile: DocumentProfile,
+    route_tags: list[str],
+) -> list[str]:
+    demands = ["项目属性", "采购标的", "采购内容构成"]
+    route_tag_set = set(route_tags)
+    if "contract" in route_tag_set:
+        demands.extend(["付款节点", "验收标准", "违约责任"])
+    if "scoring" in route_tag_set:
+        demands.extend(["评分方法", "评分项明细"])
+    if "policy" in route_tag_set:
+        demands.extend(["是否专门面向中小企业", "中小企业声明函类型", "是否仍保留价格扣除条款"])
+    if "qualification" in route_tag_set:
+        demands.extend(["一般资格要求", "特定资格要求", "资格条件明细"])
+    if "template" in route_tag_set:
+        demands.extend(["投标文件格式", "附件引用"])
+    if document_profile.procurement_kind in {"goods", "service"}:
+        demands.extend(["采购方式", "合同履行期限"])
+    return _ordered_unique(demands)
+
+
+def _build_unknown_fallback_extraction_demands(
+    document_profile: DocumentProfile,
+    route_tags: list[str],
+) -> list[str]:
+    if document_profile.procurement_kind not in {"unknown", "mixed"}:
+        return []
+    demands = ["采购包数量", "采购包划分说明", "合同类型", "合同履行期限"]
+    route_tag_set = set(route_tags)
+    if "template" in route_tag_set:
+        demands.extend(["投标文件格式", "附件引用"])
+    if "structure" in route_tag_set or "consistency" in route_tag_set:
+        demands.extend(["预算金额", "最高限价", "采购方式", "采购方式适用理由"])
+    if "scoring" in route_tag_set:
+        demands.extend(["评分方法", "评分项明细"])
+    if "contract" in route_tag_set:
+        demands.extend(["付款节点", "验收标准"])
+    return _ordered_unique(demands)
 
 
 def _ordered_unique(items) -> list[str]:

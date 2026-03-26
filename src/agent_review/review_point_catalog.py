@@ -1021,12 +1021,18 @@ def select_standard_review_tasks(
 ) -> list[ReviewPointDefinition]:
     routing_profile = document_profile or build_document_profile(text, extracted_clauses)
     active_tags = build_active_task_tags(text, extracted_clauses, document_profile=routing_profile)
+    present_fields = {clause.field_name for clause in extracted_clauses if clause.field_name}
     selected: list[ReviewPointDefinition] = []
     seen: set[str] = set()
     for definition in CATALOG:
         if definition.catalog_id in seen:
             continue
-        if _definition_matches_active_tags(definition, active_tags, document_profile=routing_profile):
+        if _definition_matches_active_tags(definition, active_tags, document_profile=routing_profile) and _definition_has_planning_support(
+            definition,
+            present_fields=present_fields,
+            active_tags=active_tags,
+            document_profile=routing_profile,
+        ):
             selected.append(definition)
             seen.add(definition.catalog_id)
     return selected
@@ -1299,6 +1305,128 @@ def _definition_matches_active_tags(
             if not (set(definition.scenario_tags) & allowed_domain_hints):
                 return False
     return any(tag in active_tags for tag in definition.scenario_tags)
+
+
+def _definition_has_planning_support(
+    definition: ReviewPointDefinition,
+    *,
+    present_fields: set[str],
+    active_tags: set[str],
+    document_profile: DocumentProfile,
+) -> bool:
+    required_fields = {
+        field
+        for condition in [*definition.required_conditions, *definition.exclusion_conditions]
+        for field in condition.clause_fields
+        if field
+    }
+    enhancement_fields = {field for field in definition.enhancement_fields if field}
+    required_hits = required_fields & present_fields
+    enhancement_hits = enhancement_fields & present_fields
+
+    if required_hits:
+        return True
+    if len(enhancement_hits) >= 2:
+        return True
+    if enhancement_hits and _definition_has_strong_route_support(definition, active_tags, document_profile):
+        return True
+    if {"service", "personnel"}.issubset(set(definition.scenario_tags)) and _definition_has_strong_route_support(
+        definition,
+        active_tags,
+        document_profile,
+    ):
+        return True
+    if not required_fields and not enhancement_fields and _definition_has_strong_route_support(
+        definition,
+        active_tags,
+        document_profile,
+    ):
+        return True
+    if _definition_is_unknown_fallback(definition, document_profile):
+        return True
+    if _definition_is_structural_fallback(definition, document_profile):
+        return True
+    return False
+
+
+def _definition_has_strong_route_support(
+    definition: ReviewPointDefinition,
+    active_tags: set[str],
+    document_profile: DocumentProfile,
+) -> bool:
+    scenario_tags = set(definition.scenario_tags)
+    structure_flags = set(document_profile.structure_flags)
+    quality_flags = set(document_profile.quality_flags)
+    strong_route_tags = set(profile_activation_tags(document_profile)) | set(_profile_routing_tags(document_profile))
+
+    if scenario_tags & {"goods", "service", "furniture", "property", "personnel"}:
+        return bool(scenario_tags & strong_route_tags) or bool(scenario_tags & active_tags)
+    if "contract" in scenario_tags:
+        return "contract" in active_tags and "heavy_contract_terms" in structure_flags
+    if "template" in scenario_tags:
+        return "template" in active_tags and bool(
+            {"heavy_template_pollution", "template_pollution", "attachment_driven_structure"} & structure_flags
+            or {"template_ratio_high", "template_appendix_mix_high"} & quality_flags
+        )
+    if "scoring" in scenario_tags:
+        return "scoring" in active_tags and bool({"heavy_scoring_tables", "scoring_dense_structure"} & structure_flags)
+    if "policy" in scenario_tags:
+        return "policy" in active_tags
+    if "structure" in scenario_tags:
+        return "structure" in active_tags
+    if "consistency" in scenario_tags:
+        return "consistency" in active_tags and len(active_tags & {"contract", "template", "policy", "scoring", "structure"}) >= 2
+    if "prudential" in scenario_tags:
+        return "prudential" in active_tags
+    return False
+
+
+def _definition_is_unknown_fallback(
+    definition: ReviewPointDefinition,
+    document_profile: DocumentProfile,
+) -> bool:
+    if document_profile.procurement_kind not in {"unknown", "mixed"}:
+        return False
+    scenario_tags = set(definition.scenario_tags)
+    unknown_flags = set(document_profile.unknown_structure_flags)
+    hint_flags = set(document_profile.risk_activation_hints)
+    if scenario_tags & {"structure", "template", "consistency"}:
+        return bool(
+            (unknown_flags | hint_flags)
+            & {
+                "unknown_catalog_navigation",
+                "unknown_template_pollution",
+                "unknown_attachment_driven_structure",
+                "unknown_low_clause_support",
+                "unknown_document",
+                "unknown_document_first",
+                "unknown_domain_lexicon_gap",
+                "unknown_procurement_kind",
+                "template",
+                "structure",
+                "consistency",
+            }
+        )
+    if scenario_tags & {"contract", "scoring"}:
+        return bool((unknown_flags | hint_flags) & {"unknown_scoring_dense_structure", "unknown_template_pollution", "contract", "scoring"})
+    if scenario_tags & {"policy", "prudential"}:
+        return bool((unknown_flags | hint_flags) & {"unknown_document", "unknown_domain_lexicon_gap", "policy", "prudential"})
+    return False
+
+
+def _definition_is_structural_fallback(
+    definition: ReviewPointDefinition,
+    document_profile: DocumentProfile,
+) -> bool:
+    scenario_tags = set(definition.scenario_tags)
+    structure_flags = set(document_profile.structure_flags)
+    if scenario_tags == {"contract"}:
+        return "heavy_contract_terms" in structure_flags
+    if scenario_tags == {"scoring"}:
+        return "heavy_scoring_tables" in structure_flags
+    if scenario_tags == {"template"}:
+        return bool({"heavy_template_pollution", "attachment_driven_structure"} & structure_flags)
+    return False
 
 
 def _has_clause_support(

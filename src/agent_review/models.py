@@ -753,6 +753,9 @@ class ReviewPlanningContract:
     routing_flags: list[str] = field(default_factory=list)
     planned_catalog_ids: list[str] = field(default_factory=list)
     priority_dimensions: list[str] = field(default_factory=list)
+    base_extraction_demands: list[str] = field(default_factory=list)
+    enhancement_extraction_demands: list[str] = field(default_factory=list)
+    unknown_fallback_extraction_demands: list[str] = field(default_factory=list)
     extraction_demands: list[str] = field(default_factory=list)
     summary: str = ""
 
