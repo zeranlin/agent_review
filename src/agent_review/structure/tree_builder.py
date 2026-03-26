@@ -19,61 +19,74 @@ def build_document_tree(parse_result: ParseResult) -> list[DocumentNode]:
     stack: list[tuple[int, str]] = [(0, root.node_id)]
     in_catalog = False
     seen_catalog_entries = False
+    events: list[tuple[int, int, str, RawBlock | RawTable]] = []
+    for index, block in enumerate(parse_result.raw_blocks):
+        order = int(block.metadata.get("document_order", index))
+        events.append((order, 0, "block", block))
+    for index, raw_table in enumerate(parse_result.raw_tables):
+        order = int(raw_table.metadata.get("document_order", index))
+        events.append((order, 1, "table", raw_table))
+    events.sort(key=lambda item: (item[0], item[1]))
 
-    for block in parse_result.raw_blocks:
-        text = block.text.strip()
-        if not text:
+    for _, _, kind, item in events:
+        if kind == "block":
+            block = item
+            text = block.text.strip()
+            if not text:
+                continue
+
+            if text == "目录":
+                node = _make_block_node(block, NodeType.catalog_entry, "目录", "ROOT > 目录", root.node_id)
+                nodes.append(node)
+                _append_child(nodes, root.node_id, node.node_id)
+                in_catalog = True
+                continue
+
+            if in_catalog and block.metadata.get("catalog_candidate"):
+                node = _make_block_node(
+                    block,
+                    NodeType.catalog_entry,
+                    text,
+                    f"ROOT > 目录 > {text}",
+                    root.node_id,
+                )
+                nodes.append(node)
+                _append_child(nodes, root.node_id, node.node_id)
+                seen_catalog_entries = True
+                continue
+
+            if in_catalog and seen_catalog_entries:
+                in_catalog = False
+
+            level = int(block.metadata.get("numbering_level_guess", 0) or 0)
+            title = text
+            if block.metadata.get("heading_candidate") and (level > 0 or _is_free_heading_candidate(text)):
+                if level <= 0:
+                    level = min((stack[-1][0] if stack else 0) + 1, 3)
+                while stack and stack[-1][0] >= level:
+                    stack.pop()
+                parent_id = stack[-1][1] if stack else root.node_id
+                path = _path_for(nodes, parent_id, title)
+                node = _make_heading_node(block, level, title, path, parent_id)
+                nodes.append(node)
+                _append_child(nodes, parent_id, node.node_id)
+                stack.append((level, node.node_id))
+            else:
+                parent_id = stack[-1][1] if stack else root.node_id
+                path = _path_for(nodes, parent_id, title[:48])
+                node = _make_block_node(block, NodeType.paragraph, title, path, parent_id)
+                nodes.append(node)
+                _append_child(nodes, parent_id, node.node_id)
             continue
 
-        if text == "目录":
-            node = _make_block_node(block, NodeType.catalog_entry, "目录", "ROOT > 目录", root.node_id)
-            nodes.append(node)
-            _append_child(nodes, root.node_id, node.node_id)
-            in_catalog = True
-            continue
-
-        if in_catalog and block.metadata.get("catalog_candidate"):
-            node = _make_block_node(
-                block,
-                NodeType.catalog_entry,
-                text,
-                f"ROOT > 目录 > {text}",
-                root.node_id,
-            )
-            nodes.append(node)
-            _append_child(nodes, root.node_id, node.node_id)
-            seen_catalog_entries = True
-            continue
-
-        if in_catalog and seen_catalog_entries:
-            in_catalog = False
-
-        level = int(block.metadata.get("numbering_level_guess", 0) or 0)
-        title = text
-        if block.metadata.get("heading_candidate") and level > 0:
-            while stack and stack[-1][0] >= level:
-                stack.pop()
-            parent_id = stack[-1][1] if stack else root.node_id
-            path = _path_for(nodes, parent_id, title)
-            node = _make_heading_node(block, level, title, path, parent_id)
-            nodes.append(node)
-            _append_child(nodes, parent_id, node.node_id)
-            stack.append((level, node.node_id))
-        else:
-            parent_id = stack[-1][1] if stack else root.node_id
-            path = _path_for(nodes, parent_id, title[:48])
-            node = _make_block_node(block, NodeType.paragraph, title, path, parent_id)
-            nodes.append(node)
-            _append_child(nodes, parent_id, node.node_id)
-
-    for raw_table in parse_result.raw_tables:
-        parent_id = stack[-1][1] if stack else root.node_id
-        table_title = raw_table.title_hint or raw_table.table_id
-        table_path = _path_for(nodes, parent_id, table_title)
+        raw_table = item
+        parent_id = _table_parent_id(nodes, stack)
+        table_title = raw_table.title_hint or raw_table.metadata.get("preceding_heading") or raw_table.table_id
+        table_path = _path_for(nodes, parent_id, str(table_title))
         table_node = DocumentNode(
             node_id=raw_table.table_id,
             node_type=NodeType.table,
-            title=table_title,
+            title=str(table_title),
             text="\n".join(" | ".join(cell.text for cell in row) for row in raw_table.rows),
             path=table_path,
             parent_id=parent_id,
@@ -101,11 +114,14 @@ def build_document_tree(parse_result: ParseResult) -> list[DocumentNode]:
 
 
 def _make_heading_node(block: RawBlock, level: int, title: str, path: str, parent_id: str) -> DocumentNode:
-    node_type = {
-        1: NodeType.chapter,
-        2: NodeType.section,
-        3: NodeType.subsection,
-    }.get(level, NodeType.list_item)
+    if _is_appendix_title(title):
+        node_type = NodeType.appendix
+    else:
+        node_type = {
+            1: NodeType.chapter,
+            2: NodeType.section,
+            3: NodeType.subsection,
+        }.get(level, NodeType.list_item)
     return DocumentNode(
         node_id=block.block_id,
         node_type=node_type,
@@ -138,6 +154,23 @@ def _append_child(nodes: list[DocumentNode], parent_id: str, child_id: str) -> N
             return
 
 
+def _table_parent_id(nodes: list[DocumentNode], stack: list[tuple[int, str]]) -> str:
+    for _, node_id in reversed(stack):
+        node = _find_node(nodes, node_id)
+        if node is None:
+            continue
+        if node.node_type not in {NodeType.paragraph, NodeType.list_item, NodeType.table_row, NodeType.table_cell, NodeType.note}:
+            return node_id
+    return stack[-1][1] if stack else "root"
+
+
+def _find_node(nodes: list[DocumentNode], node_id: str) -> DocumentNode | None:
+    for node in nodes:
+        if node.node_id == node_id:
+            return node
+    return None
+
+
 def _path_for(nodes: list[DocumentNode], parent_id: str, title: str) -> str:
     for node in nodes:
         if node.node_id == parent_id:
@@ -145,3 +178,25 @@ def _path_for(nodes: list[DocumentNode], parent_id: str, title: str) -> str:
                 return f"ROOT > {title}"
             return f"{node.path} > {title}"
     return f"ROOT > {title}"
+
+
+def _is_free_heading_candidate(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized or len(normalized) > 40:
+        return False
+    return any(
+        token in normalized
+        for token in [
+            "评标信息",
+            "评分标准",
+            "投标文件格式",
+            "声明函",
+            "附件",
+            "附表",
+        ]
+    )
+
+
+def _is_appendix_title(text: str) -> bool:
+    normalized = text.strip()
+    return normalized.startswith(("附件", "附表", "声明函", "承诺函")) or "投标文件格式" in normalized

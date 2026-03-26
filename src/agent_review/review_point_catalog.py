@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 
-from .models import ExtractedClause, ReviewPoint, ReviewPointCondition, ReviewPointDefinition, Severity
+from .models import ClauseRole, ExtractedClause, ReviewPoint, ReviewPointCondition, ReviewPointDefinition, Severity
+from .ontology import ClauseSemanticType, EffectTag, SemanticZoneType
 
 
 CATALOG: list[ReviewPointDefinition] = [
@@ -1018,13 +1019,156 @@ def select_standard_review_tasks(
     for definition in CATALOG:
         if definition.catalog_id in seen:
             continue
-        if not definition.scenario_tags or any(tag in active_tags for tag in definition.scenario_tags):
+        if _definition_matches_active_tags(definition, active_tags):
             selected.append(definition)
             seen.add(definition.catalog_id)
     return selected
 
 
 def _build_active_task_tags(text: str, extracted_clauses: list[ExtractedClause]) -> set[str]:
+    structured_tags = _structured_active_task_tags(extracted_clauses)
+    if extracted_clauses:
+        structured_tags.update(_text_support_tags(text))
+        if len(structured_tags & {"structure", "contract", "template", "policy", "scoring"}) >= 2:
+            structured_tags.add("consistency")
+        if _has_prudential_signals(extracted_clauses, text):
+            structured_tags.add("prudential")
+        return structured_tags
+    return _legacy_active_task_tags(text, extracted_clauses)
+
+
+def _structured_active_task_tags(extracted_clauses: list[ExtractedClause]) -> set[str]:
+    active_tags: set[str] = set()
+    if _has_clause_support(
+        extracted_clauses,
+        field_names={"资格条件明细", "一般资格要求", "特定资格要求", "是否要求认证证书", "证书材料适用阶段"},
+        expected_zones={SemanticZoneType.qualification, SemanticZoneType.mixed_or_uncertain},
+        allowed_roles={ClauseRole.qualification_or_scoring, ClauseRole.policy_explanation, ClauseRole.unknown},
+        allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},
+    ):
+        active_tags.add("qualification")
+    if _has_clause_support(
+        extracted_clauses,
+        field_names={
+            "评分方法",
+            "评分项明细",
+            "行业相关性存疑评分项",
+            "证书检测报告负担特征",
+            "证书类评分总分",
+            "信用评价要求",
+            "财务指标加分",
+            "人员评分要求",
+            "方案评分扣分模式",
+        },
+        expected_zones={SemanticZoneType.scoring, SemanticZoneType.mixed_or_uncertain},
+        allowed_roles={ClauseRole.qualification_or_scoring, ClauseRole.contract_term, ClauseRole.unknown},
+        allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},
+    ):
+        active_tags.add("scoring")
+    if _has_clause_support(
+        extracted_clauses,
+        field_names={
+            "付款节点",
+            "验收标准",
+            "考核条款",
+            "满意度条款",
+            "扣款条款",
+            "解约条款",
+            "违约责任",
+            "合同类型",
+            "合同履行期限",
+            "转包外包条款",
+        },
+        expected_zones={SemanticZoneType.contract, SemanticZoneType.mixed_or_uncertain},
+        allowed_roles={ClauseRole.contract_term, ClauseRole.qualification_or_scoring, ClauseRole.unknown},
+        allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},
+    ):
+        active_tags.add("contract")
+    if _has_clause_support(
+        extracted_clauses,
+        field_names={
+            "合同模板残留",
+            "合同成果模板术语",
+            "中小企业声明函类型",
+        },
+        expected_zones={SemanticZoneType.template, SemanticZoneType.appendix_reference},
+        allowed_roles={ClauseRole.form_template, ClauseRole.appendix_reference, ClauseRole.unknown},
+        allowed_effects={EffectTag.template, EffectTag.example, EffectTag.reference_only, EffectTag.catalog, EffectTag.public_copy_noise},
+    ):
+        active_tags.add("template")
+    if _has_clause_support(
+        extracted_clauses,
+        field_names={
+            "是否专门面向中小企业",
+            "是否仍保留价格扣除条款",
+            "是否为预留份额采购",
+            "分包比例",
+            "面向中小企业采购金额",
+            "最高限价",
+            "预算金额",
+        },
+        expected_zones={SemanticZoneType.policy_explanation, SemanticZoneType.administrative_info, SemanticZoneType.mixed_or_uncertain},
+        allowed_roles={ClauseRole.policy_explanation, ClauseRole.procurement_requirement, ClauseRole.unknown},
+        allowed_effects={EffectTag.binding, EffectTag.policy_background, EffectTag.optional, EffectTag.uncertain_effect},
+    ):
+        active_tags.add("policy")
+    if _has_clause_support(
+        extracted_clauses,
+        field_names={
+            "项目属性",
+            "采购标的",
+            "采购内容构成",
+            "是否含持续性服务",
+            "品目名称",
+            "所属行业划分",
+        },
+        expected_zones={SemanticZoneType.administrative_info, SemanticZoneType.business, SemanticZoneType.technical, SemanticZoneType.mixed_or_uncertain},
+        allowed_roles={ClauseRole.procurement_requirement, ClauseRole.unknown, ClauseRole.contract_term},
+        allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},
+    ):
+        active_tags.add("structure")
+    if _has_clause_support(
+        extracted_clauses,
+        field_names={
+            "团队稳定性要求",
+            "人员更换限制",
+            "采购人批准更换",
+            "采购人审批录用",
+            "人员评分要求",
+            "学历职称要求",
+        },
+        expected_zones={SemanticZoneType.business, SemanticZoneType.contract, SemanticZoneType.scoring},
+        allowed_roles={ClauseRole.contract_term, ClauseRole.qualification_or_scoring, ClauseRole.unknown},
+        allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},
+    ):
+        active_tags.add("personnel")
+    if any(
+        _clause_has_tokens(clause, ["服务", "物业", "驻场", "运维", "实施"])
+        for clause in extracted_clauses
+    ):
+        active_tags.add("service")
+    if any(_clause_has_tokens(clause, ["货物", "设备", "家具"]) for clause in extracted_clauses):
+        active_tags.add("goods")
+    if any(_clause_has_tokens(clause, ["家具"]) for clause in extracted_clauses):
+        active_tags.add("furniture")
+    if any(_clause_has_tokens(clause, ["物业"]) for clause in extracted_clauses):
+        active_tags.add("property")
+    if _has_clause_support(
+        extracted_clauses,
+        field_names={"需求调查结论", "专家论证结论"},
+        expected_zones={SemanticZoneType.administrative_info},
+        allowed_roles={ClauseRole.unknown, ClauseRole.document_definition},
+        allowed_effects={EffectTag.binding, EffectTag.optional, EffectTag.uncertain_effect},
+    ) or any(_clause_has_tokens(clause, ["复杂", "长期", "连续", "多项内容", "需要论证"]) for clause in extracted_clauses):
+        active_tags.add("prudential")
+    if any(clause.field_name == "采购方式" for clause in extracted_clauses):
+        active_tags.add("prudential")
+    if len(active_tags & {"qualification", "scoring", "contract", "template", "policy", "structure"}) >= 2:
+        active_tags.add("consistency")
+    return active_tags
+
+
+def _legacy_active_task_tags(text: str, extracted_clauses: list[ExtractedClause]) -> set[str]:
     active_tags = {
         "policy",
         "contract",
@@ -1061,6 +1205,91 @@ def _build_active_task_tags(text: str, extracted_clauses: list[ExtractedClause])
     ):
         active_tags.add("personnel")
     return active_tags
+
+
+def _text_support_tags(text: str) -> set[str]:
+    tags: set[str] = set()
+    if "服务" in text or "物业" in text or "运维" in text or "驻场" in text:
+        tags.update({"service", "property"} if "物业" in text else {"service"})
+    if "货物" in text or "设备" in text:
+        tags.add("goods")
+    if "家具" in text:
+        tags.update({"goods", "furniture"})
+    if "专门面向中小企业" in text or "价格扣除" in text:
+        tags.add("policy")
+    return tags
+
+
+def _has_prudential_signals(extracted_clauses: list[ExtractedClause], text: str) -> bool:
+    return any(
+        _clause_has_tokens(clause, ["复杂", "长期", "连续", "多项内容", "需要论证"])
+        for clause in extracted_clauses
+    ) or any(token in text for token in ["复杂", "长期", "连续", "需求调查", "专家论证"])
+
+
+def _definition_matches_active_tags(definition: ReviewPointDefinition, active_tags: set[str]) -> bool:
+    if not definition.scenario_tags:
+        return True
+    if definition.catalog_id in {"RP-QUAL-001", "RP-QUAL-002"}:
+        return "qualification" in active_tags and "scoring" in active_tags
+    return any(tag in active_tags for tag in definition.scenario_tags)
+
+
+def _has_clause_support(
+    extracted_clauses: list[ExtractedClause],
+    *,
+    field_names: set[str],
+    expected_zones: set[SemanticZoneType],
+    allowed_roles: set[ClauseRole],
+    allowed_effects: set[EffectTag],
+) -> bool:
+    for clause in extracted_clauses:
+        if field_names and clause.field_name not in field_names:
+            continue
+        if expected_zones and clause.semantic_zone not in expected_zones:
+            continue
+        if allowed_roles and clause.clause_role not in allowed_roles:
+            continue
+        if clause.effect_tags and all(tag not in allowed_effects for tag in clause.effect_tags):
+            continue
+        if _clause_is_weak_source(clause) and not allowed_effects.intersection(
+            {
+                EffectTag.template,
+                EffectTag.example,
+                EffectTag.reference_only,
+                EffectTag.catalog,
+                EffectTag.public_copy_noise,
+            }
+        ):
+            continue
+        return True
+    return False
+
+
+def _clause_is_weak_source(clause: ExtractedClause) -> bool:
+    if clause.clause_role in {
+        ClauseRole.form_template,
+        ClauseRole.appendix_reference,
+    }:
+        return True
+    if clause.semantic_zone in {
+        SemanticZoneType.template,
+        SemanticZoneType.appendix_reference,
+        SemanticZoneType.public_copy_or_noise,
+        SemanticZoneType.catalog_or_navigation,
+    }:
+        return True
+    if any(
+        tag in {EffectTag.template, EffectTag.example, EffectTag.reference_only, EffectTag.catalog, EffectTag.public_copy_noise}
+        for tag in clause.effect_tags
+    ):
+        return True
+    return False
+
+
+def _clause_has_tokens(clause: ExtractedClause, tokens: list[str]) -> bool:
+    haystack = " ".join([clause.content, clause.normalized_value, " ".join(clause.relation_tags)])
+    return any(token in haystack for token in tokens)
 
 
 def _first_clause_value(extracted_clauses: list[ExtractedClause], field_name: str) -> str:

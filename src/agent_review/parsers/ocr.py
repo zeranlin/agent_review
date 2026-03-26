@@ -10,6 +10,7 @@ from PIL import Image, ImageFilter, ImageOps
 from pypdf import PdfReader
 
 from ..models import ParseResult, ParsedPage, ParsedTable
+from .structure_helpers import extract_text_structure_artifacts
 from .vision_ocr import run_vision_ocr
 
 
@@ -40,6 +41,15 @@ def is_image_file(path: str | Path) -> bool:
 def parse_image_with_ocr(path: str | Path) -> ParseResult:
     target = Path(path).expanduser().resolve()
     ocr_result = run_ocr(target)
+    raw_blocks, raw_tables, parsed_tables, _, _ = extract_text_structure_artifacts(
+        ocr_result.text,
+        source_path=str(target),
+        source_label="ocr_image",
+        page_no=1,
+    )
+    if ocr_result.tables:
+        raw_tables = []
+        parsed_tables = []
     return ParseResult(
         parser_name="ocr_image",
         source_path=str(target),
@@ -47,7 +57,9 @@ def parse_image_with_ocr(path: str | Path) -> ParseResult:
         page_count=1,
         text=ocr_result.text,
         pages=[ParsedPage(page_index=1, text=ocr_result.text, source="ocr_image")],
-        tables=ocr_result.tables,
+        tables=ocr_result.tables + parsed_tables,
+        raw_blocks=raw_blocks,
+        raw_tables=raw_tables,
         warnings=ocr_result.warnings,
     )
 

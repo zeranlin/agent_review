@@ -12,6 +12,7 @@ from .models import (
     ReviewPointDefinition,
     ReviewPointStatus,
 )
+from .ontology import EffectTag, SemanticZoneType
 
 
 TaskEvidenceAssembler = Callable[[ReviewPointDefinition, list[ExtractedClause]], tuple[EvidenceBundle, ReviewPointStatus, str]]
@@ -553,6 +554,7 @@ def _assemble_qualification_boundary_evidence(
         and any(token in clause.content for token in qualification_requirement_tokens)
         and not any(token in clause.content for token in excluded_qualification_tokens)
         and "最高得" not in clause.content
+        and not _is_structurally_weak_clause(clause)
     ]
     scoring_pool = [
         clause
@@ -560,7 +562,10 @@ def _assemble_qualification_boundary_evidence(
         if any(token in clause.content for token in overlap_tokens)
         and any(token in clause.content for token in scoring_requirement_tokens)
         and not any(token in clause.content for token in ["电子签名和电子印章", "CA数字证书", "信用评价分无法使用", "联合体投标"])
+        and not _is_structurally_weak_clause(clause)
     ]
+    qualification_pool = _sort_candidate_clauses(qualification_pool)
+    scoring_pool = _sort_candidate_clauses(scoring_pool)
     if definition.catalog_id == "RP-QUAL-001":
         matched_tokens = [
             token
@@ -633,6 +638,8 @@ def _assemble_qualification_boundary_evidence(
                 or any(token in clause.content for token in ["投标文件", "评分", "评审", "加分", "得分", "提供", "提交", "扫描件"])
             )
         ]
+        qualification_clauses = _sort_candidate_clauses(qualification_clauses)
+        burden_clauses = _sort_candidate_clauses(burden_clauses)
         stage_clauses = _collect_by_fields_in_order(extracted_clauses, ["证书材料适用阶段", "检测报告适用阶段"])
         stage_is_bid = any("投标阶段" in (clause.normalized_value or clause.content) for clause in stage_clauses)
         non_scoring_burden = [
@@ -887,6 +894,8 @@ def _is_weak_anchor_clause(clause: ExtractedClause) -> bool:
     text = clause.content.strip()
     if not text:
         return True
+    if _is_structurally_weak_clause(clause):
+        return True
     if text in {
         "公开招标文件",
         "投标人的资格要求",
@@ -901,6 +910,76 @@ def _is_weak_anchor_clause(clause: ExtractedClause) -> bool:
     if clause.normalized_value == "存在" and len(text) <= 10:
         return True
     return False
+
+
+def _sort_candidate_clauses(clauses: list[ExtractedClause]) -> list[ExtractedClause]:
+    ordered = list(clauses)
+    ordered.sort(key=_clause_priority)
+    return _dedupe_clauses(ordered)
+
+
+def _clause_priority(clause: ExtractedClause) -> tuple[int, int, int, int, int]:
+    return (
+        1 if _is_structurally_weak_clause(clause) else 0,
+        0 if EffectTag.binding in clause.effect_tags else 1,
+        _zone_rank(clause.semantic_zone),
+        _role_rank(clause.clause_role),
+        -len(clause.content or clause.normalized_value),
+    )
+
+
+def _zone_rank(zone: SemanticZoneType) -> int:
+    return {
+        SemanticZoneType.qualification: 0,
+        SemanticZoneType.scoring: 0,
+        SemanticZoneType.contract: 0,
+        SemanticZoneType.technical: 1,
+        SemanticZoneType.business: 1,
+        SemanticZoneType.administrative_info: 2,
+        SemanticZoneType.policy_explanation: 3,
+        SemanticZoneType.mixed_or_uncertain: 4,
+        SemanticZoneType.appendix_reference: 5,
+        SemanticZoneType.template: 6,
+        SemanticZoneType.catalog_or_navigation: 7,
+        SemanticZoneType.public_copy_or_noise: 8,
+    }.get(zone, 9)
+
+
+def _role_rank(role: ClauseRole) -> int:
+    return {
+        ClauseRole.qualification_or_scoring: 0,
+        ClauseRole.contract_term: 0,
+        ClauseRole.procurement_requirement: 1,
+        ClauseRole.policy_explanation: 2,
+        ClauseRole.document_definition: 3,
+        ClauseRole.appendix_reference: 4,
+        ClauseRole.form_template: 5,
+        ClauseRole.unknown: 6,
+    }.get(role, 7)
+
+
+def _is_structurally_weak_clause(clause: ExtractedClause) -> bool:
+    if clause.clause_role in {
+        ClauseRole.form_template,
+        ClauseRole.appendix_reference,
+        ClauseRole.document_definition,
+    }:
+        return True
+    if clause.semantic_zone in {
+        SemanticZoneType.template,
+        SemanticZoneType.appendix_reference,
+        SemanticZoneType.catalog_or_navigation,
+        SemanticZoneType.public_copy_or_noise,
+    }:
+        return True
+    weak_tags = {
+        EffectTag.template,
+        EffectTag.example,
+        EffectTag.reference_only,
+        EffectTag.catalog,
+        EffectTag.public_copy_noise,
+    }
+    return bool(clause.effect_tags) and all(tag in weak_tags for tag in clause.effect_tags)
 
 
 def _collect_dynamic_enhancement_clauses_by_type(
@@ -1156,7 +1235,8 @@ def _collect_by_fields(
     extracted_clauses: list[ExtractedClause],
     field_names: list[str],
 ) -> list[ExtractedClause]:
-    return [clause for clause in extracted_clauses if clause.field_name in field_names]
+    collected = [clause for clause in extracted_clauses if clause.field_name in field_names]
+    return _sort_candidate_clauses(collected)
 
 
 def _collect_by_fields_in_order(
@@ -1165,7 +1245,8 @@ def _collect_by_fields_in_order(
 ) -> list[ExtractedClause]:
     collected: list[ExtractedClause] = []
     for field_name in field_names:
-        collected.extend(clause for clause in extracted_clauses if clause.field_name == field_name)
+        field_clauses = [clause for clause in extracted_clauses if clause.field_name == field_name]
+        collected.extend(_sort_candidate_clauses(field_clauses))
     return _dedupe_clauses(collected)
 
 
@@ -1188,7 +1269,7 @@ def _collect_text_anchor_clauses(
                         or token in " ".join(clause.relation_tags)
                     )
                 ),
-                len(clause.content),
+                *_clause_priority(clause),
             )
         )
         prioritized.extend(clauses[:2])

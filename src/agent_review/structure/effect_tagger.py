@@ -39,6 +39,15 @@ def _classify_effect(
         return [EffectTag.catalog], 0.98, ["zone:catalog_or_navigation"]
     if zone and zone.zone_type == SemanticZoneType.public_copy_or_noise:
         return [EffectTag.public_copy_noise], 0.95, ["zone:public_copy_or_noise"]
+    if node.node_type == NodeType.appendix:
+        tags: list[EffectTag] = [EffectTag.reference_only]
+        evidence.append("node_type:appendix")
+        if any(token in haystack for token in ["中小企业声明函", "投标文件格式", "声明函", "承诺函", "格式"]):
+            tags.insert(0, EffectTag.template)
+            evidence.append("appendix_template_keyword")
+        if zone and zone.zone_type == SemanticZoneType.appendix_reference and EffectTag.reference_only not in tags:
+            tags.append(EffectTag.reference_only)
+        return list(dict.fromkeys(tags)), 0.96, list(dict.fromkeys(evidence))
 
     tags: list[EffectTag] = []
 
@@ -67,6 +76,11 @@ def _classify_effect(
         if EffectTag.reference_only not in tags:
             tags.append(EffectTag.reference_only)
         evidence.append("zone:appendix_reference")
+
+    if node.node_type == NodeType.table and zone and zone.zone_type == SemanticZoneType.scoring:
+        if EffectTag.binding not in tags:
+            tags.append(EffectTag.binding)
+        evidence.append("table_scoring_binding")
 
     if zone and zone.zone_type == SemanticZoneType.policy_explanation:
         tags.append(EffectTag.policy_background)

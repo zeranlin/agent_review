@@ -4,6 +4,7 @@ from collections.abc import Callable
 import re
 
 from .models import (
+    ClauseRole,
     ApplicabilityCheck,
     ApplicabilityItem,
     ApplicabilityStatus,
@@ -11,6 +12,7 @@ from .models import (
     ReviewPoint,
 )
 from .review_point_catalog import resolve_review_point_definition
+from .ontology import EffectTag, SemanticZoneType
 
 
 RelationEvaluator = Callable[[dict[str, list[ExtractedClause]]], tuple[ApplicabilityStatus, list[str]]]
@@ -22,9 +24,11 @@ def build_applicability_checks(
 ) -> list[ApplicabilityCheck]:
     results: list[ApplicabilityCheck] = []
     clause_mapping = _clause_map(extracted_clauses)
+    effective_mapping = _clause_map([clause for clause in extracted_clauses if _is_effective_clause(clause)])
     for point in review_points:
         definition = resolve_review_point_definition(point.title, point.dimension, point.severity)
         haystack = _build_haystack(point, clause_mapping)
+        effective_haystack = _build_haystack(point, effective_mapping)
         requirement_results: list[ApplicabilityItem] = []
         exclusion_results: list[ApplicabilityItem] = []
 
@@ -33,7 +37,9 @@ def build_applicability_checks(
                 definition.catalog_id,
                 condition.name,
                 clause_mapping,
+                effective_mapping,
                 haystack,
+                effective_haystack,
                 condition.clause_fields,
                 condition.signal_groups,
             )
@@ -46,7 +52,9 @@ def build_applicability_checks(
                 definition.catalog_id,
                 condition.name,
                 clause_mapping,
+                effective_mapping,
                 haystack,
+                effective_haystack,
                 condition.clause_fields,
                 condition.signal_groups,
             )
@@ -123,20 +131,40 @@ def _evaluate_required_condition(
     catalog_id: str,
     condition_name: str,
     clause_mapping: dict[str, list[ExtractedClause]],
+    effective_mapping: dict[str, list[ExtractedClause]],
     haystack: str,
+    effective_haystack: str,
     clause_fields: list[str],
     signal_groups: list[list[str]],
 ) -> tuple[ApplicabilityStatus, str]:
-    relation_match = _evaluate_relation(catalog_id, condition_name, clause_mapping)
+    relation_match = _evaluate_relation(catalog_id, condition_name, effective_mapping)
+    if relation_match is not None and relation_match[0] == ApplicabilityStatus.insufficient and _template_field_only(clause_fields):
+        raw_relation_match = _evaluate_relation(catalog_id, condition_name, clause_mapping)
+        if raw_relation_match is not None and raw_relation_match[0] == ApplicabilityStatus.satisfied:
+            return raw_relation_match
     if relation_match is not None:
+        if (
+            relation_match[0] == ApplicabilityStatus.insufficient
+            and any(clause_mapping.get(field) for field in clause_fields)
+            and not any(effective_mapping.get(field) for field in clause_fields)
+        ):
+            return ApplicabilityStatus.insufficient, "当前仅在模板、附件或引用性弱来源中命中要件信号，尚不足以闭合要件链。"
         return relation_match
 
-    matched_fields = [field for field in clause_fields if clause_mapping.get(field)]
+    matched_fields = [field for field in clause_fields if effective_mapping.get(field)]
+    weak_only_fields = [field for field in clause_fields if clause_mapping.get(field) and field not in matched_fields]
     fields_ok = not clause_fields or len(matched_fields) == len(clause_fields)
-    signals_ok = not signal_groups or all(any(token and token in haystack for token in group) for group in signal_groups)
+    signals_ok = not signal_groups or all(any(token and token in effective_haystack for token in group) for group in signal_groups)
+    weak_signal_only = (
+        bool(signal_groups)
+        and not signals_ok
+        and all(any(token and token in haystack for token in group) for group in signal_groups)
+    )
 
     if fields_ok and signals_ok:
         return ApplicabilityStatus.satisfied, _matched_detail("要件", bool(matched_fields), matched_fields)
+    if weak_only_fields or weak_signal_only:
+        return ApplicabilityStatus.insufficient, "当前仅在模板、附件或引用性弱来源中命中要件信号，尚不足以闭合要件链。"
     if matched_fields or signals_ok:
         return ApplicabilityStatus.unsatisfied, _contradicted_detail("要件", clause_fields, matched_fields)
     return ApplicabilityStatus.insufficient, _unmatched_detail("要件", clause_fields)
@@ -146,20 +174,28 @@ def _evaluate_exclusion_condition(
     catalog_id: str,
     condition_name: str,
     clause_mapping: dict[str, list[ExtractedClause]],
+    effective_mapping: dict[str, list[ExtractedClause]],
     haystack: str,
+    effective_haystack: str,
     clause_fields: list[str],
     signal_groups: list[list[str]],
 ) -> tuple[ApplicabilityStatus, str]:
-    relation_match = _evaluate_relation(catalog_id, condition_name, clause_mapping)
+    relation_match = _evaluate_relation(catalog_id, condition_name, effective_mapping)
     if relation_match is not None:
         status, detail = relation_match
+        if (
+            status == ApplicabilityStatus.insufficient
+            and any(clause_mapping.get(field) for field in clause_fields)
+            and not any(effective_mapping.get(field) for field in clause_fields)
+        ):
+            return ApplicabilityStatus.not_applicable, "当前排除条件仅在模板、附件或引用性弱来源中出现，暂不作为阻断因素。"
         if status == ApplicabilityStatus.satisfied:
             return ApplicabilityStatus.excluded, detail
         return ApplicabilityStatus.not_applicable, detail
 
-    matched_fields = [field for field in clause_fields if clause_mapping.get(field)]
+    matched_fields = [field for field in clause_fields if effective_mapping.get(field)]
     fields_ok = not clause_fields or len(matched_fields) == len(clause_fields)
-    signals_ok = not signal_groups or all(any(token and token in haystack for token in group) for group in signal_groups)
+    signals_ok = not signal_groups or all(any(token and token in effective_haystack for token in group) for group in signal_groups)
     if fields_ok and signals_ok:
         return ApplicabilityStatus.excluded, _matched_detail("排除条件", bool(matched_fields), matched_fields)
     return ApplicabilityStatus.not_applicable, _unmatched_detail("排除条件", clause_fields)
@@ -223,6 +259,34 @@ def _clause_map(clauses: list[ExtractedClause]) -> dict[str, list[ExtractedClaus
     for clause in clauses:
         mapping.setdefault(clause.field_name, []).append(clause)
     return mapping
+
+
+def _is_effective_clause(clause: ExtractedClause) -> bool:
+    if clause.clause_role in {
+        ClauseRole.form_template,
+        ClauseRole.appendix_reference,
+        ClauseRole.document_definition,
+    }:
+        return False
+    if clause.semantic_zone in {
+        SemanticZoneType.template,
+        SemanticZoneType.appendix_reference,
+        SemanticZoneType.catalog_or_navigation,
+        SemanticZoneType.public_copy_or_noise,
+    }:
+        return False
+    weak_tags = {
+        EffectTag.template,
+        EffectTag.example,
+        EffectTag.reference_only,
+        EffectTag.catalog,
+        EffectTag.public_copy_noise,
+    }
+    return not clause.effect_tags or any(tag not in weak_tags for tag in clause.effect_tags)
+
+
+def _template_field_only(clause_fields: list[str]) -> bool:
+    return bool(clause_fields) and set(clause_fields).issubset({"中小企业声明函类型"})
 
 
 def _matched_detail(prefix: str, matched_by_fields: bool, matched_fields: list[str]) -> str:

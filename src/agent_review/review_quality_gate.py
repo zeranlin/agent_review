@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .models import ClauseRole, ExtractedClause, QualityGateStatus, ReviewPoint, ReviewQualityGate
-from .ontology import EffectTag
+from .ontology import EffectTag, SemanticZoneType
 
 
 def build_review_quality_gates(
@@ -37,6 +37,11 @@ def build_review_quality_gates(
         if weak_effect_only:
             status = QualityGateStatus.filtered
             reasons.append("当前审查点证据主要来自模板、示例或引用性条款，暂不进入正式意见。")
+
+        weak_zone_only = _point_zones_are_weak_only(point, extracted_clauses)
+        if weak_zone_only:
+            status = QualityGateStatus.filtered
+            reasons.append("当前审查点证据主要位于模板、附件或目录噪声区域，暂不进入正式意见。")
 
         dedupe_key = f"{point.catalog_id}|{_primary_quote(point)}"
         if dedupe_key in seen_by_key:
@@ -96,3 +101,19 @@ def _matched_clauses(point: ReviewPoint, extracted_clauses: list[ExtractedClause
         or clause.content in quotes
         or any(quote and quote[:40] in clause.content for quote in quotes)
     ]
+
+
+def _point_zones_are_weak_only(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+) -> bool:
+    matched = _matched_clauses(point, extracted_clauses)
+    if not matched:
+        return False
+    weak_zones = {
+        SemanticZoneType.template,
+        SemanticZoneType.appendix_reference,
+        SemanticZoneType.catalog_or_navigation,
+        SemanticZoneType.public_copy_or_noise,
+    }
+    return all(clause.semantic_zone in weak_zones for clause in matched)

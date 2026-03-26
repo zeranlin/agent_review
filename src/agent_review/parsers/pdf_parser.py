@@ -5,6 +5,7 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from .ocr import extract_pdf_images, ocr_image_records
+from .structure_helpers import extract_text_structure_artifacts
 from ..models import ParseResult, ParsedPage, ParsedTable
 
 
@@ -16,11 +17,28 @@ def parse_pdf(path: str | Path) -> ParseResult:
     tables: list[ParsedTable] = []
     warnings: list[str] = []
     text_blocks: list[str] = []
+    raw_blocks: list = []
+    raw_tables: list = []
+    text_table_count = 0
+    line_offset = 0
     text_page_count = 0
     for page_index, page in enumerate(reader.pages, start=1):
         page_text = (page.extract_text() or "").strip()
         if page_text:
             text_page_count += 1
+            page_blocks, page_raw_tables, page_parsed_tables, line_count, table_count = extract_text_structure_artifacts(
+                page_text,
+                source_path=str(target),
+                source_label="pdf_text",
+                page_no=page_index,
+                line_offset=line_offset,
+                table_index_offset=text_table_count,
+            )
+            raw_blocks.extend(page_blocks)
+            raw_tables.extend(page_raw_tables)
+            tables.extend(page_parsed_tables)
+            text_table_count += table_count
+            line_offset += line_count
         pages.append(
             ParsedPage(
                 page_index=page_index,
@@ -38,6 +56,20 @@ def parse_pdf(path: str | Path) -> ParseResult:
         ocr_text = "\n".join(item for item in ocr_results if item.strip())
         if ocr_text:
             text_blocks.append(ocr_text)
+            ocr_blocks, ocr_raw_tables, ocr_parsed_tables, line_count, table_count = extract_text_structure_artifacts(
+                ocr_text,
+                source_path=str(target),
+                source_label="pdf_ocr_text",
+                page_no=len(pages) + 1,
+                line_offset=line_offset,
+                table_index_offset=text_table_count,
+            )
+            raw_blocks.extend(ocr_blocks)
+            if not ocr_tables:
+                raw_tables.extend(ocr_raw_tables)
+                tables.extend(ocr_parsed_tables)
+                text_table_count += table_count
+            line_offset += line_count
             pages.append(
                 ParsedPage(
                     page_index=len(pages) + 1,
@@ -63,5 +95,7 @@ def parse_pdf(path: str | Path) -> ParseResult:
         text=text,
         pages=pages,
         tables=tables,
+        raw_blocks=raw_blocks,
+        raw_tables=raw_tables,
         warnings=list(dict.fromkeys(warnings)),
     )

@@ -52,6 +52,13 @@ def _classify_node(node: DocumentNode) -> tuple[SemanticZoneType, float, list[st
     if any(token in haystack for token in ["目录"]) and node.node_type == NodeType.catalog_entry:
         return SemanticZoneType.catalog_or_navigation, 1.0, ["catalog_keyword"]
 
+    if node.node_type == NodeType.appendix:
+        scores[SemanticZoneType.template] += 0.75
+        basis.append("node_type:appendix")
+        if any(token in haystack for token in ["附件", "附表", "声明函", "承诺函", "投标文件格式"]):
+            scores[SemanticZoneType.appendix_reference] += 0.7
+            basis.append("appendix_keyword")
+
     for zone, keywords in ZONE_RULES.items():
         for keyword in keywords:
             if keyword in node.title:
@@ -64,6 +71,31 @@ def _classify_node(node: DocumentNode) -> tuple[SemanticZoneType, float, list[st
     if node.node_type == NodeType.table_row and any(token in node.text for token in ["评分项", "分值", "得分", "评分标准"]):
         scores[SemanticZoneType.scoring] += 0.8
         basis.append("table_row_scoring_header")
+
+    if node.node_type == NodeType.table:
+        table_kind = str(node.metadata.get("table_kind", "")).strip()
+        if table_kind == "scoring":
+            scores[SemanticZoneType.scoring] += 1.0
+            basis.append("table_kind:scoring")
+        elif table_kind == "template":
+            scores[SemanticZoneType.template] += 0.9
+            basis.append("table_kind:template")
+        elif table_kind == "contract":
+            scores[SemanticZoneType.contract] += 0.85
+            basis.append("table_kind:contract")
+        elif table_kind == "appendix_reference":
+            scores[SemanticZoneType.appendix_reference] += 0.95
+            basis.append("table_kind:appendix_reference")
+
+        if any(token in haystack for token in ["评分项", "分值", "评分标准", "得分", "综合评分"]):
+            scores[SemanticZoneType.scoring] += 0.6
+            basis.append("table_keyword_scoring")
+        if any(token in haystack for token in ["中小企业声明函", "投标文件格式", "声明函", "承诺函"]):
+            scores[SemanticZoneType.template] += 0.6
+            basis.append("table_keyword_template")
+        if any(token in haystack for token in ["详见附件", "附表", "另册提供"]):
+            scores[SemanticZoneType.appendix_reference] += 0.7
+            basis.append("table_keyword_appendix")
 
     if any(token in node.path for token in ["投标文件格式", "附件"]):
         scores[SemanticZoneType.template] += 0.8

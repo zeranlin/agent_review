@@ -37,6 +37,7 @@ from .quality import (
 from .review_point_catalog import resolve_review_point_definition, select_standard_review_tasks, snapshot_catalog_for_points
 from .review_quality_gate import build_review_quality_gates
 from .ontology import EffectTag
+from .ontology import SemanticZoneType
 
 
 def build_review_points(
@@ -331,6 +332,7 @@ def build_formal_adjudication(
             }
             for tag in effect_tags
         ) and EffectTag.binding not in effect_tags
+        weak_zone_only = _review_point_zones_are_weak_only(point, extracted_clauses, quote)
         legal_basis_applicable = bool(point.legal_basis) and (
             applicability.applicable if applicability is not None else True
         )
@@ -342,6 +344,7 @@ def build_formal_adjudication(
             and evidence_supports_title(point.title, quote)
             and not weak_role_only
             and not weak_effect_only
+            and not weak_zone_only
         )
 
         applicability_summary = applicability.summary if applicability else "未进行适法性检查。"
@@ -998,12 +1001,8 @@ def _resolve_review_point_roles(
 
     clause_roles = [
         clause.clause_role
-        for clause in extracted_clauses
-        if (
-            quote
-            and (clause.content == quote or quote in clause.content or clause.content in quote)
-            and clause.clause_role != ClauseRole.unknown
-        )
+        for clause in _resolve_point_matched_clauses(point, extracted_clauses, quote)
+        if clause.clause_role != ClauseRole.unknown
     ]
     if clause_roles:
         return _dedupe_clause_roles(clause_roles)
@@ -1020,17 +1019,8 @@ def _resolve_review_point_effect_tags(
     quote: str,
 ) -> list[EffectTag]:
     tags: list[EffectTag] = []
-    anchors = {
-        item.section_hint
-        for item in (point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence)
-        if item.section_hint
-    }
-    for clause in extracted_clauses:
-        if clause.source_anchor in anchors:
-            tags.extend(clause.effect_tags)
-            continue
-        if quote and (clause.content == quote or quote in clause.content or clause.content in quote):
-            tags.extend(clause.effect_tags)
+    for clause in _resolve_point_matched_clauses(point, extracted_clauses, quote):
+        tags.extend(clause.effect_tags)
     dedup: list[EffectTag] = []
     seen: set[EffectTag] = set()
     for tag in tags:
@@ -1038,3 +1028,64 @@ def _resolve_review_point_effect_tags(
             dedup.append(tag)
             seen.add(tag)
     return dedup
+
+
+def _resolve_point_matched_clauses(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+    quote: str,
+) -> list[ExtractedClause]:
+    anchors = {
+        item.section_hint
+        for item in (point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence)
+        if item.section_hint
+    }
+    matched = [
+        clause
+        for clause in extracted_clauses
+        if clause.source_anchor in anchors
+        or (
+            quote
+            and (clause.content == quote or quote in clause.content or clause.content in quote)
+        )
+    ]
+    matched.sort(key=_matched_clause_priority)
+    return matched
+
+
+def _matched_clause_priority(clause: ExtractedClause) -> tuple[int, int, int]:
+    weak_zones = {
+        SemanticZoneType.template,
+        SemanticZoneType.appendix_reference,
+        SemanticZoneType.catalog_or_navigation,
+        SemanticZoneType.public_copy_or_noise,
+    }
+    weak_tags = {
+        EffectTag.template,
+        EffectTag.example,
+        EffectTag.reference_only,
+        EffectTag.catalog,
+        EffectTag.public_copy_noise,
+    }
+    return (
+        1 if clause.semantic_zone in weak_zones else 0,
+        1 if clause.effect_tags and all(tag in weak_tags for tag in clause.effect_tags) else 0,
+        -len(clause.content),
+    )
+
+
+def _review_point_zones_are_weak_only(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+    quote: str,
+) -> bool:
+    matched = _resolve_point_matched_clauses(point, extracted_clauses, quote)
+    if not matched:
+        return False
+    weak_zones = {
+        SemanticZoneType.template,
+        SemanticZoneType.appendix_reference,
+        SemanticZoneType.catalog_or_navigation,
+        SemanticZoneType.public_copy_or_noise,
+    }
+    return all(clause.semantic_zone in weak_zones for clause in matched)
