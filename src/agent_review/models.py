@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
+from .ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType
+
 
 class FileType(str, Enum):
     complete_tender = "完整招标文件"
@@ -276,6 +278,165 @@ class ParsedTable:
 
 
 @dataclass(slots=True)
+class SourceAnchor:
+    source_path: str = ""
+    page_no: int | None = None
+    block_no: int | None = None
+    paragraph_no: int | None = None
+    table_no: int | None = None
+    row_no: int | None = None
+    cell_no: int | None = None
+    line_hint: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class RawCell:
+    row_index: int
+    col_index: int
+    text: str
+    is_header: bool = False
+    anchor: SourceAnchor = field(default_factory=SourceAnchor)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "row_index": self.row_index,
+            "col_index": self.col_index,
+            "text": self.text,
+            "is_header": self.is_header,
+            "anchor": self.anchor.to_dict(),
+        }
+
+
+@dataclass(slots=True)
+class RawTable:
+    table_id: str
+    rows: list[list[RawCell]] = field(default_factory=list)
+    anchor: SourceAnchor = field(default_factory=SourceAnchor)
+    title_hint: str = ""
+    metadata: dict[str, object] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "table_id": self.table_id,
+            "rows": [[cell.to_dict() for cell in row] for row in self.rows],
+            "anchor": self.anchor.to_dict(),
+            "title_hint": self.title_hint,
+            "metadata": self.metadata,
+        }
+
+
+@dataclass(slots=True)
+class RawBlock:
+    block_id: str
+    block_type: str
+    text: str
+    style_name: str = ""
+    numbering: str = ""
+    anchor: SourceAnchor = field(default_factory=SourceAnchor)
+    metadata: dict[str, object] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "block_id": self.block_id,
+            "block_type": self.block_type,
+            "text": self.text,
+            "style_name": self.style_name,
+            "numbering": self.numbering,
+            "anchor": self.anchor.to_dict(),
+            "metadata": self.metadata,
+        }
+
+
+@dataclass(slots=True)
+class DocumentNode:
+    node_id: str
+    node_type: NodeType
+    title: str
+    text: str
+    path: str = ""
+    parent_id: str = ""
+    children_ids: list[str] = field(default_factory=list)
+    anchor: SourceAnchor = field(default_factory=SourceAnchor)
+    metadata: dict[str, object] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "node_id": self.node_id,
+            "node_type": self.node_type.value,
+            "title": self.title,
+            "text": self.text,
+            "path": self.path,
+            "parent_id": self.parent_id,
+            "children_ids": self.children_ids,
+            "anchor": self.anchor.to_dict(),
+            "metadata": self.metadata,
+        }
+
+
+@dataclass(slots=True)
+class SemanticZone:
+    node_id: str
+    zone_type: SemanticZoneType
+    confidence: float = 0.0
+    classification_basis: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "node_id": self.node_id,
+            "zone_type": self.zone_type.value,
+            "confidence": self.confidence,
+            "classification_basis": self.classification_basis,
+        }
+
+
+@dataclass(slots=True)
+class EffectTagResult:
+    node_id: str
+    effect_tags: list[EffectTag] = field(default_factory=list)
+    confidence: float = 0.0
+    evidence: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "node_id": self.node_id,
+            "effect_tags": [item.value for item in self.effect_tags],
+            "confidence": self.confidence,
+            "evidence": self.evidence,
+        }
+
+
+@dataclass(slots=True)
+class ClauseUnit:
+    unit_id: str
+    source_node_id: str
+    text: str
+    path: str = ""
+    anchor: SourceAnchor = field(default_factory=SourceAnchor)
+    zone_type: SemanticZoneType = SemanticZoneType.mixed_or_uncertain
+    clause_semantic_type: ClauseSemanticType = ClauseSemanticType.unknown_clause
+    effect_tags: list[EffectTag] = field(default_factory=list)
+    table_context: dict[str, object] = field(default_factory=dict)
+    confidence: float = 0.0
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "unit_id": self.unit_id,
+            "source_node_id": self.source_node_id,
+            "text": self.text,
+            "path": self.path,
+            "anchor": self.anchor.to_dict(),
+            "zone_type": self.zone_type.value,
+            "clause_semantic_type": self.clause_semantic_type.value,
+            "effect_tags": [item.value for item in self.effect_tags],
+            "table_context": self.table_context,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass(slots=True)
 class ParseResult:
     parser_name: str
     source_path: str
@@ -284,6 +445,11 @@ class ParseResult:
     text: str
     pages: list[ParsedPage] = field(default_factory=list)
     tables: list[ParsedTable] = field(default_factory=list)
+    raw_blocks: list[RawBlock] = field(default_factory=list)
+    raw_tables: list[RawTable] = field(default_factory=list)
+    document_nodes: list[DocumentNode] = field(default_factory=list)
+    semantic_zones: list[SemanticZone] = field(default_factory=list)
+    effect_tag_results: list[EffectTagResult] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -295,6 +461,11 @@ class ParseResult:
             "text": self.text,
             "pages": [item.to_dict() for item in self.pages],
             "tables": [item.to_dict() for item in self.tables],
+            "raw_blocks": [item.to_dict() for item in self.raw_blocks],
+            "raw_tables": [item.to_dict() for item in self.raw_tables],
+            "document_nodes": [item.to_dict() for item in self.document_nodes],
+            "semantic_zones": [item.to_dict() for item in self.semantic_zones],
+            "effect_tag_results": [item.to_dict() for item in self.effect_tag_results],
             "warnings": self.warnings,
         }
 

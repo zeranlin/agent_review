@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..models import FileInfo, FileType, SectionIndex
+from ..models import FileInfo, FileType, ParseResult, SectionIndex
+from .effect_tagger import tag_effects
+from .tree_builder import build_document_tree
+from .zone_classifier import classify_semantic_zones
 
 
 def detect_file_type(text: str) -> FileType:
@@ -90,3 +93,12 @@ def locate_sections(text: str) -> list[SectionIndex]:
                 break
         results.append(SectionIndex(section_name=target, located=bool(anchor), anchor=anchor))
     return results
+
+
+def enrich_parse_result_structure(parse_result: ParseResult) -> ParseResult:
+    if not parse_result.raw_blocks and not parse_result.raw_tables:
+        return parse_result
+    parse_result.document_nodes = build_document_tree(parse_result)
+    parse_result.semantic_zones = classify_semantic_zones(parse_result.document_nodes)
+    parse_result.effect_tag_results = tag_effects(parse_result.document_nodes, parse_result.semantic_zones)
+    return parse_result

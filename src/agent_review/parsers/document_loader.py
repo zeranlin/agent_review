@@ -7,6 +7,7 @@ from .ocr import is_image_file, parse_image_with_ocr
 from .pdf_parser import parse_pdf
 from .text_parser import parse_text
 from ..models import ParseResult, ParsedPage, SourceDocument
+from ..structure import enrich_parse_result_structure
 
 
 def load_document(path: str | Path) -> tuple[str, ParseResult]:
@@ -26,7 +27,7 @@ def load_document(path: str | Path) -> tuple[str, ParseResult]:
     else:
         raise ValueError(f"暂不支持的文件类型: {suffix}")
 
-    return target.name, result
+    return target.name, enrich_parse_result_structure(result)
 
 
 def normalize_text(text: str) -> str:
@@ -85,4 +86,4 @@ def load_documents(paths: list[str | Path]) -> tuple[str, ParseResult, list[Sour
         tables=[],
         warnings=list(dict.fromkeys(warnings)),
     )
-    return merged_name, merged_result, source_documents
+    return merged_name, enrich_parse_result_structure(merged_result), source_documents
