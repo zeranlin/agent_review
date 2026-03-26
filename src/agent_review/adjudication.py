@@ -21,6 +21,7 @@ from .models import (
     ParsedTable,
     QualityGateStatus,
     RiskHit,
+    DocumentProfile,
     ReviewPoint,
     ReviewPointStatus,
     ReviewQualityGate,
@@ -51,8 +52,13 @@ def build_review_points(
 def build_review_points_from_task_library(
     report_text: str,
     extracted_clauses: list[ExtractedClause],
+    document_profile: DocumentProfile | None = None,
 ) -> list[ReviewPoint]:
-    task_definitions = select_standard_review_tasks(report_text, extracted_clauses)
+    task_definitions = select_standard_review_tasks(
+        report_text,
+        extracted_clauses,
+        document_profile=document_profile,
+    )
     review_points: list[ReviewPoint] = []
     for index, definition in enumerate(task_definitions, start=1):
         evidence_bundle, status, rationale = collect_task_facts(definition, extracted_clauses)

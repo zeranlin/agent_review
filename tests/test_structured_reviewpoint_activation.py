@@ -1,4 +1,5 @@
 from agent_review.applicability import build_applicability_checks
+from agent_review.domain_profiles import build_document_profile
 from agent_review.fact_collectors import collect_task_facts
 from agent_review.models import (
     ClauseRole,
@@ -77,9 +78,16 @@ def test_unknown_document_uses_common_block_signals_without_goods_specific_tasks
         ),
     ]
 
-    tasks = select_standard_review_tasks("本文件仅供说明相关事项，详见附件。", clauses)
+    profile = build_document_profile("本文件仅供说明相关事项，详见附件。", clauses)
+    tasks = select_standard_review_tasks(
+        "本文件仅供说明相关事项，详见附件。",
+        clauses,
+        document_profile=profile,
+    )
     titles = {item.title for item in tasks}
 
+    assert profile.procurement_kind == "unknown"
+    assert "unknown_document" in profile.risk_activation_hints
     assert "资格条件与评分因素重复设门槛" in titles
     assert "评审方法出现但评分标准不够清晰" in titles
     assert "验收与付款/考核/满意度联动不当" in titles
@@ -87,6 +95,9 @@ def test_unknown_document_uses_common_block_signals_without_goods_specific_tasks
     assert "产地厂家商标限制" not in titles
     assert "专利要求" not in titles
     assert "刚性门槛型专利要求" not in titles
+    assert "服务项目保留货物类声明函模板" not in titles
+    assert "家具项目出现不相关模板术语" not in titles
+    assert "货物项目混入大量服务履约内容" not in titles
 
 
 def test_qualification_boundary_prefers_real_scoring_clause_over_template_phrase() -> None:

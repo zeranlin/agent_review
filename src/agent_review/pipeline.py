@@ -248,14 +248,20 @@ class ReviewPipeline:
         planned_points = build_review_points_from_task_library(
             state.normalized_text,
             state.extracted_clauses,
+            document_profile=state.document_profile,
         )
         state.review_points.extend(planned_points)
+        profile_summary = state.document_profile.procurement_kind if state.document_profile else "unknown"
+        activation_hint_summary = ",".join(state.document_profile.risk_activation_hints[:3]) if state.document_profile else ""
         state.stage_records.append(
             RunStageRecord(
                 stage_name="review_task_planning",
                 status="completed",
                 item_count=len(planned_points),
-                detail=f"已从标准审查任务库规划 {len(planned_points)} 个待执行审查点。",
+                detail=(
+                    f"已基于 {profile_summary} 画像与 activation hints 规划 {len(planned_points)} 个待执行审查点。"
+                    + (f" 关键提示：{activation_hint_summary}。" if activation_hint_summary else "")
+                ),
             )
         )
 

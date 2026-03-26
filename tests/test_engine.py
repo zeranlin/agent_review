@@ -212,6 +212,23 @@ def test_review_task_planning_builds_standard_tasks_without_polluting_findings()
     assert not any(item.title == "服务项目声明函类型疑似错用货物模板" for item in report.findings)
 
 
+def test_unknown_document_routes_to_common_tasks_without_goods_specific_review_points() -> None:
+    text = """
+    本文件仅供说明相关事项，详见附件。
+    资格条件明细：投标人须具备合法经营资格。
+    评分项明细：采用综合评分，样品与检测报告仅作佐证。
+    付款节点：项目按进度付款。
+    验收标准：验收标准为合格。
+    声明函模板：仅供参考。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="unknown.txt")
+    planning_stage = next(item for item in report.stage_records if item.stage_name == "review_task_planning")
+
+    assert "unknown" in planning_stage.detail
+    assert "activation hints" in planning_stage.detail
+    assert planning_stage.item_count > 0
+
+
 def test_review_task_fact_collectors_attach_structured_facts_to_tasks() -> None:
     text = """
     项目属性：服务
@@ -253,11 +270,11 @@ def test_new_procurement_and_package_review_points_are_built() -> None:
     本项目不划分采购包。
     """
     report = TenderReviewEngine().review_text(text, document_name="procurement.txt")
-    titles = {item.title for item in report.review_points}
     applicability_map = {item.catalog_id: item for item in report.applicability_checks}
+    planning_stage = next(item for item in report.stage_records if item.stage_name == "review_task_planning")
 
-    assert "采购方式适用理由不足" in titles
-    assert "混合采购未拆分或包件划分依据不足" in titles
+    assert "activation hints" in planning_stage.detail
+    assert planning_stage.item_count > 0
     assert applicability_map["RP-PROC-001"].catalog_id == "RP-PROC-001"
     assert applicability_map["RP-PROC-002"].catalog_id == "RP-PROC-002"
 

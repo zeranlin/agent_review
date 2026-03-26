@@ -3,8 +3,11 @@ from __future__ import annotations
 import re
 
 from .domain_profiles import build_document_profile, profile_activation_tags
-from .models import ClauseRole, ExtractedClause, ReviewPoint, ReviewPointCondition, ReviewPointDefinition, Severity
+from .models import ClauseRole, DocumentProfile, ExtractedClause, ReviewPoint, ReviewPointCondition, ReviewPointDefinition, Severity
 from .ontology import ClauseSemanticType, EffectTag, SemanticZoneType
+
+
+DOMAIN_SCENARIO_TAGS: set[str] = {"goods", "service", "furniture", "property", "personnel"}
 
 
 CATALOG: list[ReviewPointDefinition] = [
@@ -1013,20 +1016,28 @@ def snapshot_catalog_for_points(review_points: list[ReviewPoint]) -> list[Review
 def select_standard_review_tasks(
     text: str,
     extracted_clauses: list[ExtractedClause],
+    *,
+    document_profile: DocumentProfile | None = None,
 ) -> list[ReviewPointDefinition]:
-    active_tags = _build_active_task_tags(text, extracted_clauses)
+    routing_profile = document_profile or build_document_profile(text, extracted_clauses)
+    active_tags = _build_active_task_tags(text, extracted_clauses, document_profile=routing_profile)
     selected: list[ReviewPointDefinition] = []
     seen: set[str] = set()
     for definition in CATALOG:
         if definition.catalog_id in seen:
             continue
-        if _definition_matches_active_tags(definition, active_tags):
+        if _definition_matches_active_tags(definition, active_tags, document_profile=routing_profile):
             selected.append(definition)
             seen.add(definition.catalog_id)
     return selected
 
 
-def _build_active_task_tags(text: str, extracted_clauses: list[ExtractedClause]) -> set[str]:
+def _build_active_task_tags(
+    text: str,
+    extracted_clauses: list[ExtractedClause],
+    *,
+    document_profile: DocumentProfile | None = None,
+) -> set[str]:
     structured_tags = _structured_active_task_tags(extracted_clauses)
     if extracted_clauses:
         structured_tags.update(_text_support_tags(text))
@@ -1037,8 +1048,9 @@ def _build_active_task_tags(text: str, extracted_clauses: list[ExtractedClause])
     else:
         structured_tags.update(_legacy_active_task_tags(text, extracted_clauses))
 
-    document_profile = build_document_profile(text, extracted_clauses)
+    document_profile = document_profile or build_document_profile(text, extracted_clauses)
     structured_tags.update(profile_activation_tags(document_profile))
+    structured_tags.update(document_profile.risk_activation_hints)
     return structured_tags
 
 
@@ -1232,13 +1244,23 @@ def _has_prudential_signals(extracted_clauses: list[ExtractedClause], text: str)
     ) or any(token in text for token in ["复杂", "长期", "连续", "需求调查", "专家论证"])
 
 
-def _definition_matches_active_tags(definition: ReviewPointDefinition, active_tags: set[str]) -> bool:
+def _definition_matches_active_tags(
+    definition: ReviewPointDefinition,
+    active_tags: set[str],
+    *,
+    document_profile: DocumentProfile | None = None,
+) -> bool:
     if not definition.scenario_tags:
         return True
     if definition.catalog_id == "RP-QUAL-001":
         return "qualification" in active_tags and "scoring" in active_tags
     if definition.catalog_id == "RP-QUAL-002":
         return "scoring" in active_tags or "qualification" in active_tags
+    if document_profile and document_profile.procurement_kind in {"unknown", "mixed"}:
+        if set(definition.scenario_tags) & DOMAIN_SCENARIO_TAGS:
+            allowed_domain_hints = set(document_profile.risk_activation_hints) & DOMAIN_SCENARIO_TAGS
+            if not (set(definition.scenario_tags) & allowed_domain_hints):
+                return False
     return any(tag in active_tags for tag in definition.scenario_tags)
 
 
