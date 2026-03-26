@@ -58,6 +58,8 @@ def test_document_profile_marks_unknown_documents_and_retains_candidates() -> No
     assert "unknown_document_first" in profile.structure_flags
     assert "unknown_document_first" in profile.risk_activation_hints
     assert "unknown_attachment_driven_structure" in profile.unknown_structure_flags
+    assert "weak_source_support" in profile.quality_flags
+    assert "unknown_low_clause_support" in profile.unknown_structure_flags
     assert profile.summary.startswith("文件《unknown.txt》初步画像")
 
 
@@ -89,3 +91,88 @@ def test_document_profile_prioritizes_scoring_template_and_attachment_anchors() 
     assert "attachment_driven_structure" in profile.risk_activation_hints
     assert profile.representative_anchors[0] in {"line:3", "line:4"}
     assert any(anchor in {"line:5", "line:6", "line:7"} for anchor in profile.representative_anchors)
+
+
+def test_document_profile_marks_directory_template_and_attachment_noise_as_unknown_first() -> None:
+    text = """
+    目录
+    第一章 招标公告
+    第二章 采购需求
+    第三章 投标文件格式、附件
+    中小企业声明函（格式）
+    法定代表人授权书（格式）
+    附件一 售后承诺
+    附件二 见附件
+    """
+
+    _, state = _build_profile_state(text, "directory_noise.txt")
+    profile = state.parse_result.document_profile
+
+    assert profile is not None
+    assert profile.procurement_kind == "unknown"
+    assert "catalog_navigation_heavy" in profile.structure_flags
+    assert "directory_driven_structure" in profile.structure_flags
+    assert "template_pollution" in profile.structure_flags
+    assert "attachment_driven_structure" in profile.structure_flags
+    assert "catalog_navigation_high" in profile.quality_flags
+    assert "template_appendix_mix_high" in profile.quality_flags
+    assert "unknown_catalog_navigation" in profile.unknown_structure_flags
+    assert "unknown_template_pollution" in profile.unknown_structure_flags
+    assert "unknown_attachment_driven_structure" in profile.unknown_structure_flags
+    assert "unknown_low_clause_support" in profile.unknown_structure_flags
+    assert "unknown_document_first" in profile.risk_activation_hints
+    assert "catalog_navigation" in profile.risk_activation_hints
+    assert "directory_navigation" in profile.risk_activation_hints
+    assert "template_conflict" in profile.risk_activation_hints
+
+
+def test_document_profile_keeps_known_goods_documents_out_of_unknown_flags() -> None:
+    text = """
+    目录
+    第一章 招标公告
+    第二章 采购需求
+    第三章 投标文件格式、附件
+    项目属性：货物
+    课桌椅、书柜、检测报告、样品、安装验收。
+    """
+
+    _, state = _build_profile_state(text, "goods_with_directory_noise.txt")
+    profile = state.parse_result.document_profile
+
+    assert profile is not None
+    assert profile.procurement_kind == "goods"
+    assert "unknown_document_first" not in profile.structure_flags
+    assert "unknown_catalog_navigation" not in profile.unknown_structure_flags
+    assert "unknown_template_pollution" not in profile.unknown_structure_flags
+    assert "unknown_attachment_driven_structure" not in profile.unknown_structure_flags
+
+
+def test_document_profile_treats_catalog_template_and_appendix_as_non_body_structure() -> None:
+    text = """
+    目录
+    第一章 投标文件格式
+    第二章 投标文件附件
+    附件一 声明函（格式）
+    附件二 说明
+    详见附件
+    """
+
+    _, state = _build_profile_state(text, "non_body_structure.txt")
+    profile = state.parse_result.document_profile
+
+    assert profile is not None
+    assert profile.procurement_kind == "unknown"
+    assert "unknown_document_first" in profile.structure_flags
+    assert "template_pollution" in profile.structure_flags or "heavy_template_pollution" in profile.structure_flags
+    assert "attachment_driven_structure" in profile.structure_flags
+    assert "template_ratio_high" in profile.quality_flags
+    assert "reference_ratio_high" in profile.quality_flags
+    assert "non_body_structure_dominant" in profile.quality_flags
+    assert "non_body_structure_dominant" in profile.unknown_structure_flags
+    assert "attachment_first_structure" in profile.unknown_structure_flags
+    assert "unknown_template_pollution" in profile.unknown_structure_flags
+    assert "unknown_attachment_driven_structure" in profile.unknown_structure_flags
+    assert "unknown_document_first" in profile.risk_activation_hints
+    assert "template_conflict" in profile.risk_activation_hints
+    assert "attachment_driven_structure" in profile.risk_activation_hints
+    assert "catalog_noise_present" in profile.risk_activation_hints

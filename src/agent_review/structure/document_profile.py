@@ -52,10 +52,23 @@ def build_document_profile(
         effect_stats,
         clause_stats,
     )
-    structure_flags = _build_structure_flags(procurement_kind, parse_result, zone_stats, effect_stats, clause_stats)
-    risk_activation_hints = _build_risk_activation_hints(procurement_kind, structure_flags, zone_stats, effect_stats)
     quality_flags = _build_quality_flags(parse_result, zone_stats, effect_stats, clause_stats)
-    unknown_structure_flags = _build_unknown_structure_flags(procurement_kind, structure_flags, zone_stats)
+    structure_flags = _build_structure_flags(
+        procurement_kind,
+        parse_result,
+        zone_stats,
+        effect_stats,
+        clause_stats,
+        quality_flags,
+    )
+    risk_activation_hints = _build_risk_activation_hints(
+        procurement_kind,
+        structure_flags,
+        quality_flags,
+        zone_stats,
+        effect_stats,
+    )
+    unknown_structure_flags = _build_unknown_structure_flags(procurement_kind, structure_flags, zone_stats, quality_flags)
     anchors = _build_representative_anchors(parse_result, zone_stats)
     summary = _build_summary(
         document_name=document_name,
@@ -241,17 +254,23 @@ def _build_structure_flags(
     zone_stats: list[ZoneStat],
     effect_stats: list[EffectStat],
     clause_stats: list[ClauseSemanticStat],
+    quality_flags: list[str],
 ) -> list[str]:
     flags: list[str] = []
     appendix_node_count = sum(1 for node in parse_result.document_nodes if node.node_type == NodeType.appendix)
+    catalog_node_count = sum(1 for node in parse_result.document_nodes if node.node_type == NodeType.catalog_entry)
     scoring_ratio = _zone_ratio(zone_stats, SemanticZoneType.scoring)
     template_ratio = _zone_ratio(zone_stats, SemanticZoneType.template)
     appendix_ratio = _zone_ratio(zone_stats, SemanticZoneType.appendix_reference)
+    catalog_ratio = _zone_ratio(zone_stats, SemanticZoneType.catalog_or_navigation)
     contract_ratio = _zone_ratio(zone_stats, SemanticZoneType.contract)
     uncertain_ratio = _zone_ratio(zone_stats, SemanticZoneType.mixed_or_uncertain)
 
     if procurement_kind == "unknown":
         flags.append("unknown_document_first")
+    if catalog_ratio > 0.12 or catalog_node_count >= 2:
+        flags.append("catalog_navigation_heavy")
+        flags.append("directory_driven_structure")
     if scoring_ratio > 0.18:
         flags.append("heavy_scoring_tables")
         flags.append("scoring_dense_structure")
@@ -263,8 +282,17 @@ def _build_structure_flags(
         flags.append("attachment_driven_structure")
     if contract_ratio > 0.12:
         flags.append("heavy_contract_terms")
-    if _effect_ratio(effect_stats, EffectTag.catalog) > 0.08:
+    catalog_noise = (
+        _effect_ratio(effect_stats, EffectTag.catalog) > 0.08
+        or _zone_ratio(zone_stats, SemanticZoneType.catalog_or_navigation) > 0.08
+        or "catalog_noise_high" in quality_flags
+        or "catalog_navigation_high" in quality_flags
+        or "non_body_structure_dominant" in quality_flags
+    )
+    if catalog_noise:
         flags.append("catalog_noise_present")
+        flags.append("catalog_navigation_heavy")
+        flags.append("directory_driven_structure")
     if len([item for item in zone_stats if item.ratio >= 0.12]) >= 2 or (
         scoring_ratio > 0.08 and (template_ratio > 0.08 or appendix_ratio > 0.08)
     ):
@@ -281,6 +309,7 @@ def _build_structure_flags(
 def _build_risk_activation_hints(
     procurement_kind: str,
     structure_flags: list[str],
+    quality_flags: list[str],
     zone_stats: list[ZoneStat],
     effect_stats: list[EffectStat],
 ) -> list[str]:
@@ -289,10 +318,14 @@ def _build_risk_activation_hints(
     hints: set[str] = set(profile_activation_tags(_profile_like(procurement_kind, structure_flags, zone_stats)))
     if procurement_kind == "unknown":
         hints.update({"unknown_document", "unknown_document_first"})
+    if any(flag in quality_flags for flag in ["template_ratio_high", "reference_ratio_high", "catalog_noise_high", "non_body_structure_dominant"]):
+        hints.add("unknown_document_first")
     if procurement_kind in {"goods", "mixed"}:
         hints.add("competition_restriction")
     if procurement_kind in {"service", "mixed"}:
         hints.add("contract_performance")
+    if any(flag in structure_flags for flag in ["catalog_navigation_heavy", "directory_driven_structure", "catalog_first_structure"]) or "catalog_navigation_high" in quality_flags:
+        hints.update({"catalog_navigation", "directory_navigation"})
     if _zone_ratio(zone_stats, SemanticZoneType.qualification) > 0.08:
         hints.add("qualification_scoring_boundary")
     if _zone_ratio(zone_stats, SemanticZoneType.scoring) > 0.08:
@@ -303,8 +336,12 @@ def _build_risk_activation_hints(
         hints.update({"template_conflict", "template_pollution"})
     if any(flag in structure_flags for flag in ["heavy_appendix_reference", "attachment_driven_structure"]):
         hints.update({"attachment_driven_structure", "template_conflict"})
+    if "catalog_noise_present" in structure_flags or "catalog_noise_high" in quality_flags:
+        hints.add("catalog_noise_present")
     if any(flag in structure_flags for flag in ["mixed_structure_signals", "mixed_structure_uncertain"]):
         hints.update({"structure", "consistency", "mixed_structure_uncertain"})
+    if "non_body_structure_dominant" in quality_flags:
+        hints.update({"template_conflict", "attachment_driven_structure", "catalog_noise_present"})
     return sorted(hints)
 
 
@@ -315,14 +352,52 @@ def _build_quality_flags(
     clause_stats: list[ClauseSemanticStat],
 ) -> list[str]:
     flags: list[str] = []
-    if _effect_ratio(effect_stats, EffectTag.template) > 0.18:
+    scoring_ratio = _zone_ratio(zone_stats, SemanticZoneType.scoring)
+    qualification_ratio = _zone_ratio(zone_stats, SemanticZoneType.qualification)
+    technical_ratio = _zone_ratio(zone_stats, SemanticZoneType.technical)
+    business_ratio = _zone_ratio(zone_stats, SemanticZoneType.business)
+    contract_ratio = _zone_ratio(zone_stats, SemanticZoneType.contract)
+    template_ratio = _zone_ratio(zone_stats, SemanticZoneType.template)
+    appendix_ratio = _zone_ratio(zone_stats, SemanticZoneType.appendix_reference)
+    catalog_ratio = _zone_ratio(zone_stats, SemanticZoneType.catalog_or_navigation)
+    uncertain_ratio = _zone_ratio(zone_stats, SemanticZoneType.mixed_or_uncertain)
+    template_node_count = _zone_node_count(zone_stats, SemanticZoneType.template)
+    appendix_node_count = _zone_node_count(zone_stats, SemanticZoneType.appendix_reference)
+    catalog_node_count = _zone_node_count(zone_stats, SemanticZoneType.catalog_or_navigation)
+    body_ratio = qualification_ratio + technical_ratio + business_ratio + contract_ratio + scoring_ratio
+
+    if _effect_ratio(effect_stats, EffectTag.template) > 0.18 or template_ratio > 0.18:
         flags.append("template_ratio_high")
-    if _effect_ratio(effect_stats, EffectTag.reference_only) > 0.12:
+    if _effect_ratio(effect_stats, EffectTag.reference_only) > 0.12 or appendix_ratio > 0.12:
         flags.append("reference_ratio_high")
-    if _zone_ratio(zone_stats, SemanticZoneType.mixed_or_uncertain) > 0.25:
+    if _effect_ratio(effect_stats, EffectTag.catalog) > 0.08 or catalog_ratio > 0.08 or catalog_node_count >= 2:
+        flags.append("catalog_noise_high")
+    if catalog_ratio >= 0.08 or catalog_node_count >= 1:
+        flags.append("catalog_navigation_high")
+    if uncertain_ratio > 0.25:
         flags.append("mixed_zone_ratio_high")
     if _clause_ratio(clause_stats, ClauseSemanticType.unknown_clause) > 0.3:
         flags.append("unknown_clause_ratio_high")
+    if (
+        template_ratio > 0.08
+        or appendix_ratio > 0.08
+        or catalog_ratio > 0.08
+        or catalog_node_count >= 1
+        or _effect_ratio(effect_stats, EffectTag.reference_only) > 0.12
+        or _clause_ratio(clause_stats, ClauseSemanticType.unknown_clause) > 0.3
+    ) and (
+        not parse_result.clause_units
+        or uncertain_ratio > 0.25
+        or _effect_ratio(effect_stats, EffectTag.reference_only) > 0.12
+        or _clause_ratio(clause_stats, ClauseSemanticType.unknown_clause) > 0.3
+    ):
+        flags.append("weak_source_support")
+    if (template_ratio > 0.18 or template_node_count >= 2) and (appendix_ratio > 0.08 or appendix_node_count >= 1):
+        flags.append("template_appendix_mix_high")
+    if (template_ratio + appendix_ratio + catalog_ratio) > max(0.35, body_ratio) and (
+        template_ratio > 0.12 or appendix_ratio > 0.12 or catalog_ratio > 0.08
+    ):
+        flags.append("non_body_structure_dominant")
     if not parse_result.clause_units:
         flags.append("no_clause_units")
     return list(dict.fromkeys(flags))
@@ -332,21 +407,51 @@ def _build_unknown_structure_flags(
     procurement_kind: str,
     structure_flags: list[str],
     zone_stats: list[ZoneStat],
+    quality_flags: list[str],
 ) -> list[str]:
     flags: list[str] = []
+    is_unknownish = procurement_kind in {"unknown", "mixed"}
+    template_ratio = _zone_ratio(zone_stats, SemanticZoneType.template)
+    appendix_ratio = _zone_ratio(zone_stats, SemanticZoneType.appendix_reference)
+    catalog_ratio = _zone_ratio(zone_stats, SemanticZoneType.catalog_or_navigation)
+    template_node_count = _zone_node_count(zone_stats, SemanticZoneType.template)
+    appendix_node_count = _zone_node_count(zone_stats, SemanticZoneType.appendix_reference)
+    catalog_node_count = _zone_node_count(zone_stats, SemanticZoneType.catalog_or_navigation)
+    body_ratio = (
+        _zone_ratio(zone_stats, SemanticZoneType.qualification)
+        + _zone_ratio(zone_stats, SemanticZoneType.technical)
+        + _zone_ratio(zone_stats, SemanticZoneType.business)
+        + _zone_ratio(zone_stats, SemanticZoneType.contract)
+        + _zone_ratio(zone_stats, SemanticZoneType.scoring)
+    )
+
     if procurement_kind == "unknown":
         flags.append("unknown_procurement_kind")
-    if "unknown_document_first" in structure_flags:
+    if is_unknownish and "unknown_document_first" in structure_flags:
         flags.append("unknown_document_first")
-    if "attachment_driven_structure" in structure_flags:
+    if is_unknownish and ("catalog_navigation_heavy" in structure_flags or catalog_ratio > 0.12 or catalog_node_count >= 2):
+        flags.append("unknown_catalog_navigation")
+    if is_unknownish and "attachment_driven_structure" in structure_flags:
         flags.append("unknown_attachment_driven_structure")
-    if "scoring_dense_structure" in structure_flags or "heavy_scoring_tables" in structure_flags:
+    if is_unknownish and ("scoring_dense_structure" in structure_flags or "heavy_scoring_tables" in structure_flags):
         flags.append("unknown_scoring_dense_structure")
-    if "template_pollution" in structure_flags or "heavy_template_pollution" in structure_flags:
+    if is_unknownish and ("template_pollution" in structure_flags or "heavy_template_pollution" in structure_flags):
         flags.append("unknown_template_pollution")
-    if "mixed_structure_signals" in structure_flags or "mixed_structure_uncertain" in structure_flags:
+    if is_unknownish and "catalog_noise_present" in structure_flags:
+        flags.append("unknown_catalog_noise")
+    if is_unknownish and ("weak_source_support" in quality_flags or "no_clause_units" in quality_flags):
+        flags.append("unknown_low_clause_support")
+    if is_unknownish and ("mixed_structure_signals" in structure_flags or "mixed_structure_uncertain" in structure_flags):
         flags.append("mixed_structure_uncertain")
-    if _zone_ratio(zone_stats, SemanticZoneType.mixed_or_uncertain) > 0.4:
+    if is_unknownish and (template_ratio > 0.12 or template_node_count >= 2) and template_ratio >= max(appendix_ratio, catalog_ratio, body_ratio):
+        flags.append("template_first_structure")
+    if is_unknownish and (appendix_ratio > 0.12 or appendix_node_count >= 1) and appendix_ratio >= max(template_ratio, catalog_ratio, body_ratio):
+        flags.append("attachment_first_structure")
+    if is_unknownish and (catalog_ratio > 0.08 or catalog_node_count >= 2) and catalog_ratio >= max(template_ratio, appendix_ratio, body_ratio):
+        flags.append("catalog_first_structure")
+    if is_unknownish and (template_ratio + appendix_ratio + catalog_ratio) > max(0.35, body_ratio):
+        flags.append("non_body_structure_dominant")
+    if is_unknownish and _zone_ratio(zone_stats, SemanticZoneType.mixed_or_uncertain) > 0.4:
         flags.append("majority_uncertain_zone")
     if procurement_kind == "unknown" and flags == ["unknown_procurement_kind"]:
         flags.append("unknown_domain_gap")
@@ -509,6 +614,13 @@ def _profile_like(
         structure_flags=structure_flags,
         dominant_zones=zone_stats,
     )
+
+
+def _zone_node_count(zone_stats: list[ZoneStat], zone_type: SemanticZoneType) -> int:
+    for item in zone_stats:
+        if item.zone_type == zone_type:
+            return item.node_count
+    return 0
 
 
 def _zone_ratio(zone_stats: list[ZoneStat], zone_type: SemanticZoneType) -> float:
