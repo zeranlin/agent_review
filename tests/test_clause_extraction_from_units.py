@@ -1,4 +1,4 @@
-from agent_review.extractors import extract_clauses_from_units
+from agent_review.extractors import extract_clauses, extract_clauses_from_units
 from agent_review.extractors.clause_units import build_clause_units
 from agent_review.models import DocumentNode, EffectTagResult, SemanticZone, SourceAnchor
 from agent_review.ontology import EffectTag, NodeType, SemanticZoneType
@@ -122,3 +122,17 @@ def test_extract_clauses_from_units_can_extract_structured_fields() -> None:
     assert any(item.source_anchor == "line:2" for item in clauses)
     assert any("检测报告" in content for content in contents)
     assert all("目录" not in content for content in contents)
+
+
+def test_extractors_can_follow_target_field_demands() -> None:
+    nodes, zones, effects = _build_nodes()
+    units = build_clause_units(nodes, zones, effects)
+
+    unit_clauses = extract_clauses_from_units(units, field_names={"付款节点"})
+    text_clauses = extract_clauses(
+        "\n".join(unit.text for unit in units),
+        field_names={"项目属性"},
+    )
+
+    assert {item.field_name for item in unit_clauses} == {"付款节点"}
+    assert any(item.field_name == "项目属性" for item in text_clauses)

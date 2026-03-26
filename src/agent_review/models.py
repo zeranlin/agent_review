@@ -736,40 +736,6 @@ class TaskRecord:
 
 
 @dataclass(slots=True)
-class ReviewTaskPlanItem:
-    catalog_id: str
-    title: str
-    dimension: str
-    scenario_tags: list[str] = field(default_factory=list)
-    activation_reasons: list[str] = field(default_factory=list)
-    required_fields: list[str] = field(default_factory=list)
-    enhancement_fields: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, object]:
-        return asdict(self)
-
-
-@dataclass(slots=True)
-class ReviewPlanning:
-    profile_procurement_kind: str = "unknown"
-    active_tags: list[str] = field(default_factory=list)
-    activation_hints: list[str] = field(default_factory=list)
-    extraction_fields: list[str] = field(default_factory=list)
-    planned_tasks: list[ReviewTaskPlanItem] = field(default_factory=list)
-    summary: str = ""
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "profile_procurement_kind": self.profile_procurement_kind,
-            "active_tags": self.active_tags,
-            "activation_hints": self.activation_hints,
-            "extraction_fields": self.extraction_fields,
-            "planned_tasks": [item.to_dict() for item in self.planned_tasks],
-            "summary": self.summary,
-        }
-
-
-@dataclass(slots=True)
 class RuleSelection:
     core_modules: list[str] = field(default_factory=list)
     enhancement_modules: list[str] = field(default_factory=list)
@@ -990,7 +956,6 @@ class ReviewReport:
     pending_confirmation_items: list[ReviewWorkItem] = field(default_factory=list)
     stage_records: list[RunStageRecord] = field(default_factory=list)
     task_records: list[TaskRecord] = field(default_factory=list)
-    review_planning: ReviewPlanning = field(default_factory=ReviewPlanning)
     rule_selection: RuleSelection = field(default_factory=RuleSelection)
     llm_semantic_review: LLMSemanticReview = field(default_factory=LLMSemanticReview)
 
@@ -1025,7 +990,6 @@ class ReviewReport:
             "pending_confirmation_items": [item.to_dict() for item in self.pending_confirmation_items],
             "stage_records": [item.to_dict() for item in self.stage_records],
             "task_records": [item.to_dict() for item in self.task_records],
-            "review_planning": self.review_planning.to_dict(),
             "rule_selection": self.rule_selection.to_dict(),
             "llm_semantic_review": self.llm_semantic_review.to_dict(),
         }

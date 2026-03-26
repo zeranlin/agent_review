@@ -1020,7 +1020,7 @@ def select_standard_review_tasks(
     document_profile: DocumentProfile | None = None,
 ) -> list[ReviewPointDefinition]:
     routing_profile = document_profile or build_document_profile(text, extracted_clauses)
-    active_tags = _build_active_task_tags(text, extracted_clauses, document_profile=routing_profile)
+    active_tags = build_active_task_tags(text, extracted_clauses, document_profile=routing_profile)
     selected: list[ReviewPointDefinition] = []
     seen: set[str] = set()
     for definition in CATALOG:
@@ -1030,6 +1030,15 @@ def select_standard_review_tasks(
             selected.append(definition)
             seen.add(definition.catalog_id)
     return selected
+
+
+def build_active_task_tags(
+    text: str,
+    extracted_clauses: list[ExtractedClause],
+    *,
+    document_profile: DocumentProfile | None = None,
+) -> set[str]:
+    return _build_active_task_tags(text, extracted_clauses, document_profile=document_profile)
 
 
 def _build_active_task_tags(

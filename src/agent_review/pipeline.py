@@ -113,6 +113,7 @@ class ReviewPipeline:
             self._stage_clause_extraction,
             self._stage_clause_role_classification,
             self._stage_review_task_planning,
+            self._stage_planning_guided_extraction,
             self._stage_dimension_review,
             self._stage_rule_evaluation,
             self._stage_consistency_review,
@@ -270,6 +271,52 @@ class ReviewPipeline:
                     f"已基于 {profile_summary} 画像与 activation hints 规划 {len(planned_points)} 个待执行审查点，"
                     f"形成 {demand_count} 项抽取需求。"
                     + (f" 关键提示：{activation_hint_summary}。" if activation_hint_summary else "")
+                ),
+            )
+        )
+
+    def _stage_planning_guided_extraction(self, state: ReviewPipelineState) -> None:
+        target_fields = set(state.review_planning_contract.extraction_demands) if state.review_planning_contract else set()
+        if not target_fields:
+            state.stage_records.append(
+                RunStageRecord(
+                    stage_name="planning_guided_extraction",
+                    status="completed",
+                    item_count=0,
+                    detail="当前 review planning 未生成额外 extraction demand，保持现有抽取结果。",
+                )
+            )
+            return
+
+        before_count = len(state.extracted_clauses)
+        if state.parse_result.clause_units:
+            unit_targeted = extract_clauses_from_units(
+                state.parse_result.clause_units,
+                field_names=target_fields,
+            )
+            text_targeted = extract_clauses(
+                state.normalized_text,
+                field_names=target_fields,
+            )
+            targeted = _merge_extracted_clauses(unit_targeted, text_targeted)
+        else:
+            targeted = extract_clauses(
+                state.normalized_text,
+                field_names=target_fields,
+            )
+        state.extracted_clauses = classify_extracted_clauses(
+            _merge_extracted_clauses(state.extracted_clauses, targeted)
+        )
+        added_count = len(state.extracted_clauses) - before_count
+        demand_preview = ",".join(state.review_planning_contract.extraction_demands[:5])
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="planning_guided_extraction",
+                status="completed",
+                item_count=added_count,
+                detail=(
+                    f"按 review planning 的 extraction demand 定向抽取 {len(target_fields)} 个字段，新增 {added_count} 条结构化条款。"
+                    + (f" 重点字段：{demand_preview}。" if demand_preview else "")
                 ),
             )
         )

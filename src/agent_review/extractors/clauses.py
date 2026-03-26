@@ -10,10 +10,12 @@ from ..ontology import ClauseSemanticType, EffectTag, SemanticZoneType
 ClauseExtractor = Callable[[list[str]], ExtractedClause | None]
 
 
-def extract_clauses(text: str) -> list[ExtractedClause]:
+def extract_clauses(text: str, field_names: set[str] | None = None) -> list[ExtractedClause]:
     lines = text.splitlines()
     clauses: list[ExtractedClause] = []
     for category, field_name, extractor in FIELD_EXTRACTORS:
+        if field_names is not None and field_name not in field_names:
+            continue
         clause = extractor(lines)
         if clause is None:
             continue
@@ -33,7 +35,10 @@ def extract_clauses(text: str) -> list[ExtractedClause]:
     return clauses
 
 
-def extract_clauses_from_units(clause_units: list[ClauseUnit]) -> list[ExtractedClause]:
+def extract_clauses_from_units(
+    clause_units: list[ClauseUnit],
+    field_names: set[str] | None = None,
+) -> list[ExtractedClause]:
     filtered_units = [
         unit
         for unit in clause_units
@@ -54,9 +59,16 @@ def extract_clauses_from_units(clause_units: list[ClauseUnit]) -> list[Extracted
     if not filtered_units:
         return []
 
-    unit_clauses = [_clause_from_unit(unit) for unit in filtered_units if unit.text.strip()]
+    unit_clauses = []
+    for unit in filtered_units:
+        if not unit.text.strip():
+            continue
+        clause = _clause_from_unit(unit)
+        if field_names is not None and clause.field_name not in field_names:
+            continue
+        unit_clauses.append(clause)
     synthetic_text = "\n".join(unit.text for unit in filtered_units if unit.text.strip())
-    fallback_clauses = extract_clauses(synthetic_text)
+    fallback_clauses = extract_clauses(synthetic_text, field_names=field_names)
     return _merge_extracted_clauses(unit_clauses, fallback_clauses)
 
 

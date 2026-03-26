@@ -163,6 +163,7 @@ def test_missing_dimension_generates_missing_evidence() -> None:
         "clause_extraction",
         "clause_role_classification",
         "review_task_planning",
+        "planning_guided_extraction",
         "dimension_review",
         "rule_evaluation",
         "consistency_review",
@@ -237,6 +238,25 @@ def test_review_task_planning_exposes_a_clear_contract_for_unknown_documents() -
     assert "抽取需求" in planning_stage.detail
     assert serialized["procurement_kind"] == "unknown"
     assert serialized["planned_catalog_ids"] == contract.planned_catalog_ids
+
+
+def test_planning_guided_extraction_reuses_contract_demands() -> None:
+    text = """
+    项目属性：服务
+    采购标的：物业服务
+    中小企业声明函（货物）：全部货物由中小企业制造。
+    本项目专门面向中小企业采购，仍适用价格扣除。
+    付款方式：尾款于验收合格后支付。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="planning.txt")
+    planning_stage = next(item for item in report.stage_records if item.stage_name == "review_task_planning")
+    guided_stage = next(item for item in report.stage_records if item.stage_name == "planning_guided_extraction")
+
+    assert report.review_planning_contract is not None
+    assert "中小企业声明函类型" in report.review_planning_contract.extraction_demands
+    assert "付款节点" in report.review_planning_contract.extraction_demands
+    assert "抽取需求" in planning_stage.detail
+    assert "extraction demand" in guided_stage.detail
 
 
 def test_unknown_document_routes_to_common_tasks_without_goods_specific_review_points() -> None:
