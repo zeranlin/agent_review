@@ -320,6 +320,38 @@ class AuthorityBinding:
 
 
 @dataclass(slots=True)
+class RuleHit:
+    hit_id: str
+    rule_id: str
+    point_id: str
+    fact_ids: list[str] = field(default_factory=list)
+    trigger_reasons: list[str] = field(default_factory=list)
+    matched_slots: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    severity_hint: str = Severity.medium.value
+    default_disposition: str = FindingType.warning.value
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ReviewPointInstance:
+    instance_id: str
+    point_id: str
+    title: str
+    risk_family: str = ""
+    matched_rule_ids: list[str] = field(default_factory=list)
+    supporting_fact_ids: list[str] = field(default_factory=list)
+    authority_binding_ids: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    summary: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class ApplicabilityItem:
     name: str
     status: ApplicabilityStatus
@@ -813,6 +845,8 @@ class ParseResult:
     effect_tag_results: list[EffectTagResult] = field(default_factory=list)
     clause_units: list[ClauseUnit] = field(default_factory=list)
     legal_fact_candidates: list[LegalFactCandidate] = field(default_factory=list)
+    rule_hits: list[RuleHit] = field(default_factory=list)
+    review_point_instances: list[ReviewPointInstance] = field(default_factory=list)
     document_profile: DocumentProfile | None = None
     parser_semantic_trace: ParserSemanticTrace | None = None
     warnings: list[str] = field(default_factory=list)
@@ -833,6 +867,8 @@ class ParseResult:
             "effect_tag_results": [item.to_dict() for item in self.effect_tag_results],
             "clause_units": [item.to_dict() for item in self.clause_units],
             "legal_fact_candidates": [item.to_dict() for item in self.legal_fact_candidates],
+            "rule_hits": [item.to_dict() for item in self.rule_hits],
+            "review_point_instances": [item.to_dict() for item in self.review_point_instances],
             "document_profile": self.document_profile.to_dict() if self.document_profile else None,
             "parser_semantic_trace": self.parser_semantic_trace.to_dict() if self.parser_semantic_trace else None,
             "warnings": self.warnings,

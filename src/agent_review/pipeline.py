@@ -65,6 +65,7 @@ from .rules import build_recommendations, execute_rule_registry
 from .review_point_catalog import resolve_review_point_definition
 from .review_point_contract_registry import get_review_point_contract
 from .rule_definitions import list_rules_for_point
+from .rule_runtime import build_review_point_instances, generate_rule_hits
 from .structure import (
     NullParserSemanticAssistant,
     build_file_info,
@@ -87,6 +88,8 @@ class ReviewPipelineState:
     scope_statement: str = ""
     section_index: list[SectionIndex] = field(default_factory=list)
     legal_fact_candidates: list = field(default_factory=list)
+    rule_hits: list = field(default_factory=list)
+    review_point_instances: list = field(default_factory=list)
     extracted_clauses: list = field(default_factory=list)
     risk_hits: list = field(default_factory=list)
     consistency_checks: list = field(default_factory=list)
@@ -121,6 +124,8 @@ class ReviewPipeline:
             self._stage_document_profiling,
             self._stage_parser_semantic_assist,
             self._stage_legal_fact_extraction,
+            self._stage_rule_hit_generation,
+            self._stage_review_point_instance_assembly,
             self._stage_clause_extraction,
             self._stage_clause_role_classification,
             self._stage_review_task_planning,
@@ -304,6 +309,38 @@ class ReviewPipeline:
             )
         )
 
+    def _stage_rule_hit_generation(self, state: ReviewPipelineState) -> None:
+        state.rule_hits = generate_rule_hits(state.legal_fact_candidates)
+        state.parse_result.rule_hits = state.rule_hits
+        preview = ",".join(_ordered_unique(item.rule_id for item in state.rule_hits)[:4])
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="rule_hit_generation",
+                status="completed",
+                item_count=len(state.rule_hits),
+                detail=(
+                    f"基于 LegalFactCandidate 生成 {len(state.rule_hits)} 条 RuleHit。"
+                    + (f" 命中规则：{preview}。" if preview else "")
+                ),
+            )
+        )
+
+    def _stage_review_point_instance_assembly(self, state: ReviewPipelineState) -> None:
+        state.review_point_instances = build_review_point_instances(state.rule_hits)
+        state.parse_result.review_point_instances = state.review_point_instances
+        preview = ",".join(_ordered_unique(item.point_id for item in state.review_point_instances)[:4])
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="review_point_instance_assembly",
+                status="completed",
+                item_count=len(state.review_point_instances),
+                detail=(
+                    f"由 RuleHit 聚合出 {len(state.review_point_instances)} 个 ReviewPointInstance。"
+                    + (f" 聚合点位：{preview}。" if preview else "")
+                ),
+            )
+        )
+
     def _stage_clause_role_classification(self, state: ReviewPipelineState) -> None:
         state.extracted_clauses = classify_extracted_clauses(state.extracted_clauses)
         identified_count = sum(1 for item in state.extracted_clauses if item.clause_role.value != "未识别")
@@ -327,6 +364,7 @@ class ReviewPipeline:
             state.document_profile,
             planned_points,
             state.legal_fact_candidates,
+            state.review_point_instances,
         )
         profile_summary = state.document_profile.procurement_kind if state.document_profile else "unknown"
         activation_hint_summary = ",".join(state.document_profile.risk_activation_hints[:3]) if state.document_profile else ""
@@ -847,6 +885,7 @@ def _build_review_planning_contract(
     document_profile: DocumentProfile | None,
     review_points: list[ReviewPoint],
     legal_fact_candidates: list[object] | None = None,
+    review_point_instances: list[object] | None = None,
 ) -> ReviewPlanningContract | None:
     if document_profile is None:
         return None
@@ -856,8 +895,13 @@ def _build_review_planning_contract(
     ]
     contracts = [
         contract
-        for point in review_points
-        for contract in [get_review_point_contract(point.catalog_id)]
+        for point_id in _ordered_unique(
+            [
+                *(point.catalog_id for point in review_points),
+                *(getattr(instance, "point_id", "") for instance in (review_point_instances or [])),
+            ]
+        )
+        for contract in [get_review_point_contract(point_id)]
         if contract is not None
     ]
     fact_type_counts = _count_fact_types(legal_fact_candidates or [])
@@ -875,7 +919,12 @@ def _build_review_planning_contract(
         + list(document_profile.quality_flags)
         + list(document_profile.unknown_structure_flags)
     )
-    planned_catalog_ids = _ordered_unique(point.catalog_id for point in review_points)
+    planned_catalog_ids = _ordered_unique(
+        [
+            *(point.catalog_id for point in review_points),
+            *(getattr(instance, "point_id", "") for instance in (review_point_instances or [])),
+        ]
+    )
     priority_dimensions = _ordered_unique(point.dimension for point in review_points)
     activated_risk_families = _ordered_unique(definition.risk_family for definition in definitions if definition.risk_family)
     activated_risk_families = _ordered_unique(
@@ -908,6 +957,7 @@ def _build_review_planning_contract(
                 for point in review_points
                 for rule in list_rules_for_point(point.catalog_id)[:2]
             ),
+            *(f"review_point_instance:{getattr(instance, 'point_id', '')}" for instance in (review_point_instances or [])),
         ]
     )
     base_extraction_demands = _build_base_extraction_demands(document_profile, route_tags)

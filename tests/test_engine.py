@@ -169,6 +169,8 @@ def test_missing_dimension_generates_missing_evidence() -> None:
         "document_profiling",
         "parser_semantic_assist",
         "legal_fact_extraction",
+        "rule_hit_generation",
+        "review_point_instance_assembly",
         "clause_extraction",
         "clause_role_classification",
         "review_task_planning",
@@ -407,6 +409,30 @@ def test_review_planning_contract_consumes_review_point_contract_metadata() -> N
     assert "review_point_contract:RP-QUAL-004" in contract.activation_reasons
     assert any(reason.startswith("rule_definition:RULE-QUAL-PERF-REGION-001") for reason in contract.activation_reasons)
     assert any(reason.startswith("legal_fact:performance_requirement") for reason in contract.activation_reasons)
+    assert "review_point_instance:RP-QUAL-004" in contract.activation_reasons
+    assert "RP-QUAL-004" in contract.planned_catalog_ids
+
+
+def test_legal_fact_candidates_can_generate_rule_hits_and_review_point_instances() -> None:
+    text = """
+    申请人的资格要求：
+    投标人须成立满5年以上。
+    投标人须具备广州市医疗器械行业同类项目业绩不少于2个。
+    评分标准：
+    投标人具有有效的ITSS证书得5分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="rule_runtime_demo.txt")
+
+    rule_hits = report.parse_result.rule_hits
+    instances = report.parse_result.review_point_instances
+
+    assert rule_hits
+    assert any(item.rule_id == "RULE-QUAL-AGE-001" for item in rule_hits)
+    assert any(item.rule_id == "RULE-QUAL-PERF-REGION-001" for item in rule_hits)
+    assert any(item.rule_id == "RULE-SCORE-CERT-001" for item in rule_hits)
+    assert instances
+    assert any(item.point_id == "RP-QUAL-004" for item in instances)
+    assert any(item.point_id == "RP-SCORE-005" for item in instances)
 
 
 def test_unknown_document_routes_to_common_tasks_without_goods_specific_review_points() -> None:
