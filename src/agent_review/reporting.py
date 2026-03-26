@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from .header_info import resolve_header_info
 from .quality import clause_window_from_anchor, evidence_supports_title
 from .models import FindingType, QualityGateStatus, ReviewMode, ReviewReport
 
@@ -90,8 +91,7 @@ def render_formal_review_opinion(report: ReviewReport) -> str:
 
 def render_reviewer_report(report: ReviewReport) -> str:
     issue_entries = _build_reviewer_issue_entries(report)
-    project_name = _extract_project_name(report)
-    purchaser = _extract_purchaser_name(report)
+    header_info = resolve_header_info(report)
     review_date = _format_review_date()
     source_label = report.file_info.document_name
     source_path = report.parse_result.source_path or report.file_info.document_name
@@ -99,9 +99,9 @@ def render_reviewer_report(report: ReviewReport) -> str:
     lines = [
         "**招标文件合规审查意见书**",
         "",
-        f"项目名称：{project_name}",
+        f"项目名称：{header_info.project_name}",
         f"审查材料：[{source_label}]({source_path})",
-        f"采购单位：{purchaser}",
+        f"采购单位：{header_info.purchaser_name}",
         f"审查日期：{review_date}",
         "",
         "**一、审查结论**",
@@ -1279,32 +1279,6 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
     if risk_judgments:
         return risk_judgments[0]
     return "已发现明确风险，证据较充分。"
-
-
-def _extract_project_name(report: ReviewReport) -> str:
-    for clause in report.extracted_clauses:
-        if clause.field_name != "项目名称":
-            continue
-        cleaned = _strip_field_prefix(clause.content, "项目名称")
-        if cleaned:
-            return cleaned
-    return Path(report.file_info.document_name).stem
-
-
-def _extract_purchaser_name(report: ReviewReport) -> str:
-    text = report.parse_result.text or ""
-    patterns = [
-        r"采购人(?:名称)?[:：]\s*([^\n]+)",
-        r"采购单位[:：]\s*([^\n]+)",
-        r"采购人信息[:：]?\s*([^\n]+)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            cleaned = match.group(1).strip(" ：:;；,，。")
-            if cleaned:
-                return cleaned
-    return "未自动识别"
 
 
 def _format_review_date() -> str:

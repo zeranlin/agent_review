@@ -11,6 +11,7 @@ from agent_review.applicability import build_applicability_checks
 from agent_review.adjudication import build_formal_adjudication
 from agent_review.engine import TenderReviewEngine
 from agent_review.extractors.clauses import extract_clauses
+from agent_review.header_info import resolve_header_info
 from agent_review.llm import QwenReviewEnhancer
 from agent_review.llm import QwenLocalConfig
 from agent_review.models import (
@@ -2243,6 +2244,25 @@ def test_reviewer_report_uses_reviewer_friendly_language() -> None:
     assert "**二、问题明细**" in reviewer
     assert "要件链成立" not in reviewer
     assert "已满足 1 项要件" not in reviewer
+
+
+def test_header_info_resolver_prefers_true_project_name_over_sample_instruction() -> None:
+    text = """
+    1、投标样品上必须标注“项目名称及项目编号、样品编号、样品名称”等信息。
+    项目编号：SZCG-001
+    项目名称：清华大学深圳国际研究生院教室课桌椅及食堂等家具采购
+    3.1 | 采购人 | 清华大学深圳国际研究生院
+    验收标准：按合同约定执行。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+
+    header_info = resolve_header_info(report)
+    reviewer = render_reviewer_report(report)
+
+    assert header_info.project_name == "清华大学深圳国际研究生院教室课桌椅及食堂等家具采购"
+    assert header_info.purchaser_name == "清华大学深圳国际研究生院"
+    assert "项目名称：清华大学深圳国际研究生院教室课桌椅及食堂等家具采购" in reviewer
+    assert "采购单位：清华大学深圳国际研究生院" in reviewer
 
 
 def test_reviewer_report_merges_related_issue_families() -> None:
