@@ -263,6 +263,8 @@ class ReviewPipeline:
         activation_hint_summary = ",".join(state.document_profile.risk_activation_hints[:3]) if state.document_profile else ""
         demand_count = len(state.review_planning_contract.extraction_demands) if state.review_planning_contract else 0
         base_count = len(state.review_planning_contract.base_extraction_demands) if state.review_planning_contract else 0
+        required_count = len(state.review_planning_contract.required_task_extraction_demands) if state.review_planning_contract else 0
+        optional_count = len(state.review_planning_contract.optional_enhancement_extraction_demands) if state.review_planning_contract else 0
         enhancement_count = len(state.review_planning_contract.enhancement_extraction_demands) if state.review_planning_contract else 0
         fallback_count = len(state.review_planning_contract.unknown_fallback_extraction_demands) if state.review_planning_contract else 0
         state.stage_records.append(
@@ -273,7 +275,8 @@ class ReviewPipeline:
                 detail=(
                     f"已基于 {profile_summary} 画像与 activation hints 规划 {len(planned_points)} 个待执行审查点，"
                     f"形成 {demand_count} 项抽取需求。"
-                    f" 需求分层：基础必抽 {base_count}、任务增强 {enhancement_count}、unknown fallback {fallback_count}。"
+                    f" 需求分层：基础必抽 {base_count}、任务必需 {required_count}、可选增强 {optional_count}、unknown fallback {fallback_count}。"
+                    f" 任务增强合计 {enhancement_count}。"
                     + (f" 关键提示：{activation_hint_summary}。" if activation_hint_summary else "")
                 ),
             )
@@ -313,7 +316,8 @@ class ReviewPipeline:
         )
         added_count = len(state.extracted_clauses) - before_count
         base_preview = ",".join(state.review_planning_contract.base_extraction_demands[:3])
-        enhancement_preview = ",".join(state.review_planning_contract.enhancement_extraction_demands[:3])
+        required_preview = ",".join(state.review_planning_contract.required_task_extraction_demands[:3])
+        optional_preview = ",".join(state.review_planning_contract.optional_enhancement_extraction_demands[:3])
         fallback_preview = ",".join(state.review_planning_contract.unknown_fallback_extraction_demands[:3])
         state.stage_records.append(
             RunStageRecord(
@@ -323,7 +327,8 @@ class ReviewPipeline:
                 detail=(
                     f"按 review planning 的 extraction demand 定向抽取 {len(target_fields)} 个字段，新增 {added_count} 条结构化条款。"
                     + (f" 基础必抽：{base_preview}。" if base_preview else "")
-                    + (f" 任务增强：{enhancement_preview}。" if enhancement_preview else "")
+                    + (f" 任务必需：{required_preview}。" if required_preview else "")
+                    + (f" 可选增强：{optional_preview}。" if optional_preview else "")
                     + (f" unknown fallback：{fallback_preview}。" if fallback_preview else "")
                 ),
             )
@@ -760,11 +765,22 @@ def _build_review_planning_contract(
     planned_catalog_ids = _ordered_unique(point.catalog_id for point in review_points)
     priority_dimensions = _ordered_unique(point.dimension for point in review_points)
     base_extraction_demands = _build_base_extraction_demands(document_profile, route_tags)
-    enhancement_extraction_demands = [
+    required_task_extraction_demands = [
         field
-        for field in _collect_enhancement_extraction_demands(review_points)
+        for field in _collect_required_task_extraction_demands(review_points)
         if field not in base_extraction_demands
     ]
+    optional_enhancement_extraction_demands = [
+        field
+        for field in _collect_optional_enhancement_extraction_demands(review_points)
+        if field not in base_extraction_demands and field not in required_task_extraction_demands
+    ]
+    enhancement_extraction_demands = _ordered_unique(
+        [
+            *required_task_extraction_demands,
+            *optional_enhancement_extraction_demands,
+        ]
+    )
     unknown_fallback_extraction_demands = [
         field
         for field in _build_unknown_fallback_extraction_demands(document_profile, route_tags)
@@ -789,6 +805,8 @@ def _build_review_planning_contract(
         planned_catalog_ids=planned_catalog_ids,
         priority_dimensions=priority_dimensions,
         base_extraction_demands=base_extraction_demands,
+        required_task_extraction_demands=required_task_extraction_demands,
+        optional_enhancement_extraction_demands=optional_enhancement_extraction_demands,
         enhancement_extraction_demands=enhancement_extraction_demands,
         unknown_fallback_extraction_demands=unknown_fallback_extraction_demands,
         extraction_demands=extraction_demands,
@@ -816,7 +834,7 @@ def _route_tags_from_profile(document_profile: DocumentProfile) -> list[str]:
     return tags
 
 
-def _collect_enhancement_extraction_demands(review_points: list[ReviewPoint]) -> list[str]:
+def _collect_required_task_extraction_demands(review_points: list[ReviewPoint]) -> list[str]:
     demands: list[str] = []
     for point in review_points:
         definition = resolve_review_point_definition(point.title, point.dimension, point.severity)
@@ -824,6 +842,13 @@ def _collect_enhancement_extraction_demands(review_points: list[ReviewPoint]) ->
             for field_name in condition.clause_fields:
                 if field_name and field_name not in demands:
                     demands.append(field_name)
+    return demands
+
+
+def _collect_optional_enhancement_extraction_demands(review_points: list[ReviewPoint]) -> list[str]:
+    demands: list[str] = []
+    for point in review_points:
+        definition = resolve_review_point_definition(point.title, point.dimension, point.severity)
         for field_name in definition.enhancement_fields:
             if field_name and field_name not in demands:
                 demands.append(field_name)

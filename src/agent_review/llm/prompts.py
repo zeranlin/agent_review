@@ -145,13 +145,34 @@ VERDICT_REVIEW_SYSTEM_PROMPT = """你是政府采购招标文件合规审查助�
 
 
 def build_clause_supplement_prompt(report: ReviewReport) -> str:
+    target_fields = _ordered_unique(
+        [
+            *_planning_fields(report, "base_extraction_demands"),
+            *_planning_fields(report, "required_task_extraction_demands"),
+            *_planning_fields(report, "unknown_fallback_extraction_demands"),
+            *_planning_fields(report, "optional_enhancement_extraction_demands")[:6],
+        ]
+    )
     payload = {
         "document_name": report.file_info.document_name,
         "file_type": report.file_info.file_type.value,
         "scope_statement": report.scope_statement,
-        "extracted_clauses": [item.to_dict() for item in report.extracted_clauses],
-        "section_index": [item.to_dict() for item in report.section_index],
-        "findings": [item.to_dict() for item in report.findings if item.finding_type.value != "pass"],
+        "review_planning_contract": _planning_contract_payload(report, field_filter=target_fields),
+        "target_fields": target_fields,
+        "extracted_clauses": _select_clause_payload(
+            report,
+            preferred_fields=target_fields,
+            limit=28,
+        ),
+        "section_index": [
+            {
+                "section_name": item.section_name,
+                "located": item.located,
+                "anchor": item.anchor,
+            }
+            for item in report.section_index[:12]
+        ],
+        "findings": _select_finding_payload(report, limit=12),
     }
     return f"""请根据以下结构化审查结果，输出 JSON：
 
@@ -307,21 +328,50 @@ def build_applicability_review_prompt(report: ReviewReport) -> str:
 
 
 def build_scenario_review_prompt(report: ReviewReport) -> str:
-    extracted_clauses = [
-        {
-            "category": item.category,
-            "field_name": item.field_name,
-            "content": item.content[:120],
-            "source_anchor": item.source_anchor,
+    preferred_fields = [
+        field
+        for field in _ordered_unique(
+            [
+                *_planning_fields(report, "base_extraction_demands"),
+                *_planning_fields(report, "required_task_extraction_demands"),
+                *_planning_fields(report, "unknown_fallback_extraction_demands"),
+            ]
+        )
+        if field
+        in {
+            "项目属性",
+            "采购标的",
+            "采购内容构成",
+            "是否含持续性服务",
+            "合同类型",
+            "合同履行期限",
+            "采购方式",
+            "采购方式适用理由",
+            "采购包数量",
+            "采购包划分说明",
+            "预算金额",
+            "最高限价",
+            "是否专门面向中小企业",
+            "中小企业声明函类型",
+            "是否仍保留价格扣除条款",
+            "品目名称",
+            "所属行业划分",
+            "投标文件格式",
+            "附件引用",
         }
-        for item in report.extracted_clauses[:18]
     ]
     payload = {
         "document_name": report.file_info.document_name,
         "file_type": report.file_info.file_type.value,
         "review_scope": report.file_info.review_scope,
         "summary": report.summary,
-        "extracted_clauses": extracted_clauses,
+        "review_planning_contract": _planning_contract_payload(report, field_filter=preferred_fields),
+        "high_value_fields": preferred_fields,
+        "extracted_clauses": _select_clause_payload(
+            report,
+            preferred_fields=preferred_fields,
+            limit=16,
+        ),
         "existing_catalog": [
             {
                 "catalog_id": item.catalog_id,
@@ -367,23 +417,50 @@ def build_scenario_review_prompt(report: ReviewReport) -> str:
 
 
 def build_scoring_review_prompt(report: ReviewReport) -> str:
-    scoring_keywords = (
-        "评分",
-        "评审",
-        "分值",
-        "分档",
-        "方案",
-        "证书",
-        "检测报告",
-        "财务",
-        "样品",
-        "售后",
+    scoring_fields = _ordered_unique(
+        [
+            field
+            for field in [
+                *_planning_fields(report, "base_extraction_demands"),
+                *_planning_fields(report, "required_task_extraction_demands"),
+                *_planning_fields(report, "optional_enhancement_extraction_demands"),
+            ]
+            if field in {
+                "项目属性",
+                "采购标的",
+                "评分方法",
+                "评分项明细",
+                "方案评分扣分模式",
+                "证书类评分总分",
+                "证书检测报告负担特征",
+                "证书材料适用阶段",
+                "检测报告适用阶段",
+                "行业相关性存疑评分项",
+                "财务指标加分",
+                "样品分",
+                "样品要求",
+                "现场演示要求",
+                "预算金额",
+            }
+        ]
     )
-    scoring_clauses = [
-        item.to_dict()
-        for item in report.extracted_clauses
-        if any(token in f"{item.category}{item.field_name}{item.content}" for token in scoring_keywords)
-    ][:30]
+    scoring_clauses = _select_clause_payload(
+        report,
+        preferred_fields=scoring_fields,
+        keyword_filters=[
+            "评分",
+            "评审",
+            "分值",
+            "分档",
+            "方案",
+            "证书",
+            "检测报告",
+            "财务",
+            "样品",
+            "售后",
+        ],
+        limit=18,
+    )
     scoring_catalog = [
         {
             "catalog_id": item.catalog_id,
@@ -400,6 +477,8 @@ def build_scoring_review_prompt(report: ReviewReport) -> str:
             "review_scope": report.file_info.review_scope,
             "document_name": report.file_info.document_name,
         },
+        "review_planning_contract": _planning_contract_payload(report, field_filter=scoring_fields),
+        "high_value_fields": scoring_fields,
         "scoring_clauses": scoring_clauses,
         "existing_scoring_catalog": scoring_catalog,
     }
@@ -554,6 +633,117 @@ def build_review_point_second_review_prompt(report: ReviewReport, selected_point
   ]
 }}
 """
+
+
+def _planning_contract_payload(
+    report: ReviewReport,
+    *,
+    field_filter: list[str] | None = None,
+) -> dict[str, object] | None:
+    contract = report.review_planning_contract
+    if contract is None:
+        return None
+    field_filter_set = set(field_filter or [])
+
+    def _filter_fields(values: list[str]) -> list[str]:
+        if not field_filter_set:
+            return values
+        return [item for item in values if item in field_filter_set]
+
+    return {
+        "procurement_kind": contract.procurement_kind,
+        "route_tags": contract.route_tags[:8],
+        "routing_flags": contract.routing_flags[:8],
+        "base_extraction_demands": _filter_fields(contract.base_extraction_demands),
+        "required_task_extraction_demands": _filter_fields(contract.required_task_extraction_demands),
+        "optional_enhancement_extraction_demands": _filter_fields(contract.optional_enhancement_extraction_demands)[:12],
+        "unknown_fallback_extraction_demands": _filter_fields(contract.unknown_fallback_extraction_demands),
+        "summary": contract.summary,
+    }
+
+
+def _planning_fields(report: ReviewReport, attr_name: str) -> list[str]:
+    contract = report.review_planning_contract
+    if contract is None:
+        return []
+    return list(getattr(contract, attr_name, []) or [])
+
+
+def _select_clause_payload(
+    report: ReviewReport,
+    *,
+    preferred_fields: list[str] | None = None,
+    keyword_filters: list[str] | None = None,
+    limit: int = 20,
+) -> list[dict[str, object]]:
+    preferred_field_set = set(preferred_fields or [])
+    keyword_filters = keyword_filters or []
+    selected = []
+    for item in report.extracted_clauses:
+        haystack = f"{item.category}{item.field_name}{item.content}"
+        if preferred_field_set and item.field_name in preferred_field_set:
+            selected.append(item)
+            continue
+        if keyword_filters and any(token in haystack for token in keyword_filters):
+            selected.append(item)
+    if not selected:
+        selected = report.extracted_clauses[:limit]
+    deduped = []
+    seen: set[tuple[str, str]] = set()
+    for item in selected:
+        key = (item.field_name, item.source_anchor)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(
+            {
+                "category": item.category,
+                "field_name": item.field_name,
+                "content": item.content[:160],
+                "source_anchor": item.source_anchor,
+                "normalized_value": item.normalized_value,
+            }
+        )
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _ordered_unique(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        ordered.append(item)
+    return ordered
+
+
+def _select_finding_payload(report: ReviewReport, *, limit: int = 12) -> list[dict[str, object]]:
+    selected = [
+        item
+        for item in report.findings
+        if item.finding_type.value != "pass"
+    ]
+    selected.sort(
+        key=lambda item: (
+            {"critical": 0, "high": 1, "medium": 2, "low": 3}[item.severity.value],
+            0 if item.finding_type.value == "confirmed_issue" else 1,
+        )
+    )
+    payload = []
+    for item in selected[:limit]:
+        payload.append(
+            {
+                "dimension": item.dimension,
+                "title": item.title,
+                "finding_type": item.finding_type.value,
+                "severity": item.severity.value,
+                "rationale": item.rationale[:140],
+            }
+        )
+    return payload
 
 
 def _select_second_review_points(report: ReviewReport, limit: int = 4) -> list:

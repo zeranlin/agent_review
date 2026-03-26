@@ -49,7 +49,12 @@ from agent_review.reporting import (
     render_opinion_letter,
     render_reviewer_report,
 )
-from agent_review.llm.prompts import build_review_point_second_review_prompt
+from agent_review.llm.prompts import (
+    build_clause_supplement_prompt,
+    build_review_point_second_review_prompt,
+    build_scoring_review_prompt,
+    build_scenario_review_prompt,
+)
 from agent_review.web import ReviewWebApp, markdown_to_html
 
 
@@ -255,6 +260,8 @@ def test_planning_guided_extraction_reuses_contract_demands() -> None:
     assert report.review_planning_contract is not None
     assert "中小企业声明函类型" in report.review_planning_contract.extraction_demands
     assert "付款节点" in report.review_planning_contract.extraction_demands
+    assert report.review_planning_contract.required_task_extraction_demands
+    assert isinstance(report.review_planning_contract.optional_enhancement_extraction_demands, list)
     assert "抽取需求" in planning_stage.detail
     assert "extraction demand" in guided_stage.detail
 
@@ -1238,6 +1245,31 @@ def test_scoring_review_prompt_and_dynamic_tasks_can_flow_into_main_chain() -> N
         item.title == "证书检测报告及财务指标权重合理性复核"
         for item in enhanced_report.review_points
     )
+
+
+def test_llm_prompts_prefer_planning_high_value_fields() -> None:
+    text = """
+    项目属性：货物
+    采购标的：家具
+    评分方法：综合评分法
+    评分项明细：软件企业认定证书5分，财务报告2分，样品分3分。
+    付款节点：验收后支付。
+    一般资格要求：投标人须具备合法经营资格。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(
+        text, document_name="demo.txt"
+    )
+
+    scenario_prompt = build_scenario_review_prompt(report)
+    scoring_prompt = build_scoring_review_prompt(report)
+    clause_prompt = build_clause_supplement_prompt(report)
+
+    assert "required_task_extraction_demands" in scenario_prompt
+    assert "optional_enhancement_extraction_demands" in scoring_prompt
+    assert "target_fields" in clause_prompt
+    assert "软件企业认定证书5分" in scoring_prompt
+    assert "付款节点" not in scoring_prompt
+    assert "一般资格要求" not in scenario_prompt
 
 
 def test_dynamic_task_parser_can_enrich_defaults_for_unknown_task_shape() -> None:
