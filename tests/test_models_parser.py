@@ -100,6 +100,7 @@ def test_parse_result_supports_optional_raw_parser_artifacts() -> None:
 
     assert payload["raw_blocks"][0]["text"] == "项目概况"
     assert payload["raw_tables"] == []
+    assert payload["legal_fact_candidates"] == []
 
 
 def test_header_info_and_review_planning_contract_expose_ontology_fields() -> None:

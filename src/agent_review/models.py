@@ -812,6 +812,7 @@ class ParseResult:
     semantic_zones: list[SemanticZone] = field(default_factory=list)
     effect_tag_results: list[EffectTagResult] = field(default_factory=list)
     clause_units: list[ClauseUnit] = field(default_factory=list)
+    legal_fact_candidates: list[LegalFactCandidate] = field(default_factory=list)
     document_profile: DocumentProfile | None = None
     parser_semantic_trace: ParserSemanticTrace | None = None
     warnings: list[str] = field(default_factory=list)
@@ -831,6 +832,7 @@ class ParseResult:
             "semantic_zones": [item.to_dict() for item in self.semantic_zones],
             "effect_tag_results": [item.to_dict() for item in self.effect_tag_results],
             "clause_units": [item.to_dict() for item in self.clause_units],
+            "legal_fact_candidates": [item.to_dict() for item in self.legal_fact_candidates],
             "document_profile": self.document_profile.to_dict() if self.document_profile else None,
             "parser_semantic_trace": self.parser_semantic_trace.to_dict() if self.parser_semantic_trace else None,
             "warnings": self.warnings,

@@ -23,6 +23,7 @@ from .consistency import (
     collect_relative_strengths,
 )
 from .extractors import classify_extracted_clauses, extract_clauses, extract_clauses_from_units
+from .extractors import extract_legal_facts_from_units
 from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_review_points, annotate_risk_hits
 from .merge import (
     build_specialist_tables,
@@ -62,6 +63,8 @@ from .ontology import SemanticZoneType, ZONE_PRIMARY_REVIEW_TYPES
 from .quality import derive_conclusion_by_evidence
 from .rules import build_recommendations, execute_rule_registry
 from .review_point_catalog import resolve_review_point_definition
+from .review_point_contract_registry import get_review_point_contract
+from .rule_definitions import list_rules_for_point
 from .structure import (
     NullParserSemanticAssistant,
     build_file_info,
@@ -83,6 +86,7 @@ class ReviewPipelineState:
     document_profile: DocumentProfile | None = None
     scope_statement: str = ""
     section_index: list[SectionIndex] = field(default_factory=list)
+    legal_fact_candidates: list = field(default_factory=list)
     extracted_clauses: list = field(default_factory=list)
     risk_hits: list = field(default_factory=list)
     consistency_checks: list = field(default_factory=list)
@@ -116,6 +120,7 @@ class ReviewPipeline:
             self._stage_document_structure,
             self._stage_document_profiling,
             self._stage_parser_semantic_assist,
+            self._stage_legal_fact_extraction,
             self._stage_clause_extraction,
             self._stage_clause_role_classification,
             self._stage_review_task_planning,
@@ -276,6 +281,29 @@ class ReviewPipeline:
             )
         )
 
+    def _stage_legal_fact_extraction(self, state: ReviewPipelineState) -> None:
+        if state.parse_result.clause_units:
+            state.legal_fact_candidates = extract_legal_facts_from_units(
+                state.parse_result.clause_units,
+                document_id=state.document_name,
+            )
+        else:
+            state.legal_fact_candidates = []
+        state.parse_result.legal_fact_candidates = state.legal_fact_candidates
+        fact_types = _ordered_unique(item.fact_type for item in state.legal_fact_candidates)
+        preview = ",".join(fact_types[:4])
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="legal_fact_extraction",
+                status="completed",
+                item_count=len(state.legal_fact_candidates),
+                detail=(
+                    f"基于 ClauseUnit 抽取 {len(state.legal_fact_candidates)} 条 LegalFactCandidate。"
+                    + (f" 事实类型：{preview}。" if preview else "")
+                ),
+            )
+        )
+
     def _stage_clause_role_classification(self, state: ReviewPipelineState) -> None:
         state.extracted_clauses = classify_extracted_clauses(state.extracted_clauses)
         identified_count = sum(1 for item in state.extracted_clauses if item.clause_role.value != "未识别")
@@ -295,7 +323,11 @@ class ReviewPipeline:
             document_profile=state.document_profile,
         )
         state.review_points.extend(planned_points)
-        state.review_planning_contract = _build_review_planning_contract(state.document_profile, planned_points)
+        state.review_planning_contract = _build_review_planning_contract(
+            state.document_profile,
+            planned_points,
+            state.legal_fact_candidates,
+        )
         profile_summary = state.document_profile.procurement_kind if state.document_profile else "unknown"
         activation_hint_summary = ",".join(state.document_profile.risk_activation_hints[:3]) if state.document_profile else ""
         demand_count = len(state.review_planning_contract.extraction_demands) if state.review_planning_contract else 0
@@ -814,6 +846,7 @@ def _build_pending_confirmation_items(
 def _build_review_planning_contract(
     document_profile: DocumentProfile | None,
     review_points: list[ReviewPoint],
+    legal_fact_candidates: list[object] | None = None,
 ) -> ReviewPlanningContract | None:
     if document_profile is None:
         return None
@@ -821,6 +854,13 @@ def _build_review_planning_contract(
         resolve_review_point_definition(point.title, point.dimension, point.severity)
         for point in review_points
     ]
+    contracts = [
+        contract
+        for point in review_points
+        for contract in [get_review_point_contract(point.catalog_id)]
+        if contract is not None
+    ]
+    fact_type_counts = _count_fact_types(legal_fact_candidates or [])
     external_route_tags, external_preferred_fields, external_fallback_fields, external_activation_reasons = (
         _collect_external_profile_planning_hints(document_profile)
     )
@@ -838,8 +878,19 @@ def _build_review_planning_contract(
     planned_catalog_ids = _ordered_unique(point.catalog_id for point in review_points)
     priority_dimensions = _ordered_unique(point.dimension for point in review_points)
     activated_risk_families = _ordered_unique(definition.risk_family for definition in definitions if definition.risk_family)
+    activated_risk_families = _ordered_unique(
+        [
+            *activated_risk_families,
+            *(contract.risk_family for contract in contracts if contract.risk_family),
+        ]
+    )
     suppressed_risk_families = _suppressed_risk_families(document_profile, activated_risk_families)
-    target_zones = _ordered_unique(zone for definition in definitions for zone in (definition.target_zones or []))
+    target_zones = _ordered_unique(
+        [
+            *(zone for definition in definitions for zone in (definition.target_zones or [])),
+            *(zone for contract in contracts for zone in contract.target_zone_types),
+        ]
+    )
     activation_reasons = _ordered_unique(
         [
             *document_profile.routing_reasons,
@@ -847,6 +898,16 @@ def _build_review_planning_contract(
             *document_profile.unknown_structure_flags,
             *document_profile.quality_flags,
             *external_activation_reasons,
+            *(f"review_point_contract:{contract.point_id}" for contract in contracts),
+            *(
+                f"legal_fact:{fact_type}:{count}"
+                for fact_type, count in fact_type_counts.items()
+            ),
+            *(
+                f"rule_definition:{rule.rule_id}"
+                for point in review_points
+                for rule in list_rules_for_point(point.catalog_id)[:2]
+            ),
         ]
     )
     base_extraction_demands = _build_base_extraction_demands(document_profile, route_tags)
@@ -855,10 +916,20 @@ def _build_review_planning_contract(
         for field in _collect_required_task_extraction_demands(review_points)
         if field not in base_extraction_demands
     ]
+    required_task_extraction_demands = _ordered_unique(
+        [
+            *required_task_extraction_demands,
+            *(field for contract in contracts for field in contract.required_fields),
+        ]
+    )
+    required_task_extraction_demands = [
+        field for field in required_task_extraction_demands if field not in base_extraction_demands
+    ]
     optional_enhancement_extraction_demands = [
         field
         for field in [
             *_collect_optional_enhancement_extraction_demands(review_points),
+            *(field for contract in contracts for field in contract.enhancement_fields),
             *external_preferred_fields,
         ]
         if field not in base_extraction_demands and field not in required_task_extraction_demands
@@ -1036,6 +1107,16 @@ def _ordered_unique(items) -> list[str]:
         seen.add(item)
         ordered.append(item)
     return ordered
+
+
+def _count_fact_types(legal_fact_candidates: list[object]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in legal_fact_candidates:
+        fact_type = str(getattr(item, "fact_type", "")).strip()
+        if not fact_type:
+            continue
+        counts[fact_type] = counts.get(fact_type, 0) + 1
+    return counts
 
 
 def _collect_external_profile_planning_hints(

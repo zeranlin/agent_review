@@ -6,10 +6,12 @@ from .clauses import (
     extract_clauses,
     extract_clauses_from_units,
 )
+from .legal_facts import extract_legal_facts_from_units
 
 __all__ = [
     "classify_clause_role",
     "classify_extracted_clauses",
     "extract_clauses",
     "extract_clauses_from_units",
+    "extract_legal_facts_from_units",
 ]

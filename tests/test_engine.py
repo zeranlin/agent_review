@@ -168,6 +168,7 @@ def test_missing_dimension_generates_missing_evidence() -> None:
         "document_structure",
         "document_profiling",
         "parser_semantic_assist",
+        "legal_fact_extraction",
         "clause_extraction",
         "clause_role_classification",
         "review_task_planning",
@@ -369,6 +370,43 @@ def test_external_profile_hints_extend_review_planning_contract_for_medical_docu
     assert "证明来源要求" in contract.extraction_demands
     assert "是否要求检测报告" in contract.extraction_demands
     assert any(reason.startswith("external_profile_candidate:medical_device_goods") for reason in contract.activation_reasons)
+
+
+def test_clause_units_are_projected_into_legal_fact_candidates() -> None:
+    text = """
+    申请人的资格要求：
+    投标人须成立满5年以上。
+    投标人须具备广州市医疗器械行业同类项目业绩不少于2个。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="legal_facts_demo.txt")
+    facts = report.parse_result.legal_fact_candidates
+
+    assert facts
+    assert any(item.fact_type == "qualification_requirement" and item.constraint_value.get("min_years") == 5 for item in facts)
+    assert any(
+        item.fact_type == "performance_requirement"
+        and item.constraint_value.get("region") == "广州市"
+        and item.constraint_value.get("min_count") == 2
+        for item in facts
+    )
+
+
+def test_review_planning_contract_consumes_review_point_contract_metadata() -> None:
+    text = """
+    申请人的资格要求：
+    投标人须成立满5年以上。
+    投标人须具备广州市医疗器械行业同类项目业绩不少于2个。
+    评分标准：
+    提供外科医疗机械人同类业绩，提供3个得100分，提供2个得60分，提供1个得30分。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="planning_contract_demo.txt")
+    contract = report.review_planning_contract
+
+    assert contract is not None
+    assert "qualification" in contract.activated_risk_families
+    assert "review_point_contract:RP-QUAL-004" in contract.activation_reasons
+    assert any(reason.startswith("rule_definition:RULE-QUAL-PERF-REGION-001") for reason in contract.activation_reasons)
+    assert any(reason.startswith("legal_fact:performance_requirement") for reason in contract.activation_reasons)
 
 
 def test_unknown_document_routes_to_common_tasks_without_goods_specific_review_points() -> None:
@@ -2798,6 +2836,51 @@ def test_formal_manual_boundary_uses_external_authority_guidance() -> None:
     assert adjudications[0].disposition.value == "manual_confirmation"
     assert "外部法理边界提示" in adjudications[0].rationale
     assert "法定验收标准" in adjudications[0].review_reason or "第三方检测" in adjudications[0].review_reason
+
+
+def test_formal_adjudication_can_consume_authority_binding_as_legal_anchor() -> None:
+    point = ReviewPoint(
+        point_id="RP-AUTH-001",
+        catalog_id="RP-CONTRACT-009",
+        title="验收标准存在优胜原则或单方弹性判断",
+        dimension="D.合同条款风险",
+        severity=Severity.high,
+        status=ReviewPointStatus.confirmed,
+        rationale="已发现验收标准存在单方弹性判断。",
+        evidence_bundle=EvidenceBundle(
+            direct_evidence=[Evidence(quote="验收时以采购人最终解释为准。", section_hint="line:1")],
+            supporting_evidence=[],
+            conflicting_evidence=[],
+            rebuttal_evidence=[],
+            missing_evidence_notes=[],
+            sufficiency_summary="证据充分。",
+            clause_roles=[],
+            evidence_level="strong",
+            evidence_score=0.9,
+        ),
+        legal_basis=[],
+    )
+    checks = [
+        ApplicabilityCheck(
+            point_id="RP-AUTH-001",
+            catalog_id="RP-CONTRACT-009",
+            applicable=True,
+            requirement_results=[],
+            exclusion_results=[],
+            satisfied_conditions=["存在验收标准直接引文"],
+            missing_conditions=[],
+            blocking_conditions=[],
+            requirement_chain_complete=True,
+            summary="适法性可继续审查。",
+        )
+    ]
+    gates = [ReviewQualityGate(point_id="RP-AUTH-001", status=QualityGateStatus.passed, reasons=[])]
+
+    adjudications = build_formal_adjudication([point], checks, gates, "验收时以采购人最终解释为准。", [], [])
+
+    assert adjudications[0].included_in_formal is True
+    assert adjudications[0].legal_basis_applicable is True
+    assert "法理命题" in adjudications[0].rationale
 
 
 def test_formal_review_opinion_suppresses_review_mirror_items() -> None:

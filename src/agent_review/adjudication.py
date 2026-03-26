@@ -5,6 +5,7 @@ import re
 
 from .applicability import build_applicability_checks
 from .fact_collectors import collect_task_facts
+from .authority_bindings import list_bindings_for_point
 from .external_data import lookup_external_manual_review_boundary
 from .models import (
     ApplicabilityCheck,
@@ -343,15 +344,36 @@ def build_formal_adjudication(
             for tag in effect_tags
         ) and EffectTag.binding not in effect_tags
         weak_zone_only = _review_point_zones_are_weak_only(point, extracted_clauses, quote)
-        legal_basis_applicable = bool(point.legal_basis) and (
+        authority_bindings = list_bindings_for_point(point.catalog_id)
+        legal_basis_applicable = bool(point.legal_basis or authority_bindings) and (
             applicability.applicable if applicability is not None else True
         )
         external_boundary = lookup_external_manual_review_boundary(
             catalog_id=point.catalog_id,
             title=point.title,
         )
-        boundary_reasons = external_boundary.get("reasons", [])
-        authority_refs = external_boundary.get("authority_refs", [])
+        boundary_reasons = _ordered_unique(
+            [
+                *external_boundary.get("reasons", []),
+                *(
+                    reason
+                    for binding in authority_bindings
+                    for reason in binding.requires_human_review_when
+                ),
+            ]
+        )
+        authority_refs = _ordered_unique(
+            [
+                *external_boundary.get("authority_refs", []),
+                *(
+                    " ".join(part for part in [binding.doc_title, binding.article_label] if part)
+                    for binding in authority_bindings
+                ),
+            ]
+        )
+        authority_propositions = _ordered_unique(
+            binding.legal_proposition for binding in authority_bindings if binding.legal_proposition
+        )
         evidence_sufficient = bool(
             has_direct
             and strong_anchor
@@ -416,6 +438,11 @@ def build_formal_adjudication(
                 review_reason += f" 重点核查：{boundary_summary}。"
             else:
                 review_reason = f"外部法理边界提示需复核：{boundary_summary}。"
+        if authority_propositions and disposition in {
+            FormalDisposition.include,
+            FormalDisposition.manual_confirmation,
+        }:
+            rationale += f" 法理命题：{authority_propositions[0]}"
         results.append(
             FormalAdjudication(
                 point_id=point.point_id,
@@ -435,6 +462,18 @@ def build_formal_adjudication(
             )
         )
     return results
+
+
+def _ordered_unique(items) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        current = str(item).strip()
+        if not current or current in seen:
+            continue
+        seen.add(current)
+        ordered.append(current)
+    return ordered
 
 
 def build_review_point_catalog_snapshot(review_points: list[ReviewPoint]):
