@@ -10,6 +10,7 @@ from .models import (
     ApplicabilityStatus,
     ExtractedClause,
     ReviewPoint,
+    ReviewPointInstance,
 )
 from .review_point_catalog import resolve_review_point_definition
 from .ontology import ConstraintType, EffectTag, LegalEffectType, LegalPrincipleTag, RestrictionAxis, SemanticZoneType
@@ -21,12 +22,19 @@ RelationEvaluator = Callable[[dict[str, list[ExtractedClause]]], tuple[Applicabi
 def build_applicability_checks(
     review_points: list[ReviewPoint],
     extracted_clauses: list[ExtractedClause],
+    review_point_instances: list[ReviewPointInstance] | None = None,
 ) -> list[ApplicabilityCheck]:
     results: list[ApplicabilityCheck] = []
     clause_mapping = _clause_map(extracted_clauses)
     effective_mapping = _clause_map([clause for clause in extracted_clauses if _is_effective_clause(clause)])
+    instance_index = {
+        item.point_id: item
+        for item in (review_point_instances or [])
+        if item.point_id.strip()
+    }
     for point in review_points:
         definition = resolve_review_point_definition(point.title, point.dimension, point.severity)
+        instance = instance_index.get(definition.catalog_id)
         haystack = _build_haystack(point, clause_mapping)
         effective_haystack = _build_haystack(point, effective_mapping)
         requirement_results: list[ApplicabilityItem] = []
@@ -92,6 +100,13 @@ def build_applicability_checks(
             applicable=applicable,
             requirement_results=requirement_results,
         )
+        instance_support_summary = ""
+        instance_rule_ids: list[str] = []
+        if instance is not None:
+            instance_support_summary = instance.summary
+            instance_rule_ids = list(instance.matched_rule_ids)
+            if instance_support_summary:
+                summary += f" 新链实例支撑：{instance_support_summary}"
         results.append(
             ApplicabilityCheck(
                 point_id=point.point_id,
@@ -104,6 +119,8 @@ def build_applicability_checks(
                 blocking_conditions=blocking_conditions,
                 requirement_chain_complete=requirement_chain_complete,
                 summary=summary,
+                instance_support_summary=instance_support_summary,
+                instance_rule_ids=instance_rule_ids,
             )
         )
     return results

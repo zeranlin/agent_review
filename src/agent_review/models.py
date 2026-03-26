@@ -377,6 +377,8 @@ class ApplicabilityCheck:
     blocking_conditions: list[str] = field(default_factory=list)
     requirement_chain_complete: bool = False
     summary: str = ""
+    instance_support_summary: str = ""
+    instance_rule_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -390,6 +392,8 @@ class ApplicabilityCheck:
             "blocking_conditions": self.blocking_conditions,
             "requirement_chain_complete": self.requirement_chain_complete,
             "summary": self.summary,
+            "instance_support_summary": self.instance_support_summary,
+            "instance_rule_ids": self.instance_rule_ids,
         }
 
 
@@ -1247,6 +1251,8 @@ class FormalAdjudication:
     quality_gate_status: QualityGateStatus = QualityGateStatus.passed
     recommended_for_review: bool = False
     review_reason: str = ""
+    instance_support_summary: str = ""
+    instance_rule_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -1264,6 +1270,8 @@ class FormalAdjudication:
             "quality_gate_status": self.quality_gate_status.value,
             "recommended_for_review": self.recommended_for_review,
             "review_reason": self.review_reason,
+            "instance_support_summary": self.instance_support_summary,
+            "instance_rule_ids": self.instance_rule_ids,
         }
 
 

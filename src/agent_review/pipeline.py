@@ -543,13 +543,19 @@ class ReviewPipeline:
 
     def _stage_review_point_assembly(self, state: ReviewPipelineState) -> None:
         state.review_points = annotate_review_points(merge_review_points(state.review_points))
-        state.review_point_catalog = build_review_point_catalog_snapshot(state.review_points)
+        state.review_point_catalog = build_review_point_catalog_snapshot(
+            state.review_points,
+            state.review_point_instances,
+        )
         state.stage_records.append(
             RunStageRecord(
                 stage_name="review_point_assembly",
                 status="completed",
                 item_count=len(state.review_points),
-                detail=f"已从审查结果组装 {len(state.review_points)} 个 ReviewPoint。",
+                detail=(
+                    f"已从审查结果组装 {len(state.review_points)} 个 ReviewPoint，"
+                    f"并同步吸收 {len(state.review_point_instances)} 个 ReviewPointInstance 的目录元数据。"
+                ),
             )
         )
 
@@ -557,6 +563,7 @@ class ReviewPipeline:
         state.applicability_checks = build_point_applicability_checks(
             state.review_points,
             state.extracted_clauses,
+            state.review_point_instances,
         )
         applicable_count = sum(1 for item in state.applicability_checks if item.applicable)
         state.stage_records.append(
@@ -588,6 +595,7 @@ class ReviewPipeline:
             state.parse_result.text,
             state.extracted_clauses,
             state.parse_result.tables,
+            state.review_point_instances,
         )
         included_count = sum(1 for item in state.formal_adjudication if item.included_in_formal)
         state.stage_records.append(

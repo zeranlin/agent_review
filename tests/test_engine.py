@@ -435,6 +435,21 @@ def test_legal_fact_candidates_can_generate_rule_hits_and_review_point_instances
     assert any(item.point_id == "RP-SCORE-005" for item in instances)
 
 
+def test_review_point_instances_enrich_applicability_checks() -> None:
+    text = """
+    申请人的资格要求：
+    投标人须成立满5年以上。
+    投标人须具备广州市医疗器械行业同类项目业绩不少于2个。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="instance_applicability_demo.txt")
+    checks = {item.catalog_id: item for item in report.applicability_checks}
+
+    assert checks["RP-QUAL-004"].instance_support_summary
+    assert "RuleHit" not in checks["RP-QUAL-004"].instance_support_summary
+    assert "新链实例支撑" in checks["RP-QUAL-004"].summary
+    assert checks["RP-QUAL-004"].instance_rule_ids
+
+
 def test_unknown_document_routes_to_common_tasks_without_goods_specific_review_points() -> None:
     text = """
     本文件仅供说明相关事项，详见附件。
@@ -2907,6 +2922,30 @@ def test_formal_adjudication_can_consume_authority_binding_as_legal_anchor() -> 
     assert adjudications[0].included_in_formal is True
     assert adjudications[0].legal_basis_applicable is True
     assert "法理命题" in adjudications[0].rationale
+
+
+def test_formal_adjudication_is_enriched_by_review_point_instance_support() -> None:
+    text = """
+    合同条款：
+    验收时以采购人最终解释为准。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="instance_formal_demo.txt")
+    formal_map = {item.catalog_id: item for item in report.formal_adjudication}
+
+    assert "RP-CONTRACT-009" in formal_map
+    assert formal_map["RP-CONTRACT-009"].instance_support_summary
+    assert "新链实例支撑" in formal_map["RP-CONTRACT-009"].rationale
+
+
+def test_review_point_catalog_can_absorb_instance_contract_metadata() -> None:
+    text = """
+    合同条款：
+    验收时以采购人最终解释为准。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="instance_catalog_demo.txt")
+    catalog_ids = {item.catalog_id for item in report.review_point_catalog}
+
+    assert "RP-CONTRACT-009" in catalog_ids
 
 
 def test_formal_review_opinion_suppresses_review_mirror_items() -> None:

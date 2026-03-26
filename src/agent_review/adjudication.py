@@ -7,6 +7,7 @@ from .applicability import build_applicability_checks
 from .fact_collectors import collect_task_facts
 from .authority_bindings import list_bindings_for_point
 from .external_data import lookup_external_manual_review_boundary
+from .review_point_contract_registry import get_review_point_contract
 from .models import (
     ApplicabilityCheck,
     ClauseRole,
@@ -25,6 +26,8 @@ from .models import (
     RiskHit,
     DocumentProfile,
     ReviewPoint,
+    ReviewPointDefinition,
+    ReviewPointInstance,
     ReviewPointStatus,
     ReviewQualityGate,
     Severity,
@@ -295,9 +298,15 @@ def build_formal_adjudication(
     report_text: str,
     extracted_clauses: list[ExtractedClause],
     parse_tables: list[ParsedTable] | None = None,
+    review_point_instances: list[ReviewPointInstance] | None = None,
 ) -> list[FormalAdjudication]:
     applicability_index = {item.point_id: item for item in applicability_checks}
     quality_gate_index = {item.point_id: item for item in quality_gates}
+    instance_index = {
+        item.point_id: item
+        for item in (review_point_instances or [])
+        if item.point_id.strip()
+    }
     rigid_patent_present = any(
         point.catalog_id == "RP-REST-004"
         and (applicability_index.get(point.point_id).applicable if applicability_index.get(point.point_id) else False)
@@ -307,6 +316,7 @@ def build_formal_adjudication(
     for point in review_points:
         applicability = applicability_index.get(point.point_id)
         quality_gate = quality_gate_index.get(point.point_id)
+        instance = instance_index.get(point.catalog_id)
         section_hint, quote = _resolve_review_point_evidence(
             point,
             report_text,
@@ -443,6 +453,13 @@ def build_formal_adjudication(
             FormalDisposition.manual_confirmation,
         }:
             rationale += f" 法理命题：{authority_propositions[0]}"
+        instance_support_summary = instance.summary if instance is not None else ""
+        instance_rule_ids = list(instance.matched_rule_ids) if instance is not None else []
+        if instance_support_summary and disposition in {
+            FormalDisposition.include,
+            FormalDisposition.manual_confirmation,
+        }:
+            rationale += f" 新链实例支撑：{instance_support_summary}"
         results.append(
             FormalAdjudication(
                 point_id=point.point_id,
@@ -459,6 +476,8 @@ def build_formal_adjudication(
                 quality_gate_status=quality_status,
                 recommended_for_review=recommended_for_review,
                 review_reason=review_reason,
+                instance_support_summary=instance_support_summary,
+                instance_rule_ids=instance_rule_ids,
             )
         )
     return results
@@ -476,15 +495,41 @@ def _ordered_unique(items) -> list[str]:
     return ordered
 
 
-def build_review_point_catalog_snapshot(review_points: list[ReviewPoint]):
-    return snapshot_catalog_for_points(review_points)
+def build_review_point_catalog_snapshot(
+    review_points: list[ReviewPoint],
+    review_point_instances: list[ReviewPointInstance] | None = None,
+):
+    snapshot = snapshot_catalog_for_points(review_points)
+    seen = {item.catalog_id for item in snapshot}
+    for instance in review_point_instances or []:
+        if instance.point_id in seen:
+            continue
+        contract = get_review_point_contract(instance.point_id)
+        if contract is None:
+            continue
+        snapshot.append(
+            ReviewPointDefinition(
+                catalog_id=contract.point_id,
+                title=contract.title,
+                dimension=contract.report_group or "法理审查实例",
+                default_severity=Severity.high if contract.severity_policy in {"high", "critical"} else Severity.medium,
+                risk_family=contract.risk_family,
+                target_zones=list(contract.target_zone_types),
+                required_fields=list(contract.required_fields),
+                enhancement_fields=list(contract.enhancement_fields),
+                basis_hint=contract.description or contract.legal_theme,
+            )
+        )
+        seen.add(instance.point_id)
+    return snapshot
 
 
 def build_point_applicability_checks(
     review_points: list[ReviewPoint],
     extracted_clauses: list[ExtractedClause],
+    review_point_instances: list[ReviewPointInstance] | None = None,
 ) -> list[ApplicabilityCheck]:
-    return build_applicability_checks(review_points, extracted_clauses)
+    return build_applicability_checks(review_points, extracted_clauses, review_point_instances)
 
 
 def build_point_quality_gates(

@@ -603,6 +603,7 @@ def _merge_dynamic_tasks_into_report(
     applicability_checks = build_point_applicability_checks(
         merged_points,
         report.extracted_clauses,
+        report.parse_result.review_point_instances,
     )
     quality_gates = build_point_quality_gates(merged_points, report.extracted_clauses)
     return replace(
@@ -618,6 +619,7 @@ def _merge_dynamic_tasks_into_report(
             report.parse_result.text,
             report.extracted_clauses,
             report.parse_result.tables,
+            report.parse_result.review_point_instances,
         ),
     )
 
