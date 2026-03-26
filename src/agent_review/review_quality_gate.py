@@ -6,6 +6,22 @@ from .models import ClauseRole, ExtractedClause, QualityGateStatus, ReviewPoint,
 from .ontology import EffectTag, SemanticZoneType
 
 
+WEAK_EFFECT_TAGS = {
+    EffectTag.template,
+    EffectTag.example,
+    EffectTag.reference_only,
+    EffectTag.catalog,
+    EffectTag.public_copy_noise,
+}
+
+WEAK_ZONE_TYPES = {
+    SemanticZoneType.template,
+    SemanticZoneType.appendix_reference,
+    SemanticZoneType.catalog_or_navigation,
+    SemanticZoneType.public_copy_or_noise,
+}
+
+
 def build_review_quality_gates(
     review_points: list[ReviewPoint],
     extracted_clauses: list[ExtractedClause],
@@ -28,7 +44,6 @@ def build_review_quality_gates(
         weak_roles = point.evidence_bundle.clause_roles and all(
             role in {
                 ClauseRole.form_template,
-                ClauseRole.policy_explanation,
                 ClauseRole.document_definition,
                 ClauseRole.appendix_reference,
                 ClauseRole.unknown,
@@ -37,12 +52,17 @@ def build_review_quality_gates(
         )
         if weak_roles:
             status = QualityGateStatus.filtered
-            reasons.append("当前审查点证据主要来自模板、定义或附件引用等弱来源。")
+            reasons.append(_describe_weak_roles(point.evidence_bundle.clause_roles))
 
         weak_effect_only = _point_effects_are_weak_only(point, extracted_clauses)
         if weak_effect_only:
             status = QualityGateStatus.filtered
             reasons.append("当前审查点证据主要来自模板、示例或引用性条款，暂不进入正式意见。")
+
+        policy_background_only = _point_policy_background_is_noise_only(point, extracted_clauses)
+        if policy_background_only:
+            status = QualityGateStatus.filtered
+            reasons.append("当前审查点主证据更像政策引用或背景说明，暂不进入正式意见。")
 
         weak_zone_only = _point_zones_are_weak_only(point, extracted_clauses)
         if weak_zone_only:
@@ -88,12 +108,7 @@ def _point_effects_are_weak_only(
     all_tags = {tag for clause in matched for tag in clause.effect_tags}
     if not all_tags:
         return False
-    weak_tags = {
-        EffectTag.template,
-        EffectTag.example,
-        EffectTag.reference_only,
-    }
-    return all(tag in weak_tags for tag in all_tags) and EffectTag.binding not in all_tags
+    return all(tag in WEAK_EFFECT_TAGS for tag in all_tags) and EffectTag.binding not in all_tags
 
 
 def _matched_clauses(point: ReviewPoint, extracted_clauses: list[ExtractedClause]) -> list[ExtractedClause]:
@@ -116,13 +131,7 @@ def _point_zones_are_weak_only(
     matched = _matched_clauses(point, extracted_clauses)
     if not matched:
         return False
-    weak_zones = {
-        SemanticZoneType.template,
-        SemanticZoneType.appendix_reference,
-        SemanticZoneType.catalog_or_navigation,
-        SemanticZoneType.public_copy_or_noise,
-    }
-    return all(clause.semantic_zone in weak_zones for clause in matched)
+    return all(clause.semantic_zone in WEAK_ZONE_TYPES for clause in matched)
 
 
 def _point_evidence_is_noise_only(
@@ -139,6 +148,19 @@ def _point_evidence_is_noise_only(
     return False
 
 
+def _point_policy_background_is_noise_only(
+    point: ReviewPoint,
+    extracted_clauses: list[ExtractedClause],
+) -> bool:
+    evidence = point.evidence_bundle.direct_evidence or point.evidence_bundle.supporting_evidence
+    if evidence and all(_quote_looks_like_policy_background(item.quote) for item in evidence if item.quote):
+        return True
+    matched = _matched_clauses(point, extracted_clauses)
+    if matched and all(_clause_looks_like_policy_background(clause) for clause in matched):
+        return True
+    return False
+
+
 def _clause_looks_like_noise(clause: ExtractedClause, family_key: str) -> bool:
     text = (clause.content or clause.normalized_value or "").strip()
     if not text:
@@ -149,6 +171,10 @@ def _clause_looks_like_noise(clause: ExtractedClause, family_key: str) -> bool:
     if _quote_looks_like_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
         return True
     if _quote_looks_like_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    if _quote_looks_like_catalog_navigation(normalized):
+        return True
+    if _quote_looks_like_policy_background(normalized):
         return True
     return False
 
@@ -164,6 +190,10 @@ def _quote_looks_like_noise(quote: str, family_key: str) -> bool:
     if _quote_looks_like_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
         return True
     if _quote_looks_like_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
+        return True
+    if _quote_looks_like_catalog_navigation(normalized):
+        return True
+    if _quote_looks_like_policy_background(normalized):
         return True
     return False
 
@@ -190,9 +220,67 @@ def _quote_looks_like_list_splice(text: str) -> bool:
     return len(text) >= 100 and separator_count >= 3
 
 
+def _quote_looks_like_catalog_navigation(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return False
+    compact = re.sub(r"\s+", "", normalized)
+    if "目录" in normalized and any(token in normalized for token in ["第一章", "第二章", "第三章", "第四章"]):
+        return len(compact) < 180
+    chapter_hits = sum(1 for token in ["第一章", "第二章", "第三章", "第四章", "第五章", "第六章"] if token in normalized)
+    if chapter_hits >= 2 and len(compact) < 180:
+        return True
+    return bool(
+        re.search(r"第[一二三四五六七八九十0-9]+章", normalized)
+        and any(token in normalized for token in ["招标公告", "采购需求", "投标文件格式", "合同条款", "评分办法"])
+        and len(compact) < 140
+    )
+
+
+def _quote_looks_like_policy_background(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return False
+    if _quote_looks_like_legal_citation(normalized):
+        return True
+    policy_markers = ["根据", "依据", "按照", "参照", "执行", "适用", "规定", "办法", "通知", "财政部", "管理办法"]
+    if not any(token in normalized for token in policy_markers):
+        return False
+    if any(token in normalized for token in ["本项目", "采购标的", "项目属性", "价格扣除", "专门面向中小企业采购", "招标文件", "采购需求"]):
+        return False
+    return len(normalized) < 180
+
+
+def _clause_looks_like_policy_background(clause: ExtractedClause) -> bool:
+    text = (clause.content or clause.normalized_value or "").strip()
+    if not text:
+        return True
+    normalized = re.sub(r"\s+", " ", text)
+    if _quote_looks_like_policy_background(normalized):
+        return True
+    if clause.semantic_zone == SemanticZoneType.policy_explanation:
+        policy_markers = ["根据", "依据", "按照", "参照", "执行", "适用", "规定", "办法", "通知", "财政部", "管理办法"]
+        if any(token in normalized for token in policy_markers) and not any(
+            token in normalized for token in ["本项目", "采购标的", "项目属性", "价格扣除", "专门面向中小企业采购", "招标文件", "采购需求"]
+        ):
+            return len(normalized) < 180
+    return False
+
+
 def _formal_family_key(title: str) -> str:
     if any(token in title for token in ["方案评分", "评分分档", "评分量化"]):
         return "scoring"
     if any(token in title for token in ["证书", "检测报告", "财务指标"]):
         return "score_weight"
     return "generic"
+
+
+def _describe_weak_roles(clause_roles: list[ClauseRole]) -> str:
+    role_set = set(clause_roles)
+    if role_set <= {ClauseRole.document_definition, ClauseRole.unknown}:
+        return "当前审查点证据主要来自目录或定义说明等弱来源。"
+    if role_set <= {ClauseRole.policy_explanation, ClauseRole.unknown}:
+        return "当前审查点证据主要来自政策背景或法规说明等弱来源。"
+    if role_set <= {ClauseRole.appendix_reference, ClauseRole.unknown}:
+        return "当前审查点证据主要来自附件引用等弱来源。"
+    return "当前审查点证据主要来自模板、定义或附件引用等弱来源。"
