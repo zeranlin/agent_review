@@ -12,7 +12,7 @@ from .models import (
     ReviewPoint,
 )
 from .review_point_catalog import resolve_review_point_definition
-from .ontology import EffectTag, SemanticZoneType
+from .ontology import ConstraintType, EffectTag, LegalEffectType, LegalPrincipleTag, RestrictionAxis, SemanticZoneType
 
 
 RelationEvaluator = Callable[[dict[str, list[ExtractedClause]]], tuple[ApplicabilityStatus, list[str]]]
@@ -42,6 +42,10 @@ def build_applicability_checks(
                 effective_haystack,
                 condition.clause_fields,
                 condition.signal_groups,
+                condition.legal_effects,
+                condition.principle_tags,
+                condition.constraint_types,
+                condition.restriction_axes,
             )
             requirement_results.append(
                 ApplicabilityItem(name=condition.name, status=status, detail=detail)
@@ -57,6 +61,10 @@ def build_applicability_checks(
                 effective_haystack,
                 condition.clause_fields,
                 condition.signal_groups,
+                condition.legal_effects,
+                condition.principle_tags,
+                condition.constraint_types,
+                condition.restriction_axes,
             )
             exclusion_results.append(
                 ApplicabilityItem(name=condition.name, status=status, detail=detail)
@@ -136,6 +144,10 @@ def _evaluate_required_condition(
     effective_haystack: str,
     clause_fields: list[str],
     signal_groups: list[list[str]],
+    legal_effects: list[str],
+    principle_tags: list[str],
+    constraint_types: list[str],
+    restriction_axes: list[str],
 ) -> tuple[ApplicabilityStatus, str]:
     relation_match = _evaluate_relation(catalog_id, condition_name, effective_mapping)
     if relation_match is not None and relation_match[0] == ApplicabilityStatus.insufficient and _template_field_only(clause_fields):
@@ -153,20 +165,35 @@ def _evaluate_required_condition(
 
     matched_fields = [field for field in clause_fields if effective_mapping.get(field)]
     weak_only_fields = [field for field in clause_fields if clause_mapping.get(field) and field not in matched_fields]
-    fields_ok = not clause_fields or len(matched_fields) == len(clause_fields)
+    fields_ok = not clause_fields or bool(matched_fields)
     signals_ok = not signal_groups or all(any(token and token in effective_haystack for token in group) for group in signal_groups)
+    semantics_ok, semantic_detail = _evaluate_clause_semantics(
+        effective_mapping,
+        legal_effects=legal_effects,
+        principle_tags=principle_tags,
+        constraint_types=constraint_types,
+        restriction_axes=restriction_axes,
+    )
+    raw_semantics_ok, _ = _evaluate_clause_semantics(
+        clause_mapping,
+        legal_effects=legal_effects,
+        principle_tags=principle_tags,
+        constraint_types=constraint_types,
+        restriction_axes=restriction_axes,
+    )
     weak_signal_only = (
         bool(signal_groups)
         and not signals_ok
         and all(any(token and token in haystack for token in group) for group in signal_groups)
     )
+    weak_semantic_only = not semantics_ok and raw_semantics_ok
 
-    if fields_ok and signals_ok:
-        return ApplicabilityStatus.satisfied, _matched_detail("要件", bool(matched_fields), matched_fields)
-    if weak_only_fields or weak_signal_only:
+    if fields_ok and signals_ok and semantics_ok:
+        return ApplicabilityStatus.satisfied, _matched_detail("要件", bool(matched_fields), matched_fields, semantic_detail)
+    if weak_only_fields or weak_signal_only or weak_semantic_only:
         return ApplicabilityStatus.insufficient, "当前仅在模板、附件或引用性弱来源中命中要件信号，尚不足以闭合要件链。"
-    if matched_fields or signals_ok:
-        return ApplicabilityStatus.unsatisfied, _contradicted_detail("要件", clause_fields, matched_fields)
+    if matched_fields or signals_ok or semantics_ok:
+        return ApplicabilityStatus.unsatisfied, _contradicted_detail("要件", clause_fields, matched_fields, semantic_detail)
     return ApplicabilityStatus.insufficient, _unmatched_detail("要件", clause_fields)
 
 
@@ -179,6 +206,10 @@ def _evaluate_exclusion_condition(
     effective_haystack: str,
     clause_fields: list[str],
     signal_groups: list[list[str]],
+    legal_effects: list[str],
+    principle_tags: list[str],
+    constraint_types: list[str],
+    restriction_axes: list[str],
 ) -> tuple[ApplicabilityStatus, str]:
     relation_match = _evaluate_relation(catalog_id, condition_name, effective_mapping)
     if relation_match is not None:
@@ -194,10 +225,17 @@ def _evaluate_exclusion_condition(
         return ApplicabilityStatus.not_applicable, detail
 
     matched_fields = [field for field in clause_fields if effective_mapping.get(field)]
-    fields_ok = not clause_fields or len(matched_fields) == len(clause_fields)
+    fields_ok = not clause_fields or bool(matched_fields)
     signals_ok = not signal_groups or all(any(token and token in effective_haystack for token in group) for group in signal_groups)
-    if fields_ok and signals_ok:
-        return ApplicabilityStatus.excluded, _matched_detail("排除条件", bool(matched_fields), matched_fields)
+    semantics_ok, semantic_detail = _evaluate_clause_semantics(
+        effective_mapping,
+        legal_effects=legal_effects,
+        principle_tags=principle_tags,
+        constraint_types=constraint_types,
+        restriction_axes=restriction_axes,
+    )
+    if fields_ok and signals_ok and semantics_ok:
+        return ApplicabilityStatus.excluded, _matched_detail("排除条件", bool(matched_fields), matched_fields, semantic_detail)
     return ApplicabilityStatus.not_applicable, _unmatched_detail("排除条件", clause_fields)
 
 
@@ -340,19 +378,76 @@ def _template_field_only(clause_fields: list[str]) -> bool:
     return bool(clause_fields) and set(clause_fields).issubset({"中小企业声明函类型"})
 
 
-def _matched_detail(prefix: str, matched_by_fields: bool, matched_fields: list[str]) -> str:
+def _evaluate_clause_semantics(
+    clause_mapping: dict[str, list[ExtractedClause]],
+    *,
+    legal_effects: list[str],
+    principle_tags: list[str],
+    constraint_types: list[str],
+    restriction_axes: list[str],
+) -> tuple[bool, str]:
+    if not any([legal_effects, principle_tags, constraint_types, restriction_axes]):
+        return True, ""
+
+    clauses = [clause for values in clause_mapping.values() for clause in values]
+    if not clauses:
+        return False, ""
+
+    matched_effects = {
+        clause.legal_effect_type.value
+        for clause in clauses
+        if clause.legal_effect_type != LegalEffectType.unknown
+    }
+    matched_principles = {
+        item.value
+        for clause in clauses
+        for item in clause.legal_principle_tags
+    }
+    matched_constraints = {
+        item.value
+        for clause in clauses
+        for item in clause.clause_constraint.constraint_types
+        if item != ConstraintType.unknown
+    }
+    matched_axes = {
+        item.value
+        for clause in clauses
+        for item in clause.clause_constraint.restriction_axes
+    }
+
+    effects_ok = not legal_effects or bool(set(legal_effects) & matched_effects)
+    principles_ok = not principle_tags or bool(set(principle_tags) & matched_principles)
+    constraints_ok = not constraint_types or bool(set(constraint_types) & matched_constraints)
+    axes_ok = not restriction_axes or bool(set(restriction_axes) & matched_axes)
+    detail_parts = []
+    if legal_effects:
+        detail_parts.append(f"法律作用={','.join(sorted(set(legal_effects) & matched_effects)) or '未命中'}")
+    if principle_tags:
+        detail_parts.append(f"法理母题={','.join(sorted(set(principle_tags) & matched_principles)) or '未命中'}")
+    if constraint_types:
+        detail_parts.append(f"约束类型={','.join(sorted(set(constraint_types) & matched_constraints)) or '未命中'}")
+    if restriction_axes:
+        detail_parts.append(f"限制轴={','.join(sorted(set(restriction_axes) & matched_axes)) or '未命中'}")
+    return effects_ok and principles_ok and constraints_ok and axes_ok, "；".join(detail_parts)
+
+
+def _matched_detail(prefix: str, matched_by_fields: bool, matched_fields: list[str], semantic_detail: str = "") -> str:
     if matched_by_fields and matched_fields:
-        return f"已通过结构化字段命中该{prefix}：{', '.join(matched_fields)}。"
-    return f"已在当前审查点证据或理由中定位到该{prefix}信号。"
+        message = f"已通过结构化字段命中该{prefix}：{', '.join(matched_fields)}。"
+    else:
+        message = f"已在当前审查点证据或理由中定位到该{prefix}信号。"
+    return f"{message}{semantic_detail}" if semantic_detail else message
 
 
-def _contradicted_detail(prefix: str, clause_fields: list[str], matched_fields: list[str]) -> str:
+def _contradicted_detail(prefix: str, clause_fields: list[str], matched_fields: list[str], semantic_detail: str = "") -> str:
     if clause_fields and matched_fields:
-        return (
+        message = (
             f"结构化字段已部分出现但未形成完整{prefix}链："
             f"已命中 {', '.join(matched_fields)}，仍缺 {', '.join(field for field in clause_fields if field not in matched_fields)}。"
         )
-    return f"当前{prefix}存在部分信号，但不足以闭合要件链。"
+    else:
+        message = f"当前{prefix}存在部分信号，但不足以闭合要件链。"
+    return f"{message}{semantic_detail}" if semantic_detail else message
 
 
 def _unmatched_detail(prefix: str, clause_fields: list[str]) -> str:
@@ -663,10 +758,19 @@ def _package_split_reason_presence_evaluator(clause_mapping: dict[str, list[Extr
 
 
 def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
-    qualification_texts = _texts_for_fields(
+    qualification_clauses = _clauses_for_fields(
         clause_mapping,
-        ["资格条件明细", "特定资格要求"],
+        ["资格条件明细", "特定资格要求", "一般资格要求", "资格门槛明细"],
     )
+    qualification_texts = [
+        clause.content or clause.normalized_value
+        for clause in qualification_clauses
+        if (clause.content or clause.normalized_value)
+        and not (
+            clause.field_name == "一般资格要求"
+            and any(token in (clause.content or "") for token in ["评分标准", "得分", "加分", "评分项"])
+        )
+    ]
     scoring_texts = _texts_for_fields(
         clause_mapping,
         ["评分项明细", "信用评价要求", "行业相关性存疑评分项", "证书检测报告负担特征"],
@@ -686,6 +790,7 @@ def _qualification_scoring_overlap_evaluator(clause_mapping: dict[str, list[Extr
                 "信用中国",
                 "中国政府采购网",
                 "本单位缴纳社会保险",
+                "依法缴纳社会保险",
                 "项目负责人或者主要技术人员不是本单位人员",
                 "法定代表人",
             ]
@@ -1074,6 +1179,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-PROC-002", "已说明包件划分或拆分依据"): _package_split_reason_presence_evaluator,
     ("RP-QUAL-001", "存在资格条件明细"): _qualification_scoring_overlap_evaluator,
     ("RP-QUAL-001", "存在评分项明细"): _qualification_scoring_overlap_evaluator,
+    ("RP-QUAL-001", "存在资格门槛"): _qualification_scoring_overlap_evaluator,
+    ("RP-QUAL-001", "存在评分放大因素"): _qualification_scoring_overlap_evaluator,
     ("RP-QUAL-002", "存在特定资格要求"): _excessive_certificate_requirement_evaluator,
     ("RP-QUAL-002", "存在资质证书或材料负担信号"): _excessive_certificate_requirement_evaluator,
     ("RP-REQ-001", "存在技术或服务要求信号"): _technical_service_verifiability_evaluator,

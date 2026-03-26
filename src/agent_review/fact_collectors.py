@@ -731,14 +731,23 @@ def _assemble_qualification_gate_evidence(
         direct_clauses = [
             clause
             for clause in qualification_gate_clauses
-            if any(token in clause.content for token in ["深圳市", "同类项目业绩", "业绩不少于"])
+            if (
+                "performance_experience" in [item.value for item in clause.clause_constraint.constraint_types]
+                and any(
+                    axis.value in {"geographic_region", "industry_segment", "performance_count"}
+                    for axis in clause.clause_constraint.restriction_axes
+                )
+            )
         ]
         supporting_clauses = [clause for clause in qualification_gate_clauses if clause not in direct_clauses]
     else:
         direct_clauses = [
             clause
             for clause in qualification_gate_clauses
-            if any(token in clause.content for token in ["科技型中小企业", "高新技术企业", "纳税信用", "成立满"])
+            if any(
+                item.value in {"entity_identity", "certification", "credit_rating", "establishment_age"}
+                for item in clause.clause_constraint.constraint_types
+            )
         ]
         supporting_clauses = [clause for clause in qualification_gate_clauses if clause not in direct_clauses]
 
@@ -748,6 +757,59 @@ def _assemble_qualification_gate_evidence(
         supporting_clauses=supporting_clauses[:3],
         missing_fields=["资格门槛明细"] if not qualification_gate_clauses else [],
     )
+
+
+def _assemble_evidence_source_restriction_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _sort_candidate_clauses(
+        [
+            clause
+            for clause in _collect_by_fields_in_order(extracted_clauses, ["证明来源要求", "是否要求检测报告", "资格条件明细"])
+            if clause.clause_constraint.evidence_source
+            or any(item.value == "institution_source" for item in clause.clause_constraint.constraint_types)
+        ]
+    )
+    return _assemble_custom_bundle(
+        definition,
+        direct_clauses=relevant[:2],
+        supporting_clauses=relevant[2:4],
+        missing_fields=["证明来源要求"] if not relevant else [],
+    )
+
+
+def _assemble_policy_consistency_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    policy_clauses = _sort_candidate_clauses(
+        _collect_by_fields_in_order(extracted_clauses, ["是否专门面向中小企业"])
+    )
+    qualification_clauses = _sort_candidate_clauses(
+        [
+            clause
+            for clause in _collect_by_fields_in_order(extracted_clauses, ["资格门槛明细"])
+            if any(item.value == "entity_identity" for item in clause.clause_constraint.constraint_types)
+        ]
+    )
+    return _assemble_custom_bundle(
+        definition,
+        direct_clauses=_dedupe_clauses([*policy_clauses[:1], *qualification_clauses[:1]]),
+        supporting_clauses=_dedupe_clauses([*policy_clauses[1:2], *qualification_clauses[1:2]]),
+        missing_fields=["是否专门面向中小企业", "资格门槛明细"] if not (policy_clauses and qualification_clauses) else [],
+    )
+
+
+def _assemble_scoring_relevance_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _collect_by_fields_in_order(
+        extracted_clauses,
+        ["行业相关性存疑评分项", "财务指标加分", "人员评分要求", "信用评价要求", "采购标的", "项目属性"],
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
 
 
 def _assemble_verifiability_evidence(
@@ -1530,7 +1592,9 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-QUAL-002": _assemble_qualification_boundary_evidence,
     "RP-QUAL-003": _assemble_qualification_gate_evidence,
     "RP-QUAL-004": _assemble_qualification_gate_evidence,
+    "RP-EVID-001": _assemble_evidence_source_restriction_evidence,
     "RP-REQ-001": _assemble_verifiability_evidence,
+    "RP-CONS-011": _assemble_policy_consistency_evidence,
     "RP-SME-001": _assemble_policy_conflict_evidence,
     "RP-SME-002": _assemble_service_template_evidence,
     "RP-SME-003": _assemble_service_template_evidence,
@@ -1550,6 +1614,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-SCORE-009": _assemble_scoring_evidence,
     "RP-SCORE-010": _assemble_certificate_score_weight_evidence,
     "RP-SCORE-011": _assemble_credit_evaluation_scoring_evidence,
+    "RP-SCORE-013": _assemble_scoring_relevance_evidence,
     "RP-CONTRACT-002": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-003": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-005": _assemble_contract_linkage_evidence,

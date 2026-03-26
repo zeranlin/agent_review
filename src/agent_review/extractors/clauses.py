@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
+from ..legal_semantics import infer_clause_constraint, infer_legal_effect, infer_legal_principle_tags
 from ..models import AdoptionStatus, ClauseRole, ClauseUnit, ExtractedClause
-from ..ontology import ClauseSemanticType, EffectTag, SemanticZoneType
+from ..ontology import ClauseSemanticType, EffectTag, LegalEffectType, SemanticZoneType
 
 
 ClauseExtractor = Callable[[list[str]], ExtractedClause | None]
@@ -20,16 +21,18 @@ def extract_clauses(text: str, field_names: set[str] | None = None) -> list[Extr
         if clause is None:
             continue
         clauses.append(
-            ExtractedClause(
-                category=category,
-                field_name=field_name,
-                content=clause.content,
-                source_anchor=clause.source_anchor,
-                normalized_value=clause.normalized_value,
-                relation_tags=clause.relation_tags,
-                clause_role=classify_clause_role(clause.content),
-                semantic_zone=SemanticZoneType.mixed_or_uncertain,
-                effect_tags=[],
+            _enrich_extracted_clause(
+                ExtractedClause(
+                    category=category,
+                    field_name=field_name,
+                    content=clause.content,
+                    source_anchor=clause.source_anchor,
+                    normalized_value=clause.normalized_value,
+                    relation_tags=clause.relation_tags,
+                    clause_role=classify_clause_role(clause.content),
+                    semantic_zone=SemanticZoneType.mixed_or_uncertain,
+                    effect_tags=[],
+                )
             )
         )
     return clauses
@@ -77,6 +80,7 @@ def extract_clauses_from_units(
 def classify_extracted_clauses(clauses: list[ExtractedClause]) -> list[ExtractedClause]:
     for clause in clauses:
         clause.clause_role = classify_clause_role(clause.content)
+        _enrich_extracted_clause(clause)
     return clauses
 
 
@@ -107,6 +111,9 @@ def _clause_from_unit(unit: ClauseUnit) -> ExtractedClause:
         semantic_zone=unit.zone_type,
         effect_tags=list(unit.effect_tags),
         adoption_status=AdoptionStatus.rule_based,
+        legal_effect_type=unit.legal_effect_type,
+        legal_principle_tags=list(unit.legal_principle_tags),
+        clause_constraint=unit.clause_constraint,
     )
 
 
@@ -115,7 +122,7 @@ def _infer_unit_category(unit: ClauseUnit, field_name: str) -> str:
         return "项目基本信息"
     if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "信用要求", "是否允许联合体", "是否允许分包"}:
         return "资格条款"
-    if field_name in {"样品要求", "现场演示要求", "是否指定品牌", "是否要求专利", "是否要求检测报告", "是否要求认证证书", "证书检测报告负担特征", "检测报告适用阶段", "证书材料适用阶段", "是否设置★实质性条款", "是否有限制产地厂家商标", "技术服务可验证性信号"}:
+    if field_name in {"样品要求", "现场演示要求", "是否指定品牌", "是否要求专利", "是否要求检测报告", "是否要求认证证书", "证书检测报告负担特征", "检测报告适用阶段", "证书材料适用阶段", "是否设置★实质性条款", "是否有限制产地厂家商标", "技术服务可验证性信号", "证明来源要求"}:
         return "技术条款"
     if field_name in {"评分方法", "价格分", "技术分", "商务分", "证书加分", "业绩加分", "方案评分", "售后加分", "财务指标加分", "人员评分要求", "样品分", "评分项明细", "证书类评分总分", "信用评价要求", "信用修复条款", "异议救济条款", "行业相关性存疑评分项", "方案评分扣分模式"}:
         return "评分条款"
@@ -224,6 +231,8 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
             return "现场演示要求"
         if "专利" in text:
             return "是否要求专利"
+        if any(token in text for token in ["检测中心", "检测机构", "实验室"]) and any(token in text for token in ["出具", "提供"]):
+            return "证明来源要求"
         if any(token in text for token in ["检测报告", "认证证书", "证书", "管理体系认证"]):
             return "是否要求检测报告" if "检测报告" in text else "是否要求认证证书"
         if "★" in text:
@@ -383,7 +392,7 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str) -> str:
             return match.group(1)
     if field_name in {"是否要求检测报告", "是否要求认证证书", "是否要求专利", "是否设置★实质性条款"}:
         return "存在" if text else ""
-    if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "评分项明细", "是否仍保留价格扣除条款", "是否专门面向中小企业", "是否为预留份额采购", "是否涉及进口产品"}:
+    if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "评分项明细", "是否仍保留价格扣除条款", "是否专门面向中小企业", "是否为预留份额采购", "是否涉及进口产品", "证明来源要求"}:
         return "存在"
     if field_name in {"付款节点", "验收标准", "考核条款", "满意度条款", "扣款条款", "解约条款", "违约责任", "质保期", "履约保证金", "整改条款", "申辩条款", "单方解释权", "转包外包条款"}:
         return "存在"
@@ -396,10 +405,16 @@ def _infer_unit_relation_tags(unit: ClauseUnit, field_name: str) -> list[str]:
         tags.append(field_name)
     if unit.clause_semantic_type != ClauseSemanticType.unknown_clause:
         tags.append(unit.clause_semantic_type.value)
+    if unit.legal_effect_type != LegalEffectType.unknown:
+        tags.append(unit.legal_effect_type.value)
     if unit.table_context.get("row_label"):
         tags.append(str(unit.table_context.get("row_label")))
     if unit.effect_tags:
         tags.extend(tag.value for tag in unit.effect_tags)
+    if unit.clause_constraint.constraint_types:
+        tags.extend(item.value for item in unit.clause_constraint.constraint_types)
+    if unit.legal_principle_tags:
+        tags.extend(item.value for item in unit.legal_principle_tags)
     return list(dict.fromkeys(tag for tag in tags if tag))
 
 
@@ -423,6 +438,34 @@ def _merge_extracted_clauses(primary: list[ExtractedClause], fallback: list[Extr
         seen.add(key)
         merged.append(clause)
     return merged
+
+
+def _enrich_extracted_clause(clause: ExtractedClause) -> ExtractedClause:
+    if clause.legal_effect_type == LegalEffectType.unknown:
+        clause.legal_effect_type = infer_legal_effect(
+            text=clause.content,
+            zone_type=clause.semantic_zone,
+            clause_semantic_type=ClauseSemanticType.unknown_clause,
+            field_name=clause.field_name,
+        )
+    clause.clause_constraint = infer_clause_constraint(clause.content, clause.legal_effect_type)
+    clause.legal_principle_tags = infer_legal_principle_tags(
+        clause.content,
+        clause.legal_effect_type,
+        clause.clause_constraint,
+    )
+    clause.relation_tags = list(
+        dict.fromkeys(
+            [
+                *clause.relation_tags,
+                clause.legal_effect_type.value,
+                *(item.value for item in clause.legal_principle_tags),
+                *(item.value for item in clause.clause_constraint.constraint_types),
+                *(item.value for item in clause.clause_constraint.restriction_axes),
+            ]
+        )
+    )
+    return clause
 
 
 def classify_clause_role(text: str) -> ClauseRole:
@@ -1682,6 +1725,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("技术条款", "是否要求专利", _patent_requirement_extractor),
     ("技术条款", "是否要求检测报告", _simple_keyword_extractor(["检测报告"])),
     ("技术条款", "是否要求认证证书", _simple_keyword_extractor(["认证证书", "证书"])),
+    ("技术条款", "证明来源要求", _window_keyword_extractor(["检测中心", "检测机构", "实验室", "税务部门"], require_tokens=["出具", "提供"], after=1)),
     ("技术条款", "证书检测报告负担特征", _material_burden_extractor),
     ("技术条款", "检测报告适用阶段", _material_stage_extractor(["检测报告"])),
     ("技术条款", "证书材料适用阶段", _material_stage_extractor(["认证证书", "证书"])),

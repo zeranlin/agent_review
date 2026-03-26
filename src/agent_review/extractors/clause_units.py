@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..legal_semantics import infer_clause_constraint, infer_legal_effect, infer_legal_principle_tags
 from ..models import ClauseUnit, DocumentNode, EffectTagResult, SemanticZone
 from ..ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType, ZONE_PRIMARY_REVIEW_TYPES
 
@@ -40,6 +41,13 @@ def build_clause_units(
             clause_type = _infer_clause_semantic_type(node, zone_type, effect_tags)
             confidence = _unit_confidence(zone, effect, clause_type, effect_tags, node)
             title = node.title.strip() or unit_text[:60]
+        legal_effect = infer_legal_effect(
+            text=unit_text,
+            zone_type=zone_type,
+            clause_semantic_type=clause_type,
+        )
+        clause_constraint = infer_clause_constraint(unit_text, legal_effect)
+        principle_tags = infer_legal_principle_tags(unit_text, legal_effect, clause_constraint)
 
         units.append(
             ClauseUnit(
@@ -58,6 +66,9 @@ def build_clause_units(
                     **_build_table_context(node, unit_text),
                 },
                 confidence=confidence,
+                legal_effect_type=legal_effect,
+                legal_principle_tags=principle_tags,
+                clause_constraint=clause_constraint,
             )
         )
 

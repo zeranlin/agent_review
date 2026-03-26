@@ -1,6 +1,7 @@
 from agent_review.applicability import build_applicability_checks
 from agent_review.domain_profiles import build_document_profile
 from agent_review.fact_collectors import collect_task_facts
+from agent_review.legal_semantics import infer_clause_constraint, infer_legal_effect, infer_legal_principle_tags
 from agent_review.models import (
     ClauseRole,
     EvidenceBundle,
@@ -10,7 +11,7 @@ from agent_review.models import (
     SemanticZoneType,
     Severity,
 )
-from agent_review.ontology import EffectTag
+from agent_review.ontology import ClauseSemanticType, EffectTag
 from agent_review.review_point_catalog import resolve_review_point_definition, select_standard_review_tasks
 
 
@@ -331,16 +332,29 @@ def test_qualification_gate_tasks_activate_for_excessive_threshold_clauses() -> 
         ExtractedClause(
             category="资格条款",
             field_name="资格门槛明细",
-            content="14.投标人须具备深圳市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。",
+            content="14.投标人须具备广州市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。",
             source_anchor="line:84",
             clause_role=ClauseRole.qualification_or_scoring,
             semantic_zone=SemanticZoneType.qualification,
             effect_tags=[EffectTag.binding],
         ),
     ]
+    for clause in clauses:
+        clause.legal_effect_type = infer_legal_effect(
+            text=clause.content,
+            zone_type=clause.semantic_zone,
+            clause_semantic_type=ClauseSemanticType.qualification_condition,
+            field_name=clause.field_name,
+        )
+        clause.clause_constraint = infer_clause_constraint(clause.content, clause.legal_effect_type)
+        clause.legal_principle_tags = infer_legal_principle_tags(
+            clause.content,
+            clause.legal_effect_type,
+            clause.clause_constraint,
+        )
 
     tasks = select_standard_review_tasks("申请人的资格要求", clauses)
     titles = {item.title for item in tasks}
 
-    assert "资格条件可能超出必要限度" in titles
-    assert "资格条件可能限定地域业绩或行业范围过窄" in titles
+    assert "资格条件可能缺乏履约必要性或带有歧视性门槛" in titles
+    assert "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复" in titles

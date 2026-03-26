@@ -196,3 +196,54 @@ def test_extract_clauses_from_units_marks_qualification_gate_details() -> None:
     assert len(gate_clauses) == 2
     assert any("科技型中小企业" in item.content for item in gate_clauses)
     assert any("成立满5年以上" in item.content for item in gate_clauses)
+    assert all(item.legal_effect_type.value == "qualification_gate" for item in gate_clauses)
+    assert any("qualification_necessity" in [tag.value for tag in item.legal_principle_tags] for item in gate_clauses)
+
+
+def test_extract_clauses_from_units_builds_constraint_axes_for_regional_performance_gate() -> None:
+    nodes = [
+        DocumentNode(
+            node_id="root",
+            node_type=NodeType.volume,
+            title="ROOT",
+            text="",
+            path="ROOT",
+        ),
+        DocumentNode(
+            node_id="q-head",
+            node_type=NodeType.section,
+            title="申请人的资格要求",
+            text="申请人的资格要求",
+            path="ROOT > 第一章 招标公告 > 申请人的资格要求",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:20"),
+        ),
+        DocumentNode(
+            node_id="q-1",
+            node_type=NodeType.list_item,
+            title="投标人须具备广州市医疗器械行业同类项目业绩不少于2个。",
+            text="投标人须具备广州市医疗器械行业同类项目业绩不少于2个。",
+            path="ROOT > 第一章 招标公告 > 投标人须具备广州市医疗器械行业同类项目业绩不少于2个。",
+            parent_id="q-head",
+            anchor=SourceAnchor(line_hint="line:21"),
+        ),
+    ]
+    zones = [
+        SemanticZone("root", SemanticZoneType.catalog_or_navigation, 1.0, ["root"]),
+        SemanticZone("q-head", SemanticZoneType.qualification, 0.95, ["title:申请人的资格要求"]),
+        SemanticZone("q-1", SemanticZoneType.qualification, 0.92, ["parent_qualification_context"]),
+    ]
+    effects = [
+        EffectTagResult("root", [EffectTag.catalog], 1.0, ["root"]),
+        EffectTagResult("q-head", [EffectTag.binding], 0.85, ["binding"]),
+        EffectTagResult("q-1", [EffectTag.binding], 0.88, ["binding"]),
+    ]
+
+    units = build_clause_units(nodes, zones, effects)
+    clauses = extract_clauses_from_units(units)
+    regional_gate = next(item for item in clauses if item.field_name == "资格门槛明细")
+
+    assert regional_gate.legal_effect_type.value == "qualification_gate"
+    assert "performance_experience" in [item.value for item in regional_gate.clause_constraint.constraint_types]
+    assert "geographic_region" in [item.value for item in regional_gate.clause_constraint.restriction_axes]
+    assert "industry_segment" in [item.value for item in regional_gate.clause_constraint.restriction_axes]

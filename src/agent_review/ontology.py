@@ -76,6 +76,57 @@ class ClauseSemanticType(str, Enum):
     unknown_clause = "unknown_clause"
 
 
+class LegalEffectType(str, Enum):
+    qualification_gate = "qualification_gate"
+    scoring_factor = "scoring_factor"
+    technical_requirement = "technical_requirement"
+    business_requirement = "business_requirement"
+    contract_obligation = "contract_obligation"
+    evidence_source_requirement = "evidence_source_requirement"
+    policy_statement = "policy_statement"
+    template_instruction = "template_instruction"
+    reference_notice = "reference_notice"
+    unknown = "unknown"
+
+
+class LegalPrincipleTag(str, Enum):
+    qualification_necessity = "qualification_necessity"
+    qualification_nondiscrimination = "qualification_nondiscrimination"
+    qualification_scoring_boundary = "qualification_scoring_boundary"
+    scoring_relevance = "scoring_relevance"
+    evidence_source_restriction = "evidence_source_restriction"
+    internal_consistency = "internal_consistency"
+
+
+class ConstraintType(str, Enum):
+    entity_identity = "entity_identity"
+    certification = "certification"
+    credit_rating = "credit_rating"
+    establishment_age = "establishment_age"
+    performance_experience = "performance_experience"
+    geographic_scope = "geographic_scope"
+    industry_scope = "industry_scope"
+    institution_source = "institution_source"
+    evidence_document = "evidence_document"
+    enterprise_scale = "enterprise_scale"
+    policy_targeting = "policy_targeting"
+    unknown = "unknown"
+
+
+class RestrictionAxis(str, Enum):
+    qualification_level = "qualification_level"
+    credit_grade = "credit_grade"
+    establishment_years = "establishment_years"
+    geographic_region = "geographic_region"
+    industry_segment = "industry_segment"
+    performance_count = "performance_count"
+    designated_institution = "designated_institution"
+    enterprise_size = "enterprise_size"
+    policy_scope = "policy_scope"
+    stage_burden = "stage_burden"
+    source_authority = "source_authority"
+
+
 class EffectTag(str, Enum):
     binding = "binding"
     template = "template"
@@ -133,6 +184,26 @@ ONTOLOGY_DESCRIPTIONS: dict[str, dict[str, str]] = {
         EffectTag.optional.value: "可选项，需要结合上下文判断是否启用。",
         EffectTag.reference_only.value: "引用性文本，本身不构成完整约束。",
     },
+    "legal_effects": {
+        LegalEffectType.qualification_gate.value: "投标准入门槛或资格审查条件。",
+        LegalEffectType.scoring_factor.value: "进入评分表或量化打分的因素。",
+        LegalEffectType.technical_requirement.value: "技术、参数、性能、检测等需求约束。",
+        LegalEffectType.business_requirement.value: "交付、实施、售后等商务履约要求。",
+        LegalEffectType.contract_obligation.value: "付款、验收、违约、保证金等合同义务。",
+        LegalEffectType.evidence_source_requirement.value: "指定证明材料来源、机构或出具口径。",
+        LegalEffectType.policy_statement.value: "政策适用口径或采购范围声明。",
+        LegalEffectType.template_instruction.value: "格式、模板、示例性文本。",
+        LegalEffectType.reference_notice.value: "附件、附表或引用提示。",
+        LegalEffectType.unknown.value: "尚未判定法律作用。",
+    },
+    "legal_principles": {
+        LegalPrincipleTag.qualification_necessity.value: "资格条件应与履约能力和项目需要直接相关。",
+        LegalPrincipleTag.qualification_nondiscrimination.value: "资格条件不得形成不合理歧视或排斥。",
+        LegalPrincipleTag.qualification_scoring_boundary.value: "资格门槛与评分因素应各司其职，不得双重抬门槛。",
+        LegalPrincipleTag.scoring_relevance.value: "评分因素应与采购标的、履约质量直接相关。",
+        LegalPrincipleTag.evidence_source_restriction.value: "证明材料来源不得无正当理由指定特定机构。",
+        LegalPrincipleTag.internal_consistency.value: "采购文件内部政策、资格和评分口径应一致。",
+    },
 }
 
 
@@ -147,5 +218,19 @@ def build_zone_ontology_payload() -> dict[str, object]:
                 "evidence_policy": ZONE_EVIDENCE_POLICY.get(zone, ""),
             }
             for zone in SemanticZoneType
+        ],
+        "legal_effects": [
+            {
+                "effect_type": effect.value,
+                "description": ONTOLOGY_DESCRIPTIONS["legal_effects"].get(effect.value, ""),
+            }
+            for effect in LegalEffectType
+        ],
+        "legal_principles": [
+            {
+                "principle_tag": principle.value,
+                "description": ONTOLOGY_DESCRIPTIONS["legal_principles"].get(principle.value, ""),
+            }
+            for principle in LegalPrincipleTag
         ],
     }

@@ -3,7 +3,17 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
-from .ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType, ZONE_ONTOLOGY_VERSION
+from .ontology import (
+    ClauseSemanticType,
+    ConstraintType,
+    EffectTag,
+    LegalEffectType,
+    LegalPrincipleTag,
+    NodeType,
+    RestrictionAxis,
+    SemanticZoneType,
+    ZONE_ONTOLOGY_VERSION,
+)
 
 
 class FileType(str, Enum):
@@ -127,9 +137,41 @@ class ReviewPointCondition:
     name: str
     clause_fields: list[str] = field(default_factory=list)
     signal_groups: list[list[str]] = field(default_factory=list)
+    legal_effects: list[str] = field(default_factory=list)
+    principle_tags: list[str] = field(default_factory=list)
+    constraint_types: list[str] = field(default_factory=list)
+    restriction_axes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+@dataclass(slots=True)
+class ClauseConstraint:
+    subject: str = ""
+    role: str = ""
+    legal_effect: LegalEffectType = LegalEffectType.unknown
+    constraint_types: list[ConstraintType] = field(default_factory=list)
+    restriction_axes: list[RestrictionAxis] = field(default_factory=list)
+    evidence_source: str = ""
+    region_tokens: list[str] = field(default_factory=list)
+    industry_tokens: list[str] = field(default_factory=list)
+    qualifier_tokens: list[str] = field(default_factory=list)
+    exclusion_effect: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "subject": self.subject,
+            "role": self.role,
+            "legal_effect": self.legal_effect.value,
+            "constraint_types": [item.value for item in self.constraint_types],
+            "restriction_axes": [item.value for item in self.restriction_axes],
+            "evidence_source": self.evidence_source,
+            "region_tokens": self.region_tokens,
+            "industry_tokens": self.industry_tokens,
+            "qualifier_tokens": self.qualifier_tokens,
+            "exclusion_effect": self.exclusion_effect,
+        }
 
 
 @dataclass(slots=True)
@@ -149,6 +191,7 @@ class ReviewPointDefinition:
     rebuttal_templates: list[list[str]] = field(default_factory=list)
     enhancement_fields: list[str] = field(default_factory=list)
     basis_hint: str = ""
+    legal_principle_tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -167,6 +210,7 @@ class ReviewPointDefinition:
             "rebuttal_templates": self.rebuttal_templates,
             "enhancement_fields": self.enhancement_fields,
             "basis_hint": self.basis_hint,
+            "legal_principle_tags": self.legal_principle_tags,
         }
 
 
@@ -428,6 +472,9 @@ class ClauseUnit:
     confidence: float = 0.0
     ontology_version: str = ZONE_ONTOLOGY_VERSION
     primary_review_type: str = ""
+    legal_effect_type: LegalEffectType = LegalEffectType.unknown
+    legal_principle_tags: list[LegalPrincipleTag] = field(default_factory=list)
+    clause_constraint: ClauseConstraint = field(default_factory=ClauseConstraint)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -443,6 +490,9 @@ class ClauseUnit:
             "confidence": self.confidence,
             "ontology_version": self.ontology_version,
             "primary_review_type": self.primary_review_type,
+            "legal_effect_type": self.legal_effect_type.value,
+            "legal_principle_tags": [item.value for item in self.legal_principle_tags],
+            "clause_constraint": self.clause_constraint.to_dict(),
         }
 
 
@@ -732,6 +782,9 @@ class ExtractedClause:
     effect_tags: list[EffectTag] = field(default_factory=list)
     adoption_status: AdoptionStatus = AdoptionStatus.rule_based
     review_note: str = ""
+    legal_effect_type: LegalEffectType = LegalEffectType.unknown
+    legal_principle_tags: list[LegalPrincipleTag] = field(default_factory=list)
+    clause_constraint: ClauseConstraint = field(default_factory=ClauseConstraint)
 
     def to_dict(self) -> dict[str, str]:
         payload = asdict(self)
@@ -740,6 +793,9 @@ class ExtractedClause:
         payload["semantic_zone"] = self.semantic_zone.value
         payload["effect_tags"] = [item.value for item in self.effect_tags]
         payload["adoption_status"] = self.adoption_status.value
+        payload["legal_effect_type"] = self.legal_effect_type.value
+        payload["legal_principle_tags"] = [item.value for item in self.legal_principle_tags]
+        payload["clause_constraint"] = self.clause_constraint.to_dict()
         return payload
 
 

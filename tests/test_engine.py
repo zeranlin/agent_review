@@ -228,7 +228,7 @@ def test_review_text_surfaces_qualification_gate_points_into_formal_adjudication
     11.投标人须具备高新技术企业证书；
     12.投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；
     13.投标人须成立满5年以上，并提供营业执照复印件；
-    14.投标人须具备深圳市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。
+    14.投标人须具备广州市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。
     """
     report = TenderReviewEngine().review_text(text, document_name="qualification_demo.txt")
 
@@ -237,8 +237,26 @@ def test_review_text_surfaces_qualification_gate_points_into_formal_adjudication
     assert formal_map["RP-QUAL-003"].included_in_formal is True
     assert formal_map["RP-QUAL-004"].included_in_formal is True
     assert "高新技术企业证书" in formal_map["RP-QUAL-003"].primary_quote
-    assert "深圳市医疗器械行业同类项目业绩不少于2个" in formal_map["RP-QUAL-004"].primary_quote
+    assert "广州市医疗器械行业同类项目业绩不少于2个" in formal_map["RP-QUAL-004"].primary_quote
     assert not any(item.title == "服务项目声明函类型疑似错用货物模板" for item in report.findings)
+
+
+def test_review_text_surfaces_evidence_source_and_policy_consistency_risks() -> None:
+    text = """
+    本项目非专门面向中小企业采购。
+    申请人的资格要求：
+    投标人须为全国科技型中小企业。
+    投标人须提供深圳市医疗器械检测中心出具的产品检测报告。
+    评分标准：
+    营业收入越高得分越高。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="principle_demo.txt")
+
+    formal_titles = {item.title for item in report.formal_adjudication if item.included_in_formal}
+
+    assert "资格条件与政策适用口径可能自相矛盾" in formal_titles
+    assert "证明材料来源可能被限定为特定机构或特定出具口径" in formal_titles
+    assert "评分因素可能与采购标的和履约能力关联不足" in formal_titles
 
 
 def test_review_task_planning_exposes_a_clear_contract_for_unknown_documents() -> None:

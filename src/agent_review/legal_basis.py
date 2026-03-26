@@ -130,6 +130,19 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             basis_type="部门规范性文件",
         )
     ],
+    "资格条件可能缺乏履约必要性或带有歧视性门槛": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法",
+            article_hint="第二十二条、第二十五条",
+            summary="供应商条件应与采购项目履约能力相关，不得以不合理条件排斥或者限制潜在供应商。",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="资格条件和证明材料要求应与采购需求和履约能力直接相关，不宜以身份、资质层级、信用等级或成立年限设置过度门槛。",
+            basis_type="部门规范性文件",
+        ),
+    ],
     "资格条件可能限定地域业绩或行业范围过窄": [
         LegalBasis(
             source_name="政府采购需求管理办法",
@@ -137,6 +150,60 @@ LEGAL_BASIS_REGISTRY: dict[str, list[LegalBasis]] = {
             summary="业绩要求应与项目履约能力相匹配，不宜通过地域范围、地方资源或过窄口径形成排他性限制。",
             basis_type="部门规范性文件",
         )
+    ],
+    "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法实施条例",
+            article_hint="公平竞争相关条款",
+            summary="采购需求和供应商条件不得以不合理地域、行业或资源口径限制竞争。",
+            basis_type="行政法规",
+        ),
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="资格条件与评审因素设置相关条款",
+            summary="业绩要求如已用于资格门槛，不宜再通过评分重复放大，且地域或行业口径应与履约能力直接相关。",
+            basis_type="部门规章",
+        ),
+    ],
+    "证明材料来源可能被限定为特定机构或特定出具口径": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法",
+            article_hint="第二十二条、第二十五条",
+            summary="不得以不合理条件排斥或者限制潜在供应商，证明材料来源限制应有充分必要性。",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求管理一般要求",
+            summary="检测报告、证明材料和认证要求应必要、适度，不得无正当理由限定特定机构或唯一出具来源。",
+            basis_type="部门规范性文件",
+        ),
+    ],
+    "资格条件与政策适用口径可能自相矛盾": [
+        LegalBasis(
+            source_name="中华人民共和国政府采购法",
+            article_hint="第二十二条、第二十五条",
+            summary="采购文件对供应商范围、政策适用和资格条件的表述应协调一致，不得通过自相矛盾口径造成隐性限制。",
+        ),
+        LegalBasis(
+            source_name="政府采购促进中小企业发展管理办法",
+            article_hint="适用范围相关条款",
+            summary="面向中小企业的政策适用口径应与供应商范围、声明函和资格要求保持一致。",
+            basis_type="部门规范性文件",
+        ),
+    ],
+    "评分因素可能与采购标的和履约能力关联不足": [
+        LegalBasis(
+            source_name="政府采购货物和服务招标投标管理办法",
+            article_hint="评审因素设置相关条款",
+            summary="评审因素和标准应与采购需求和履约能力直接相关，避免以行业无关证书、企业规模或经营结果替代项目相关评价。",
+            basis_type="部门规章",
+        ),
+        LegalBasis(
+            source_name="政府采购需求管理办法",
+            article_hint="需求与评审关联性要求",
+            summary="评分因素应围绕采购标的、服务质量和履约能力设置，不宜引入与项目关联性不足的偏好性指标。",
+            basis_type="部门规范性文件",
+        ),
     ],
     "技术或服务要求可验证性不足": [
         LegalBasis(
