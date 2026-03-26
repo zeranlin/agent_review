@@ -421,6 +421,22 @@ def _build_evaluation_summary(report: ReviewReport) -> dict[str, object]:
         "consistency_finding_count": len(report.llm_semantic_review.consistency_findings),
     }
 
+    catalog_snapshot = report.review_point_catalog
+    review_point_metadata = {
+        "risk_family_counts": _sorted_counter_dict(Counter(item.risk_family or "generic" for item in catalog_snapshot)),
+        "target_zone_counts": _sorted_counter_dict(
+            Counter(zone for item in catalog_snapshot for zone in (item.target_zones or []))
+        ),
+        "required_field_count": len(
+            {
+                field
+                for item in catalog_snapshot
+                for field in (item.required_fields or [])
+                if field
+            }
+        ),
+    }
+
     quality_summary = _build_quality_gate_summary(report)
     return {
         "document_name": report.file_info.document_name,
@@ -429,6 +445,7 @@ def _build_evaluation_summary(report: ReviewReport) -> dict[str, object]:
         "prompt_volume": prompt_volume,
         "task_duration": duration_summary,
         "dynamic_task_counts": dynamic_task_counts,
+        "review_point_metadata": review_point_metadata,
         "quality_gates": quality_summary,
         "semantic_review": {
             "clause_supplement_count": len(report.llm_semantic_review.clause_supplements),
@@ -545,6 +562,10 @@ def _build_domain_profile_match_summary(profile, candidates) -> dict[str, object
         "unknown_structure_flags": profile.unknown_structure_flags[:5],
         "summary": profile.summary,
     }
+
+
+def _sorted_counter_dict(counter: Counter[str]) -> dict[str, int]:
+    return {key: counter[key] for key in sorted(counter)}
 
 
 def _build_quality_gate_summary(report: ReviewReport) -> dict[str, object]:

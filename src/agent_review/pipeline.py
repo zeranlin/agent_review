@@ -838,10 +838,9 @@ def _collect_required_task_extraction_demands(review_points: list[ReviewPoint]) 
     demands: list[str] = []
     for point in review_points:
         definition = resolve_review_point_definition(point.title, point.dimension, point.severity)
-        for condition in definition.required_conditions + definition.exclusion_conditions:
-            for field_name in condition.clause_fields:
-                if field_name and field_name not in demands:
-                    demands.append(field_name)
+        for field_name in definition.required_fields:
+            if field_name and field_name not in demands:
+                demands.append(field_name)
     return demands
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import re
 
 from .domain_profiles import build_document_profile, profile_activation_tags
@@ -987,9 +988,9 @@ CATALOG: list[ReviewPointDefinition] = [
 def resolve_review_point_definition(title: str, dimension: str, severity: Severity) -> ReviewPointDefinition:
     for item in CATALOG:
         if item.title == title and item.dimension == dimension:
-            return item
+            return _enrich_definition_metadata(item)
     slug = _slugify(f"{dimension}-{title}")
-    return ReviewPointDefinition(
+    return _enrich_definition_metadata(ReviewPointDefinition(
         catalog_id=f"RP-GEN-{slug[:24].upper()}",
         title=title,
         dimension=dimension,
@@ -998,6 +999,75 @@ def resolve_review_point_definition(title: str, dimension: str, severity: Severi
         required_conditions=[],
         exclusion_conditions=[],
         basis_hint="当前审查点尚未在标准目录中沉淀完整适用要件。",
+    ))
+
+
+def definition_required_fields(definition: ReviewPointDefinition) -> list[str]:
+    derived_fields = [
+        field
+        for condition in [*definition.required_conditions, *definition.exclusion_conditions]
+        for field in condition.clause_fields
+        if field
+    ]
+    return _ordered_unique([*definition.required_fields, *derived_fields])
+
+
+def _ordered_unique(items) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        ordered.append(item)
+    return ordered
+
+
+def definition_target_zones(definition: ReviewPointDefinition) -> list[str]:
+    if definition.target_zones:
+        return definition.target_zones
+    zone_map = {
+        "policy": "policy_explanation",
+        "goods": "technical",
+        "service": "business",
+        "scoring": "scoring",
+        "contract": "contract",
+        "personnel": "qualification",
+        "qualification": "qualification",
+        "structure": "administrative_info",
+        "consistency": "administrative_info",
+        "template": "template",
+    }
+    return _ordered_unique(zone_map[tag] for tag in definition.scenario_tags if tag in zone_map)
+
+
+def definition_risk_family(definition: ReviewPointDefinition) -> str:
+    if definition.risk_family:
+        return definition.risk_family
+    dimension = definition.dimension
+    if "中小企业政策" in dimension or "政策" in dimension:
+        return "policy"
+    if "评分" in dimension or "评审标准" in dimension:
+        return "scoring"
+    if "限制竞争" in dimension:
+        return "competition"
+    if "合同" in dimension:
+        return "contract"
+    if "模板" in dimension:
+        return "template"
+    if "项目结构" in dimension or "一致性" in dimension:
+        return "structure"
+    if "人员" in dimension:
+        return "personnel"
+    return "generic"
+
+
+def _enrich_definition_metadata(definition: ReviewPointDefinition) -> ReviewPointDefinition:
+    return replace(
+        definition,
+        risk_family=definition_risk_family(definition),
+        target_zones=definition_target_zones(definition),
+        required_fields=definition_required_fields(definition),
     )
 
 

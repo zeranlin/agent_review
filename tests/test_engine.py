@@ -14,6 +14,7 @@ from agent_review.extractors.clauses import extract_clauses
 from agent_review.header_info import resolve_header_info
 from agent_review.llm import QwenReviewEnhancer
 from agent_review.llm import QwenLocalConfig
+from agent_review.review_point_catalog import resolve_review_point_definition
 from agent_review.models import (
     AdoptionStatus,
     ApplicabilityCheck,
@@ -2285,6 +2286,18 @@ def test_header_info_resolver_extracts_agency_budget_and_max_price() -> None:
     assert header_info.agency_name == "某公共资源交易中心"
     assert header_info.budget_amount == "2899600.00"
     assert header_info.max_price == "2680443.18"
+
+
+def test_review_point_definition_exposes_metadata_fields_for_planning() -> None:
+    definition = resolve_review_point_definition(
+        "行业无关证书或财务指标被纳入评分",
+        "B.评分不规范风险",
+        Severity.high,
+    )
+
+    assert definition.risk_family == "scoring"
+    assert "scoring" in definition.target_zones
+    assert "行业相关性存疑评分项" in definition.required_fields
 
 
 def test_reviewer_report_merges_related_issue_families() -> None:
