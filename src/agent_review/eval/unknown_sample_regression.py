@@ -28,6 +28,8 @@ class RegressionRunOptions:
     review_mode: ReviewMode = ReviewMode.fast
     max_candidates: int = 3
     write_outputs: bool = True
+    emit_manifest: bool = False
+    manifest_label: str = "baseline"
 
 
 @dataclass(slots=True)
@@ -81,10 +83,12 @@ class BatchRegressionSummary:
 
 
 def run_unknown_sample_regression(options: RegressionRunOptions) -> BatchRegressionSummary:
-    if not options.input_paths:
+    input_paths = _canonicalize_paths(options.input_paths)
+    if not input_paths:
         raise ValueError("至少需要提供一个未知品目样本文件。")
 
-    results = [_run_single_file(path, options) for path in options.input_paths]
+    results = [_run_single_file(path, options) for path in input_paths]
+    results.sort(key=lambda item: (item.source_path, item.document_name))
     summary = BatchRegressionSummary(
         generated_at=datetime.now().isoformat(timespec="seconds"),
         review_mode=options.review_mode.value,
@@ -97,6 +101,12 @@ def run_unknown_sample_regression(options: RegressionRunOptions) -> BatchRegress
 
     if options.write_outputs:
         _write_outputs(summary, options.output_dir)
+    if options.emit_manifest:
+        _write_manifest(
+            summary,
+            options.output_dir,
+            label=options.manifest_label,
+        )
     return summary
 
 
@@ -356,12 +366,12 @@ def _build_aggregate_summary(results: list[FileRegressionSummary]) -> dict[str, 
         quality_gate_counter.update(item.quality_gate_summary.get("status_counts", {}))
     formal_mode_counter = Counter(item.formal_summary.get("mode", "unknown") for item in results)
     return {
-        "procurement_kind_counts": dict(procurement_counter),
-        "domain_profile_hit_counts": dict(domain_counter),
-        "quality_gate_status_counts": dict(quality_gate_counter),
-        "formal_modes": dict(formal_mode_counter),
+        "procurement_kind_counts": _sorted_counter_dict(procurement_counter),
+        "domain_profile_hit_counts": _sorted_counter_dict(domain_counter),
+        "quality_gate_status_counts": _sorted_counter_dict(quality_gate_counter),
+        "formal_modes": _sorted_counter_dict(formal_mode_counter),
         "formal_error_count": sum(1 for item in results if item.error),
-        "result_status_counts": dict(Counter(item.status for item in results)),
+        "result_status_counts": _sorted_counter_dict(Counter(item.status for item in results)),
     }
 
 
@@ -369,7 +379,7 @@ def _write_outputs(summary: BatchRegressionSummary, output_dir: Path) -> None:
     target_dir = output_dir.expanduser().resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / "batch_summary.json").write_text(
-        json.dumps(summary.to_dict(), ensure_ascii=False, indent=2),
+        json.dumps(summary.to_dict(), ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
     (target_dir / "batch_summary.md").write_text(
@@ -381,9 +391,41 @@ def _write_outputs(summary: BatchRegressionSummary, output_dir: Path) -> None:
     for index, item in enumerate(summary.items, start=1):
         safe_name = _safe_name(item.document_name)
         (file_dir / f"{index:03d}_{safe_name}.json").write_text(
-            json.dumps(item.to_dict(), ensure_ascii=False, indent=2),
+            json.dumps(item.to_dict(), ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+
+
+def _write_manifest(summary: BatchRegressionSummary, output_dir: Path, *, label: str) -> None:
+    target_dir = output_dir.expanduser().resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    manifest_paths = _canonicalize_paths(Path(item.source_path) for item in summary.items)
+    manifest_text = build_manifest_text(manifest_paths, label=label)
+    (target_dir / "baseline_manifest.txt").write_text(manifest_text, encoding="utf-8")
+    (target_dir / "baseline_manifest.json").write_text(
+        json.dumps(
+            {
+                "label": label,
+                "count": len(manifest_paths),
+                "paths": [str(path) for path in manifest_paths],
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def build_manifest_text(paths: Sequence[Path], *, label: str = "baseline") -> str:
+    canonical_paths = _canonicalize_paths(paths)
+    lines = [
+        "# agent_review unknown sample regression manifest",
+        f"# label: {label}",
+        f"# count: {len(canonical_paths)}",
+    ]
+    lines.extend(str(path) for path in canonical_paths)
+    return "\n".join(lines) + "\n"
 
 
 def _render_markdown(summary: BatchRegressionSummary) -> str:
@@ -430,6 +472,24 @@ def _safe_name(name: str) -> str:
     return cleaned.strip("_") or "sample"
 
 
+def _canonicalize_paths(paths: Sequence[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for raw_path in paths:
+        resolved = Path(raw_path).expanduser().resolve()
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(resolved)
+    deduped.sort(key=lambda item: str(item))
+    return deduped
+
+
+def _sorted_counter_dict(counter: Counter[str]) -> dict[str, int]:
+    return {key: counter[key] for key in sorted(counter)}
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="批量运行未知品目真实样本回归。")
     parser.add_argument("paths", nargs="*", help="待审查文件路径。")
@@ -443,6 +503,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--max-candidates", type=int, default=3, help="保留的领域候选上限。")
     parser.add_argument("--no-write-outputs", action="store_true", help="仅打印，不落盘。")
+    parser.add_argument("--emit-manifest", action="store_true", help="写出规范化 baseline manifest。")
+    parser.add_argument("--manifest-label", default="baseline", help="写出 manifest 时使用的标签。")
     return parser.parse_args(argv)
 
 
@@ -459,30 +521,20 @@ def load_paths_from_manifest(manifest: str | Path | None) -> list[Path]:
         if not candidate.is_absolute():
             candidate = (path.parent / candidate).resolve()
         entries.append(candidate)
-    return _dedupe_paths(entries)
-
-
-def _dedupe_paths(paths: list[Path]) -> list[Path]:
-    deduped: list[Path] = []
-    seen: set[str] = set()
-    for path in paths:
-        resolved = str(path.expanduser().resolve())
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        deduped.append(Path(resolved))
-    return deduped
+    return _canonicalize_paths(entries)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    input_paths = _dedupe_paths([Path(item).expanduser() for item in args.paths] + load_paths_from_manifest(args.manifest))
+    input_paths = _canonicalize_paths([Path(item).expanduser() for item in args.paths] + load_paths_from_manifest(args.manifest))
     options = RegressionRunOptions(
         input_paths=input_paths,
         output_dir=Path(args.output_dir),
         review_mode=ReviewMode(args.review_mode),
         max_candidates=args.max_candidates,
         write_outputs=not args.no_write_outputs,
+        emit_manifest=args.emit_manifest,
+        manifest_label=args.manifest_label,
     )
     summary = run_unknown_sample_regression(options)
     print(_render_markdown(summary))

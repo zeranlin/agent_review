@@ -1,0 +1,16 @@
+# agent_review unknown sample regression manifest example
+# label: baseline
+# count: 10
+
+# 请把下面路径替换为本地真实样本路径。
+# 建议覆盖：家具、通用货物、通用服务、混合采购、模板污染较重样本。
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/furniture_01.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/furniture_02.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/goods_01.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/goods_02.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/service_01.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/service_02.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/mixed_01.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/mixed_02.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/template_heavy_01.docx
+/Users/linzeran/code/2026-zn/test_target/unknown_sample_baseline/edge_case_01.docx

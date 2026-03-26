@@ -16,17 +16,41 @@
 建议直接运行：
 
 ```bash
-PYTHONPATH=src python tests/run_unknown_sample_regression.py --manifest /path/to/manifest.txt --output-dir runs/unknown_sample_regression
+python tests/run_unknown_sample_regression.py --manifest /path/to/manifest.txt --output-dir runs/unknown_sample_regression
 ```
 
 也可以直接传文件路径：
 
 ```bash
-PYTHONPATH=src python tests/run_unknown_sample_regression.py \
+python tests/run_unknown_sample_regression.py \
   /path/to/a.docx \
   /path/to/b.pdf \
   --output-dir runs/unknown_sample_regression
 ```
+
+## baseline manifest 机制
+
+建议把 8 到 12 个真实样本整理成一个 baseline manifest，形成固定回归集。
+
+可以先参考：
+
+- [docs/unknown_sample_regression_manifest_example.txt](/Users/linzeran/code/2026-zn/agent_review/docs/unknown_sample_regression_manifest_example.txt)
+
+常用命令：
+
+```bash
+python tests/run_unknown_sample_regression.py \
+  --manifest /path/to/baseline_manifest.txt \
+  --output-dir runs/unknown_sample_regression \
+  --emit-manifest
+```
+
+`--emit-manifest` 会在输出目录中写出规范化的：
+
+- `baseline_manifest.txt`
+- `baseline_manifest.json`
+
+它们会按绝对路径去重并排序，便于后续做稳定回归对比。
 
 ## manifest 格式
 
@@ -52,6 +76,7 @@ PYTHONPATH=src python tests/run_unknown_sample_regression.py \
 2. 入口会对每个文件单独处理，不把样本互相合并。
 3. formal 摘要采用 best-effort 策略，若现有主流程在 formal 阶段报错，入口会保留错误信息并继续输出前置摘要。
 4. 这个入口不属于默认单测主链，不会自动参与日常 `pytest`。
+5. manifest 和输出摘要都采用规范化排序，方便做 baseline diff。
 
 ## 回归建议
 
@@ -61,3 +86,4 @@ PYTHONPATH=src python tests/run_unknown_sample_regression.py \
 - 家具类真实文件
 - 结构复杂、模板污染重、评分表多的文件
 - 需要观察画像候选是否漂移的边界样本
+- 凑齐 8 到 12 个文件，尽量覆盖货物、服务、混合和家具四类画像
