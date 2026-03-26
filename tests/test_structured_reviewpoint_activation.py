@@ -122,6 +122,62 @@ def test_unknown_document_routes_structure_noise_into_structure_tasks() -> None:
     assert "一般模板残留" in titles
 
 
+def test_unknown_conservative_routing_suppresses_personnel_family_without_strong_fields() -> None:
+    clauses = [
+        ExtractedClause(
+            category="评分",
+            field_name="评分方法",
+            content="采用综合评分法。",
+            source_anchor="line:3",
+            semantic_zone=SemanticZoneType.scoring,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="合同",
+            field_name="付款节点",
+            content="按进度付款。",
+            source_anchor="line:8",
+            semantic_zone=SemanticZoneType.contract,
+            effect_tags=[EffectTag.binding],
+        ),
+    ]
+
+    profile = build_document_profile("本文件仅供说明相关事项，详见附件。", clauses)
+    tasks = select_standard_review_tasks("本文件仅供说明相关事项，详见附件。", clauses, document_profile=profile)
+    titles = {item.title for item in tasks}
+
+    assert profile.routing_mode == "unknown_conservative"
+    assert "团队稳定性要求过强" not in titles
+
+
+def test_unknown_conservative_routing_keeps_personnel_family_with_override_fields() -> None:
+    clauses = [
+        ExtractedClause(
+            category="商务",
+            field_name="团队稳定性要求",
+            content="核心团队成员在服务期间不得更换。",
+            source_anchor="line:5",
+            semantic_zone=SemanticZoneType.business,
+            effect_tags=[EffectTag.binding],
+        ),
+        ExtractedClause(
+            category="评分",
+            field_name="人员评分要求",
+            content="项目负责人具备相关经验得2分。",
+            source_anchor="line:9",
+            semantic_zone=SemanticZoneType.scoring,
+            effect_tags=[EffectTag.binding],
+        ),
+    ]
+
+    profile = build_document_profile("本文件仅供说明相关事项，详见附件。", clauses)
+    tasks = select_standard_review_tasks("本文件仅供说明相关事项，详见附件。", clauses, document_profile=profile)
+    titles = {item.title for item in tasks}
+
+    assert profile.routing_mode == "unknown_conservative"
+    assert "团队稳定性要求过强" in titles
+
+
 def test_qualification_boundary_prefers_real_scoring_clause_over_template_phrase() -> None:
     definition = resolve_review_point_definition(
         "资格条件与评分因素重复设门槛",

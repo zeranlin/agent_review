@@ -861,6 +861,9 @@ def _build_profile_activation_hints(profile: DocumentProfile) -> list[str]:
 
 
 def _build_routing_policy(profile: DocumentProfile) -> tuple[str, list[str]]:
+    is_unknownish = profile.procurement_kind in {"unknown", "mixed"} or bool(profile.unknown_structure_flags)
+    if not is_unknownish:
+        return "standard", []
     reasons: list[str] = []
     if profile.procurement_kind == "unknown":
         reasons.append("unknown_procurement_kind")

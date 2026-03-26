@@ -508,6 +508,9 @@ def _build_routing_policy(
     unknown_structure_flags: list[str],
     parser_semantic_trace,
 ) -> tuple[str, list[str]]:
+    is_unknownish = procurement_kind in {"unknown", "mixed"} or bool(unknown_structure_flags)
+    if not is_unknownish:
+        return "standard", []
     reasons: list[str] = []
     if procurement_kind == "unknown":
         reasons.append("unknown_procurement_kind")

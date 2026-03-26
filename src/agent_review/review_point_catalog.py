@@ -1092,9 +1092,10 @@ def select_standard_review_tasks(
     routing_profile = document_profile or build_document_profile(text, extracted_clauses)
     active_tags = build_active_task_tags(text, extracted_clauses, document_profile=routing_profile)
     present_fields = {clause.field_name for clause in extracted_clauses if clause.field_name}
-    selected: list[ReviewPointDefinition] = []
+    candidates: list[ReviewPointDefinition] = []
     seen: set[str] = set()
-    for definition in CATALOG:
+    for raw_definition in CATALOG:
+        definition = _enrich_definition_metadata(raw_definition)
         if definition.catalog_id in seen:
             continue
         if _definition_matches_active_tags(definition, active_tags, document_profile=routing_profile) and _definition_has_planning_support(
@@ -1103,9 +1104,14 @@ def select_standard_review_tasks(
             active_tags=active_tags,
             document_profile=routing_profile,
         ):
-            selected.append(definition)
+            candidates.append(definition)
             seen.add(definition.catalog_id)
-    return selected
+    return _order_and_filter_task_definitions(
+        candidates,
+        active_tags=active_tags,
+        present_fields=present_fields,
+        document_profile=routing_profile,
+    )
 
 
 def build_active_task_tags(
@@ -1165,6 +1171,115 @@ def _profile_routing_tags(profile: DocumentProfile) -> set[str]:
     if structure_flags & {"heavy_template_pollution", "template_pollution"}:
         tags.add("template")
     return tags
+
+
+def _order_and_filter_task_definitions(
+    definitions: list[ReviewPointDefinition],
+    *,
+    active_tags: set[str],
+    present_fields: set[str],
+    document_profile: DocumentProfile,
+) -> list[ReviewPointDefinition]:
+    suppressed = _suppressed_families_for_selection(
+        document_profile,
+        active_tags=active_tags,
+        present_fields=present_fields,
+    )
+    ordered = sorted(
+        definitions,
+        key=lambda item: (_risk_family_priority(item.risk_family, document_profile), item.catalog_id),
+    )
+    selected: list[ReviewPointDefinition] = []
+    for definition in ordered:
+        if definition.risk_family in suppressed and not _definition_can_override_suppression(
+            definition,
+            active_tags=active_tags,
+            present_fields=present_fields,
+            document_profile=document_profile,
+        ):
+            continue
+        selected.append(definition)
+    return selected
+
+
+def _risk_family_priority(risk_family: str, document_profile: DocumentProfile) -> int:
+    if document_profile.routing_mode == "unknown_conservative":
+        order = {
+            "structure": 0,
+            "template": 1,
+            "scoring": 2,
+            "contract": 3,
+            "policy": 4,
+            "generic": 5,
+            "competition": 8,
+            "personnel": 9,
+        }
+        return order.get(risk_family or "generic", 6)
+    order = {
+        "policy": 0,
+        "scoring": 1,
+        "contract": 2,
+        "structure": 3,
+        "template": 4,
+        "competition": 5,
+        "personnel": 6,
+    }
+    return order.get(risk_family or "generic", 7)
+
+
+def _suppressed_families_for_selection(
+    document_profile: DocumentProfile,
+    *,
+    active_tags: set[str],
+    present_fields: set[str],
+) -> set[str]:
+    if document_profile.routing_mode != "unknown_conservative":
+        return set()
+    suppressed = {"competition", "personnel"}
+    if _has_personnel_override_support(active_tags, present_fields):
+        suppressed.discard("personnel")
+    if _has_competition_override_support(active_tags, present_fields):
+        suppressed.discard("competition")
+    return suppressed
+
+
+def _definition_can_override_suppression(
+    definition: ReviewPointDefinition,
+    *,
+    active_tags: set[str],
+    present_fields: set[str],
+    document_profile: DocumentProfile,
+) -> bool:
+    if document_profile.routing_mode != "unknown_conservative":
+        return True
+    if definition.risk_family == "personnel":
+        return _has_personnel_override_support(active_tags, present_fields)
+    if definition.risk_family == "competition":
+        return _has_competition_override_support(active_tags, present_fields)
+    return True
+
+
+def _has_personnel_override_support(active_tags: set[str], present_fields: set[str]) -> bool:
+    personnel_fields = {
+        "团队稳定性要求",
+        "人员更换限制",
+        "采购人批准更换",
+        "采购人审批录用",
+        "人员评分要求",
+        "学历职称要求",
+    }
+    return "personnel" in active_tags and bool(personnel_fields & present_fields)
+
+
+def _has_competition_override_support(active_tags: set[str], present_fields: set[str]) -> bool:
+    competition_fields = {
+        "是否指定品牌",
+        "是否要求专利",
+        "是否要求认证证书",
+        "证书材料适用阶段",
+        "行业相关性存疑评分项",
+    }
+    return bool({"goods", "furniture", "competition"} & active_tags) and bool(competition_fields & present_fields)
 
 
 def _structured_active_task_tags(extracted_clauses: list[ExtractedClause]) -> set[str]:
