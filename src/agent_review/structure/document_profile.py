@@ -69,10 +69,19 @@ def build_document_profile(
         effect_stats,
     )
     unknown_structure_flags = _build_unknown_structure_flags(procurement_kind, structure_flags, zone_stats, quality_flags)
+    parser_semantic_trace = parse_result.parser_semantic_trace
+    routing_mode, routing_reasons = _build_routing_policy(
+        procurement_kind=procurement_kind,
+        procurement_confidence=procurement_confidence,
+        quality_flags=quality_flags,
+        unknown_structure_flags=unknown_structure_flags,
+        parser_semantic_trace=parse_result.parser_semantic_trace,
+    )
     anchors = _build_representative_anchors(parse_result, zone_stats)
     summary = _build_summary(
         document_name=document_name,
         procurement_kind=procurement_kind,
+        routing_mode=routing_mode,
         zone_stats=zone_stats,
         candidates=candidates,
         structure_flags=structure_flags,
@@ -84,6 +93,8 @@ def build_document_profile(
         source_path=parse_result.source_path or document_name,
         procurement_kind=procurement_kind,
         procurement_kind_confidence=procurement_confidence,
+        routing_mode=routing_mode,
+        routing_reasons=routing_reasons,
         domain_profile_candidates=candidates,
         dominant_zones=zone_stats,
         effect_distribution=effect_stats,
@@ -92,6 +103,9 @@ def build_document_profile(
         risk_activation_hints=risk_activation_hints,
         quality_flags=quality_flags,
         unknown_structure_flags=unknown_structure_flags,
+        parser_semantic_assist_activated=bool(parser_semantic_trace and parser_semantic_trace.activated),
+        parser_semantic_assist_reviewed_count=parser_semantic_trace.reviewed_count if parser_semantic_trace else 0,
+        parser_semantic_assist_applied_count=parser_semantic_trace.applied_count if parser_semantic_trace else 0,
         representative_anchors=anchors,
         summary=summary,
     )
@@ -486,6 +500,36 @@ def _build_unknown_structure_flags(
     return flags
 
 
+def _build_routing_policy(
+    *,
+    procurement_kind: str,
+    procurement_confidence: float,
+    quality_flags: list[str],
+    unknown_structure_flags: list[str],
+    parser_semantic_trace,
+) -> tuple[str, list[str]]:
+    reasons: list[str] = []
+    if procurement_kind == "unknown":
+        reasons.append("unknown_procurement_kind")
+    if procurement_confidence < 0.7:
+        reasons.append("low_procurement_kind_confidence")
+    if unknown_structure_flags:
+        reasons.extend(unknown_structure_flags[:3])
+    if any(flag in quality_flags for flag in ["weak_source_support", "non_body_structure_dominant", "mixed_zone_ratio_high"]):
+        reasons.extend(
+            flag
+            for flag in ["weak_source_support", "non_body_structure_dominant", "mixed_zone_ratio_high"]
+            if flag in quality_flags
+        )
+    if parser_semantic_trace and parser_semantic_trace.activated:
+        reasons.append("parser_semantic_assist_activated")
+        if parser_semantic_trace.applied_count > 0:
+            reasons.append("parser_semantic_assist_applied")
+    if not reasons:
+        return "standard", []
+    return "unknown_conservative", list(dict.fromkeys(reasons))
+
+
 def _build_representative_anchors(parse_result: ParseResult, zone_stats: list[ZoneStat]) -> list[str]:
     zone_by_node = {item.node_id: item.zone_type for item in parse_result.semantic_zones}
     scored_anchors: list[tuple[int, int, str]] = []
@@ -526,6 +570,7 @@ def _build_summary(
     *,
     document_name: str,
     procurement_kind: str,
+    routing_mode: str,
     zone_stats: list[ZoneStat],
     candidates: list[DomainProfileCandidate],
     structure_flags: list[str],
@@ -539,6 +584,7 @@ def _build_summary(
     top_hints = ", ".join(risk_activation_hints[:3]) or "无显著风险激活"
     return (
         f"文件《{document_name}》初步画像为 {procurement_kind}；"
+        f"路由模式：{routing_mode}；"
         f"主要区域：{top_zones}；"
         f"候选领域：{top_candidates}；"
         f"结构标记：{top_flags}；"

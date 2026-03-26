@@ -239,12 +239,18 @@ def test_review_task_planning_exposes_a_clear_contract_for_unknown_documents() -
 
     assert contract is not None
     assert contract.procurement_kind == "unknown"
+    assert contract.routing_mode == "unknown_conservative"
     assert "unknown" in contract.route_tags
     assert any(tag in contract.route_tags for tag in ["structure", "template", "consistency"])
+    assert contract.activation_reasons
+    assert isinstance(contract.activated_risk_families, list)
+    assert isinstance(contract.suppressed_risk_families, list)
+    assert isinstance(contract.high_value_fields, list)
     assert contract.planned_catalog_ids
     assert contract.extraction_demands
     assert "抽取需求" in planning_stage.detail
     assert serialized["procurement_kind"] == "unknown"
+    assert serialized["routing_mode"] == "unknown_conservative"
     assert serialized["planned_catalog_ids"] == contract.planned_catalog_ids
 
 

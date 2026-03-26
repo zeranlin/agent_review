@@ -436,6 +436,22 @@ def _build_evaluation_summary(report: ReviewReport) -> dict[str, object]:
             }
         ),
     }
+    parser_trace = report.parse_result.parser_semantic_trace
+    parser_semantic_summary = {
+        "activated": bool(parser_trace and parser_trace.activated),
+        "candidate_count": parser_trace.candidate_count if parser_trace else 0,
+        "reviewed_count": parser_trace.reviewed_count if parser_trace else 0,
+        "applied_count": parser_trace.applied_count if parser_trace else 0,
+        "warning_count": len(parser_trace.warnings) if parser_trace else 0,
+    }
+    planning_contract = report.review_planning_contract
+    planning_summary = {
+        "routing_mode": planning_contract.routing_mode if planning_contract else "",
+        "activation_reason_count": len(planning_contract.activation_reasons) if planning_contract else 0,
+        "activated_risk_family_count": len(planning_contract.activated_risk_families) if planning_contract else 0,
+        "suppressed_risk_family_count": len(planning_contract.suppressed_risk_families) if planning_contract else 0,
+        "high_value_field_count": len(planning_contract.high_value_fields) if planning_contract else 0,
+    }
 
     quality_summary = _build_quality_gate_summary(report)
     return {
@@ -444,6 +460,8 @@ def _build_evaluation_summary(report: ReviewReport) -> dict[str, object]:
         "llm_enhanced": report.llm_enhanced,
         "prompt_volume": prompt_volume,
         "task_duration": duration_summary,
+        "parser_semantic_assist": parser_semantic_summary,
+        "review_planning_contract": planning_summary,
         "dynamic_task_counts": dynamic_task_counts,
         "review_point_metadata": review_point_metadata,
         "quality_gates": quality_summary,
@@ -531,6 +549,8 @@ def _build_document_profile_summary(profile) -> dict[str, object]:
         "document_id": profile.document_id,
         "procurement_kind": profile.procurement_kind,
         "procurement_kind_confidence": profile.procurement_kind_confidence,
+        "routing_mode": profile.routing_mode,
+        "routing_reasons": profile.routing_reasons[:5],
         "candidate_count": len(profile.domain_profile_candidates),
         "top_candidates": [item.to_dict() for item in candidates],
         "dominant_zones": [item.to_dict() for item in profile.dominant_zones[:3]],
@@ -539,6 +559,9 @@ def _build_document_profile_summary(profile) -> dict[str, object]:
         "structure_flags": profile.structure_flags[:5],
         "quality_flags": profile.quality_flags[:5],
         "unknown_structure_flags": profile.unknown_structure_flags[:5],
+        "parser_semantic_assist_activated": profile.parser_semantic_assist_activated,
+        "parser_semantic_assist_reviewed_count": profile.parser_semantic_assist_reviewed_count,
+        "parser_semantic_assist_applied_count": profile.parser_semantic_assist_applied_count,
         "representative_anchors": profile.representative_anchors[:5],
         "summary": profile.summary,
     }
@@ -555,6 +578,7 @@ def _build_domain_profile_match_summary(profile, candidates) -> dict[str, object
     return {
         "present": True,
         "procurement_kind": profile.procurement_kind,
+        "routing_mode": profile.routing_mode,
         "candidate_count": len(candidates),
         "top_candidate": top_candidate,
         "top_candidates": [item.to_dict() for item in candidates[:3]],

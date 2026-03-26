@@ -215,7 +215,8 @@ class ReviewPipeline:
                 item_count=candidate_count,
                 detail=(
                     f"完成文档画像，识别 {state.document_profile.procurement_kind} 倾向，"
-                    f"形成 {candidate_count} 个领域候选。"
+                    f"形成 {candidate_count} 个领域候选，"
+                    f"当前路由模式为 {state.document_profile.routing_mode}。"
                 ),
             )
         )
@@ -301,6 +302,8 @@ class ReviewPipeline:
         optional_count = len(state.review_planning_contract.optional_enhancement_extraction_demands) if state.review_planning_contract else 0
         enhancement_count = len(state.review_planning_contract.enhancement_extraction_demands) if state.review_planning_contract else 0
         fallback_count = len(state.review_planning_contract.unknown_fallback_extraction_demands) if state.review_planning_contract else 0
+        activated_family_count = len(state.review_planning_contract.activated_risk_families) if state.review_planning_contract else 0
+        suppressed_family_count = len(state.review_planning_contract.suppressed_risk_families) if state.review_planning_contract else 0
         state.stage_records.append(
             RunStageRecord(
                 stage_name="review_task_planning",
@@ -309,6 +312,7 @@ class ReviewPipeline:
                 detail=(
                     f"已基于 {profile_summary} 画像与 activation hints 规划 {len(planned_points)} 个待执行审查点，"
                     f"形成 {demand_count} 项抽取需求。"
+                    f" 激活母题 {activated_family_count} 个，抑制母题 {suppressed_family_count} 个。"
                     f" 需求分层：基础必抽 {base_count}、任务必需 {required_count}、可选增强 {optional_count}、unknown fallback {fallback_count}。"
                     f" 任务增强合计 {enhancement_count}。"
                     + (f" 关键提示：{activation_hint_summary}。" if activation_hint_summary else "")
@@ -786,6 +790,10 @@ def _build_review_planning_contract(
 ) -> ReviewPlanningContract | None:
     if document_profile is None:
         return None
+    definitions = [
+        resolve_review_point_definition(point.title, point.dimension, point.severity)
+        for point in review_points
+    ]
     route_tags = _ordered_unique(
         list(profile_activation_tags(document_profile))
         + list(document_profile.risk_activation_hints)
@@ -798,6 +806,16 @@ def _build_review_planning_contract(
     )
     planned_catalog_ids = _ordered_unique(point.catalog_id for point in review_points)
     priority_dimensions = _ordered_unique(point.dimension for point in review_points)
+    activated_risk_families = _ordered_unique(definition.risk_family for definition in definitions if definition.risk_family)
+    suppressed_risk_families = _suppressed_risk_families(document_profile, activated_risk_families)
+    activation_reasons = _ordered_unique(
+        [
+            *document_profile.routing_reasons,
+            *document_profile.risk_activation_hints,
+            *document_profile.unknown_structure_flags,
+            *document_profile.quality_flags,
+        ]
+    )
     base_extraction_demands = _build_base_extraction_demands(document_profile, route_tags)
     required_task_extraction_demands = [
         field
@@ -827,15 +845,28 @@ def _build_review_planning_contract(
             *unknown_fallback_extraction_demands,
         ]
     )
+    high_value_fields = _ordered_unique(
+        [
+            *required_task_extraction_demands,
+            *base_extraction_demands[:4],
+            *enhancement_extraction_demands[:4],
+        ]
+    )
     summary = (
-        f"已将 {document_profile.procurement_kind} 画像转成 {len(planned_catalog_ids)} 个待执行审查点，"
+        f"已将 {document_profile.procurement_kind} 画像按 {document_profile.routing_mode} 路由转成 "
+        f"{len(planned_catalog_ids)} 个待执行审查点，"
+        f"激活 {len(activated_risk_families)} 个母题，抑制 {len(suppressed_risk_families)} 个母题，"
         f"并显式暴露 {len(extraction_demands)} 项抽取需求。"
     )
     return ReviewPlanningContract(
         document_id=document_profile.document_id,
         procurement_kind=document_profile.procurement_kind,
+        routing_mode=document_profile.routing_mode,
         route_tags=route_tags,
         routing_flags=routing_flags,
+        activation_reasons=activation_reasons,
+        activated_risk_families=activated_risk_families,
+        suppressed_risk_families=suppressed_risk_families,
         planned_catalog_ids=planned_catalog_ids,
         priority_dimensions=priority_dimensions,
         base_extraction_demands=base_extraction_demands,
@@ -844,6 +875,7 @@ def _build_review_planning_contract(
         enhancement_extraction_demands=enhancement_extraction_demands,
         unknown_fallback_extraction_demands=unknown_fallback_extraction_demands,
         extraction_demands=extraction_demands,
+        high_value_fields=high_value_fields,
         summary=summary,
     )
 
@@ -852,6 +884,8 @@ def _route_tags_from_profile(document_profile: DocumentProfile) -> list[str]:
     tags: list[str] = []
     if document_profile.procurement_kind == "unknown":
         tags.extend(["unknown", "structure"])
+    if document_profile.routing_mode == "unknown_conservative":
+        tags.append("unknown_conservative")
     if document_profile.quality_flags:
         if any(flag in document_profile.quality_flags for flag in ["template_ratio_high", "template_appendix_mix_high"]):
             tags.append("template")
@@ -866,6 +900,16 @@ def _route_tags_from_profile(document_profile: DocumentProfile) -> list[str]:
     if any(flag in document_profile.structure_flags for flag in ["heavy_appendix_reference", "attachment_driven_structure", "catalog_navigation_heavy", "directory_driven_structure"]):
         tags.append("structure")
     return tags
+
+
+def _suppressed_risk_families(
+    document_profile: DocumentProfile,
+    activated_risk_families: list[str],
+) -> list[str]:
+    if document_profile.routing_mode != "unknown_conservative":
+        return []
+    conservative_default = ["competition", "personnel"]
+    return [family for family in conservative_default if family not in activated_risk_families]
 
 
 def _collect_required_task_extraction_demands(review_points: list[ReviewPoint]) -> list[str]:

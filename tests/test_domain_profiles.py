@@ -102,6 +102,8 @@ def test_build_document_profile_keeps_unknown_documents_on_conservative_activati
     candidate_ids = [item.profile_id for item in profile.domain_profile_candidates]
 
     assert profile.procurement_kind == "unknown"
+    assert profile.routing_mode == "unknown_conservative"
+    assert "unknown_procurement_kind" in profile.routing_reasons
     assert "generic_goods" in candidate_ids
     assert "generic_service" in candidate_ids
     assert "unknown_document" in profile.risk_activation_hints

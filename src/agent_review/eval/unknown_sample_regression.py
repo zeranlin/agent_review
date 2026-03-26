@@ -206,12 +206,17 @@ def _build_structure_profile_summary(profile) -> dict[str, object]:
         "document_id": profile.document_id,
         "procurement_kind": profile.procurement_kind,
         "procurement_kind_confidence": profile.procurement_kind_confidence,
+        "routing_mode": profile.routing_mode,
+        "routing_reasons": profile.routing_reasons,
         "domain_profile_candidates": [
             item.to_dict() for item in profile.domain_profile_candidates[:3]
         ],
         "structure_flags": profile.structure_flags,
         "quality_flags": profile.quality_flags,
         "unknown_structure_flags": profile.unknown_structure_flags,
+        "parser_semantic_assist_activated": profile.parser_semantic_assist_activated,
+        "parser_semantic_assist_reviewed_count": profile.parser_semantic_assist_reviewed_count,
+        "parser_semantic_assist_applied_count": profile.parser_semantic_assist_applied_count,
         "risk_activation_hints": profile.risk_activation_hints,
         "summary": profile.summary,
     }
@@ -234,6 +239,7 @@ def _build_domain_profile_summary(profile, max_candidates: int) -> dict[str, obj
         "document_id": profile.document_id,
         "procurement_kind": profile.procurement_kind,
         "procurement_kind_confidence": profile.procurement_kind_confidence,
+        "routing_mode": profile.routing_mode,
         "top_candidates": [item.to_dict() for item in profile.domain_profile_candidates[:max_candidates]],
         "activation_tags": sorted(profile_activation_tags(profile)),
         "structure_flags": profile.structure_flags,
@@ -290,8 +296,12 @@ def _build_file_evaluation_summary(report, domain_profile) -> dict[str, object]:
     formal_included_count = sum(1 for item in report.formal_adjudication if item.included_in_formal)
     planning_contract = report.review_planning_contract
     planning_counts = {
+        "routing_mode": planning_contract.routing_mode if planning_contract else "",
         "route_tag_count": len(planning_contract.route_tags) if planning_contract else 0,
         "routing_flag_count": len(planning_contract.routing_flags) if planning_contract else 0,
+        "activation_reason_count": len(planning_contract.activation_reasons) if planning_contract else 0,
+        "activated_risk_family_count": len(planning_contract.activated_risk_families) if planning_contract else 0,
+        "suppressed_risk_family_count": len(planning_contract.suppressed_risk_families) if planning_contract else 0,
         "planned_catalog_count": len(planning_contract.planned_catalog_ids) if planning_contract else 0,
         "priority_dimension_count": len(planning_contract.priority_dimensions) if planning_contract else 0,
         "base_extraction_demand_count": len(planning_contract.base_extraction_demands) if planning_contract else 0,
@@ -307,6 +317,7 @@ def _build_file_evaluation_summary(report, domain_profile) -> dict[str, object]:
         "unknown_fallback_extraction_demand_count": (
             len(planning_contract.unknown_fallback_extraction_demands) if planning_contract else 0
         ),
+        "high_value_field_count": len(planning_contract.high_value_fields) if planning_contract else 0,
         "total_extraction_demand_count": len(planning_contract.extraction_demands) if planning_contract else 0,
     }
     output_evaluation = build_output_evaluation_summary(report)
@@ -329,6 +340,7 @@ def _build_file_evaluation_summary(report, domain_profile) -> dict[str, object]:
         "llm_warning_count": len(report.llm_warnings),
         "llm_task_status_counts": _sorted_counter_dict(llm_task_status_counts),
         "review_planning_contract": planning_counts,
+        "parser_semantic_assist": output_evaluation.get("parser_semantic_assist", {}),
         "prompt_volume": output_evaluation["prompt_volume"],
         "task_duration": output_evaluation["task_duration"],
         "dynamic_task_counts": output_evaluation["dynamic_task_counts"],

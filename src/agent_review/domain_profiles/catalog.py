@@ -72,6 +72,8 @@ class DocumentProfile:
     source_path: str
     procurement_kind: str
     procurement_kind_confidence: float
+    routing_mode: str = "standard"
+    routing_reasons: list[str] = field(default_factory=list)
     domain_profile_candidates: list[DomainProfileCandidate] = field(default_factory=list)
     dominant_zones: list[ZoneStat] = field(default_factory=list)
     effect_distribution: list[EffectStat] = field(default_factory=list)
@@ -89,6 +91,8 @@ class DocumentProfile:
             "source_path": self.source_path,
             "procurement_kind": self.procurement_kind,
             "procurement_kind_confidence": self.procurement_kind_confidence,
+            "routing_mode": self.routing_mode,
+            "routing_reasons": self.routing_reasons,
             "domain_profile_candidates": [item.to_dict() for item in self.domain_profile_candidates],
             "dominant_zones": [item.to_dict() for item in self.dominant_zones],
             "effect_distribution": [item.to_dict() for item in self.effect_distribution],
@@ -487,6 +491,7 @@ def build_document_profile(
 
     profile.domain_profile_candidates = match_domain_profiles(profile, text=text, extracted_clauses=extracted_clauses)
     profile.procurement_kind_confidence = _procurement_kind_confidence(profile.procurement_kind, extracted_clauses, text)
+    profile.routing_mode, profile.routing_reasons = _build_routing_policy(profile)
     profile.risk_activation_hints = _build_profile_activation_hints(profile)
     profile.summary = _build_profile_summary(profile)
     return profile
@@ -844,6 +849,8 @@ def _build_profile_activation_hints(profile: DocumentProfile) -> list[str]:
     hints: set[str] = set(profile_activation_tags(profile))
     if profile.procurement_kind == "unknown":
         hints.add("unknown_document")
+    if profile.routing_mode == "unknown_conservative":
+        hints.add("unknown_document_first")
     if profile.procurement_kind == "mixed":
         hints.update({"structure", "consistency"})
     if "heavy_template_pollution" in profile.structure_flags:
@@ -853,12 +860,27 @@ def _build_profile_activation_hints(profile: DocumentProfile) -> list[str]:
     return sorted(hints)
 
 
+def _build_routing_policy(profile: DocumentProfile) -> tuple[str, list[str]]:
+    reasons: list[str] = []
+    if profile.procurement_kind == "unknown":
+        reasons.append("unknown_procurement_kind")
+    if profile.procurement_kind_confidence < 0.7:
+        reasons.append("low_procurement_kind_confidence")
+    reasons.extend(profile.unknown_structure_flags[:3])
+    if "table_anchor_unstable" in profile.quality_flags:
+        reasons.append("table_anchor_unstable")
+    if not reasons:
+        return "standard", []
+    return "unknown_conservative", list(dict.fromkeys(reasons))
+
+
 def _build_profile_summary(profile: DocumentProfile) -> str:
     candidates = ", ".join(
         f"{item.profile_id}:{item.confidence:.2f}" for item in profile.domain_profile_candidates[:3]
     ) or "none"
     return (
         f"procurement_kind={profile.procurement_kind}; "
+        f"routing_mode={profile.routing_mode}; "
         f"candidates={candidates}; "
         f"flags={', '.join(profile.structure_flags) or 'none'}"
     )

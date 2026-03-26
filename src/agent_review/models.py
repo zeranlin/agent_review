@@ -513,6 +513,8 @@ class DocumentProfile:
     source_path: str
     procurement_kind: str = "unknown"
     procurement_kind_confidence: float = 0.0
+    routing_mode: str = "standard"
+    routing_reasons: list[str] = field(default_factory=list)
     domain_profile_candidates: list[DomainProfileCandidate] = field(default_factory=list)
     dominant_zones: list[ZoneStat] = field(default_factory=list)
     effect_distribution: list[EffectStat] = field(default_factory=list)
@@ -521,6 +523,9 @@ class DocumentProfile:
     risk_activation_hints: list[str] = field(default_factory=list)
     quality_flags: list[str] = field(default_factory=list)
     unknown_structure_flags: list[str] = field(default_factory=list)
+    parser_semantic_assist_activated: bool = False
+    parser_semantic_assist_reviewed_count: int = 0
+    parser_semantic_assist_applied_count: int = 0
     representative_anchors: list[str] = field(default_factory=list)
     summary: str = ""
 
@@ -530,6 +535,8 @@ class DocumentProfile:
             "source_path": self.source_path,
             "procurement_kind": self.procurement_kind,
             "procurement_kind_confidence": self.procurement_kind_confidence,
+            "routing_mode": self.routing_mode,
+            "routing_reasons": self.routing_reasons,
             "domain_profile_candidates": [item.to_dict() for item in self.domain_profile_candidates],
             "dominant_zones": [item.to_dict() for item in self.dominant_zones],
             "effect_distribution": [item.to_dict() for item in self.effect_distribution],
@@ -538,6 +545,9 @@ class DocumentProfile:
             "risk_activation_hints": self.risk_activation_hints,
             "quality_flags": self.quality_flags,
             "unknown_structure_flags": self.unknown_structure_flags,
+            "parser_semantic_assist_activated": self.parser_semantic_assist_activated,
+            "parser_semantic_assist_reviewed_count": self.parser_semantic_assist_reviewed_count,
+            "parser_semantic_assist_applied_count": self.parser_semantic_assist_applied_count,
             "representative_anchors": self.representative_anchors,
             "summary": self.summary,
         }
@@ -833,8 +843,12 @@ class RuleSelection:
 class ReviewPlanningContract:
     document_id: str
     procurement_kind: str
+    routing_mode: str = "standard"
     route_tags: list[str] = field(default_factory=list)
     routing_flags: list[str] = field(default_factory=list)
+    activation_reasons: list[str] = field(default_factory=list)
+    activated_risk_families: list[str] = field(default_factory=list)
+    suppressed_risk_families: list[str] = field(default_factory=list)
     planned_catalog_ids: list[str] = field(default_factory=list)
     priority_dimensions: list[str] = field(default_factory=list)
     base_extraction_demands: list[str] = field(default_factory=list)
@@ -843,6 +857,7 @@ class ReviewPlanningContract:
     enhancement_extraction_demands: list[str] = field(default_factory=list)
     unknown_fallback_extraction_demands: list[str] = field(default_factory=list)
     extraction_demands: list[str] = field(default_factory=list)
+    high_value_fields: list[str] = field(default_factory=list)
     summary: str = ""
 
     def to_dict(self) -> dict[str, object]:

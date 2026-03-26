@@ -30,6 +30,7 @@ def _make_summary_item(path: Path, *, document_name: str, procurement_kind: str)
         document_profile={
             "document_id": str(path),
             "procurement_kind": procurement_kind,
+            "routing_mode": "unknown_conservative" if procurement_kind == "unknown" else "standard",
             "summary": f"{document_name} 画像",
         },
         domain_profile={
@@ -74,11 +75,23 @@ def _make_summary_item(path: Path, *, document_name: str, procurement_kind: str)
             "llm_warning_count": 0,
             "llm_task_status_counts": {"completed": 1},
             "review_planning_contract": {
+                "routing_mode": "unknown_conservative" if procurement_kind == "unknown" else "standard",
+                "activation_reason_count": 2,
+                "activated_risk_family_count": 2,
+                "suppressed_risk_family_count": 1,
                 "planned_catalog_count": 2,
                 "base_extraction_demand_count": 3,
                 "required_task_extraction_demand_count": 1,
                 "optional_enhancement_extraction_demand_count": 1,
+                "high_value_field_count": 2,
                 "unknown_fallback_extraction_demand_count": 0,
+            },
+            "parser_semantic_assist": {
+                "activated": procurement_kind == "unknown",
+                "candidate_count": 2 if procurement_kind == "unknown" else 0,
+                "reviewed_count": 2 if procurement_kind == "unknown" else 0,
+                "applied_count": 1 if procurement_kind == "unknown" else 0,
+                "warning_count": 0,
             },
             "prompt_volume": {
                 "task_char_counts": {"scenario_review": 100},
