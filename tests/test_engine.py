@@ -215,7 +215,7 @@ def test_enhanced_mode_runs_compliance_engine_bridge_and_merges_findings() -> No
     assert bridge_stage.item_count is not None
     assert bridge_stage.item_count >= 1
     assert any(item.adoption_status == AdoptionStatus.direct for item in report.findings)
-    assert any("agent_compliance bridge" in item.review_note for item in report.findings)
+    assert any("embedded_compliance_bridge" in item.review_note for item in report.findings)
     assert any(item.task_name == "formal_adjudication" and item.stage_layer == "adjudication" for item in report.task_records)
 
 

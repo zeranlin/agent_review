@@ -184,6 +184,13 @@ def test_embedded_rule_set_covers_extended_high_frequency_risks() -> None:
     assert "irrelevant_certification_or_award" in issue_types
     assert "evidence_source_restriction" in issue_types
     assert "bid_price_floor" in issue_types
+    evidence_finding = next(item for item in result.review.findings if item.issue_type == "evidence_source_restriction")
+    assert "RP-EVID-001" not in evidence_finding.authority_clause_ids
+    assert evidence_finding.authority_reference_ids
+    assert evidence_finding.authority_clause_ids
+    assert evidence_finding.authority_records
+    assert evidence_finding.primary_authority == evidence_finding.authority_records[0].source_name
+    assert evidence_finding.legal_or_policy_basis
 
 
 def test_embedded_llm_review_can_add_findings_without_external_repo_dependency() -> None:
@@ -204,5 +211,8 @@ def test_embedded_llm_review_can_add_findings_without_external_repo_dependency()
 
     assert result.llm_artifacts.llm_node_summary is not None
     assert result.llm_artifacts.llm_node_summary.get("status") == "ok"
-    assert any(item.issue_type == "evidence_source_restriction" for item in result.llm_artifacts.added_findings)
+    llm_finding = next(item for item in result.llm_artifacts.added_findings if item.issue_type == "evidence_source_restriction")
+    assert llm_finding.authority_reference_ids
+    assert llm_finding.authority_clause_ids
+    assert llm_finding.authority_records
     assert any(item.problem_title == "指定单一检测机构出具报告" for item in result.review.findings)

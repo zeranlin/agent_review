@@ -6,6 +6,7 @@ import json
 import os
 import re
 
+from .embedded_compliance_authorities import EmbeddedAuthorityRecord, resolve_embedded_issue_authority
 from .llm.client import OpenAICompatibleClient, QwenLocalConfig
 
 
@@ -144,6 +145,11 @@ class EmbeddedFinding:
     needs_human_review: bool
     human_review_reason: str | None
     primary_authority: str | None = None
+    authority_reference_ids: list[str] = field(default_factory=list)
+    authority_clause_ids: list[str] = field(default_factory=list)
+    authority_summary: list[str] = field(default_factory=list)
+    authority_proposition: str | None = None
+    authority_records: list[EmbeddedAuthorityRecord] = field(default_factory=list)
 
 
 @dataclass
@@ -444,6 +450,7 @@ def build_embedded_review_result(
         clause = next((item for item in document.clauses if item.clause_id == hit.matched_clause_id), None)
         if clause is None:
             continue
+        authority = resolve_embedded_issue_authority(hit.issue_type_candidate)
         findings.append(
             EmbeddedFinding(
                 finding_id=f"EC-{index:03d}",
@@ -464,11 +471,16 @@ def build_embedded_review_result(
                 compliance_judgment=_judgment(hit.issue_type_candidate, hit.severity_score),
                 why_it_is_risky=hit.rationale,
                 impact_on_competition_or_performance=_impact_text(hit.issue_type_candidate),
-                legal_or_policy_basis=_basis_text(hit.issue_type_candidate),
+                legal_or_policy_basis=_legal_basis_text(hit.issue_type_candidate, authority),
                 rewrite_suggestion=hit.rewrite_hint,
                 needs_human_review=hit.issue_type_candidate in {"technical_justification_needed"},
                 human_review_reason="需要结合项目背景核查必要性。" if hit.issue_type_candidate in {"technical_justification_needed"} else None,
-                primary_authority=_primary_authority(hit.issue_type_candidate),
+                primary_authority=_primary_authority(authority),
+                authority_reference_ids=authority.authority_reference_ids,
+                authority_clause_ids=authority.authority_clause_ids,
+                authority_summary=authority.authority_summary,
+                authority_proposition=authority.legal_proposition,
+                authority_records=authority.authority_records,
             )
         )
     return EmbeddedReviewResult(
@@ -572,7 +584,7 @@ def _impact_text(issue_type: str) -> str:
     return "可能导致评审或履约责任边界失衡。"
 
 
-def _basis_text(issue_type: str) -> str:
+def _fallback_basis_text(issue_type: str) -> str:
     mapping = {
         "geographic_restriction": "政府采购应当维护公平竞争，不得以不合理条件限制供应商。",
         "excessive_supplier_qualification": "资格条件应与项目履约能力直接相关，不得设置与采购需求无关门槛。",
@@ -590,22 +602,18 @@ def _basis_text(issue_type: str) -> str:
     return mapping.get(issue_type, "需结合政府采购公平竞争与需求编制规则综合判断。")
 
 
-def _primary_authority(issue_type: str) -> str:
-    mapping = {
-        "geographic_restriction": "《政府采购法》公平竞争原则",
-        "excessive_supplier_qualification": "《政府采购法》资格条件适度性原则",
-        "irrelevant_certification_or_award": "《政府采购需求管理办法》需求相关性要求",
-        "qualification_domain_mismatch": "《政府采购需求管理办法》需求相关性要求",
-        "qualification_scoring_overlap": "综合评分法边界要求",
-        "scoring_content_mismatch": "综合评分法相关规范",
-        "technical_justification_needed": "《政府采购需求管理办法》需求编制要求",
-        "evidence_source_restriction": "《政府采购需求管理办法》需求编制要求",
-        "one_sided_commercial_term": "合同公平原则",
-        "payment_acceptance_linkage": "验收与付款边界要求",
-        "bid_price_floor": "公平竞争原则",
-        "delivery_period_restriction": "需求编制合理性要求",
-    }
-    return mapping.get(issue_type, "政府采购一般合规原则")
+def _legal_basis_text(issue_type: str, authority_resolution) -> str:
+    if authority_resolution.legal_proposition:
+        return authority_resolution.legal_proposition
+    if authority_resolution.authority_summary:
+        return authority_resolution.authority_summary[0]
+    return _fallback_basis_text(issue_type)
+
+
+def _primary_authority(authority_resolution) -> str:
+    if authority_resolution.authority_records:
+        return authority_resolution.authority_records[0].source_name
+    return "政府采购一般合规原则"
 
 
 def _overall_summary(findings: list[EmbeddedFinding]) -> str:
@@ -772,6 +780,7 @@ def _materialize_llm_findings(
         clause = clause_index.get(clause_id)
         if not clause or not issue_type or not problem_title:
             continue
+        authority = resolve_embedded_issue_authority(issue_type)
         results.append(
             EmbeddedFinding(
                 finding_id=f"EL-{index:03d}",
@@ -790,13 +799,18 @@ def _materialize_llm_findings(
                 severity_score=2 if bool(item.get("needs_human_review")) else 3,
                 confidence="medium",
                 compliance_judgment="needs_human_review" if bool(item.get("needs_human_review")) else "potentially_problematic",
-                why_it_is_risky=str(item.get("why_it_is_risky", "")).strip() or _basis_text(issue_type),
+                why_it_is_risky=str(item.get("why_it_is_risky", "")).strip() or _legal_basis_text(issue_type, authority),
                 impact_on_competition_or_performance=_impact_text(issue_type),
-                legal_or_policy_basis=_basis_text(issue_type),
+                legal_or_policy_basis=_legal_basis_text(issue_type, authority),
                 rewrite_suggestion=str(item.get("rewrite_suggestion", "")).strip() or "建议结合采购目标与法理要求重写条款。",
                 needs_human_review=bool(item.get("needs_human_review")),
                 human_review_reason=str(item.get("human_review_reason", "")).strip() or None,
-                primary_authority=_primary_authority(issue_type),
+                primary_authority=_primary_authority(authority),
+                authority_reference_ids=authority.authority_reference_ids,
+                authority_clause_ids=authority.authority_clause_ids,
+                authority_summary=authority.authority_summary,
+                authority_proposition=authority.legal_proposition,
+                authority_records=authority.authority_records,
             )
         )
     return _dedupe_embedded_findings(results)

@@ -812,11 +812,21 @@ def _map_agent_compliance_findings(compliance_findings: list[object]) -> list[Fi
         section_hint = item.section_path or item.source_section or item.page_hint or ""
         if item.source_text:
             evidence.append(Evidence(quote=item.source_text, section_hint=section_hint))
-        legal_basis = []
-        if item.legal_or_policy_basis:
+        legal_basis: list[LegalBasis] = []
+        if getattr(item, "authority_records", None):
+            for record in item.authority_records:
+                legal_basis.append(
+                    LegalBasis(
+                        source_name=record.source_name,
+                        article_hint=record.article_hint,
+                        summary=record.summary,
+                        basis_type=record.basis_type,
+                    )
+                )
+        elif item.legal_or_policy_basis:
             legal_basis.append(
                 LegalBasis(
-                    source_name=item.primary_authority or "agent_compliance",
+                    source_name=item.primary_authority or "embedded_compliance_engine",
                     article_hint="",
                     summary=item.legal_or_policy_basis,
                 )
@@ -839,7 +849,7 @@ def _map_agent_compliance_findings(compliance_findings: list[object]) -> list[Fi
                 next_action=item.rewrite_suggestion,
                 adoption_status=AdoptionStatus.direct,
                 review_note=(
-                    f"来源：agent_compliance bridge；issue_type={item.issue_type}；"
+                    f"来源：embedded_compliance_bridge；issue_type={item.issue_type}；"
                     f"judgment={item.compliance_judgment}；"
                     f"section={section_hint or 'unknown'}"
                 ),
