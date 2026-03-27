@@ -167,3 +167,54 @@ def test_zone_classifier_inherits_qualification_context_from_parent_heading() ->
     zones = _zone_map([heading_node, detail_node])
 
     assert zones[detail_node.node_id].zone_type == SemanticZoneType.qualification
+
+
+def test_zone_classifier_recognizes_qualification_review_table_heading() -> None:
+    qualification_table_heading = _node(
+        "q-table",
+        node_type=NodeType.paragraph,
+        title="资格性审查表",
+        text="资格性审查表",
+        path="ROOT > 招标文件信息 > 资格性审查表",
+    )
+
+    zones = _zone_map([qualification_table_heading])
+
+    assert zones[qualification_table_heading.node_id].zone_type == SemanticZoneType.qualification
+
+
+def test_zone_classifier_keeps_warning_heading_out_of_scoring_zone() -> None:
+    warning_node = _node(
+        "warn-1",
+        node_type=NodeType.paragraph,
+        title="警示条款",
+        text="警示条款",
+        path="ROOT > 评标信息 > （2021） > 警示条款",
+    )
+
+    zones = _zone_map([warning_node])
+
+    assert zones[warning_node.node_id].zone_type == SemanticZoneType.policy_explanation
+
+
+def test_zone_classifier_uses_child_context_for_scoring_subsection_inside_template_branch() -> None:
+    subsection = _node(
+        "score-sub",
+        node_type=NodeType.subsection,
+        title="（二）技术保障措施（可选）",
+        text="（二）技术保障措施（可选）",
+        path="ROOT > 第一册 专用条款 > 三、投标人情况及资格证明文件 > （二）技术保障措施（可选）",
+    )
+    subsection.children_ids = ["score-child"]
+    score_child = _node(
+        "score-child",
+        node_type=NodeType.paragraph,
+        title="特别提示",
+        text="投标人须按本招标文件评标信息中“技术保障措施”这一评审因素要求，提供证明资料。",
+        path="ROOT > 第一册 专用条款 > 三、投标人情况及资格证明文件 > （二）技术保障措施（可选） > 特别提示",
+    )
+    score_child.parent_id = subsection.node_id
+
+    zones = _zone_map([subsection, score_child])
+
+    assert zones[subsection.node_id].zone_type == SemanticZoneType.scoring

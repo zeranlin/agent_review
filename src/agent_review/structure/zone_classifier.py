@@ -8,13 +8,13 @@ from ..ontology import NodeType, SemanticZoneType
 
 ZONE_RULES: dict[SemanticZoneType, list[str]] = {
     SemanticZoneType.administrative_info: ["关键信息", "项目属性", "项目编号", "项目名称", "预算金额", "最高限价", "采购人", "采购单位", "采购代理机构"],
-    SemanticZoneType.qualification: ["资格要求", "资格审查", "资格条件", "资格证明", "资质要求", "业绩要求", "投标人资格", "特定资格", "一般资格", "准入条件"],
+    SemanticZoneType.qualification: ["资格要求", "资格审查", "资格条件", "资格证明", "资质要求", "业绩要求", "投标人资格", "特定资格", "一般资格", "准入条件", "资格性审查表"],
     SemanticZoneType.technical: ["技术要求", "技术规范", "技术参数", "技术指标", "货物清单", "样品要求", "检测报告", "参数", "性能指标"],
     SemanticZoneType.business: ["商务要求", "商务部分", "交货", "交付", "售后", "服务要求", "实施方案", "培训", "响应", "供货"],
     SemanticZoneType.scoring: ["评分标准", "评标信息", "综合评分", "评分办法", "评标办法", "评分项", "分值", "得分", "评审因素", "评分规则", "量化"],
     SemanticZoneType.contract: ["合同条款", "合同专用条款", "合同通用条款", "专用条款", "通用条款", "付款方式", "付款", "验收", "违约责任", "解除合同", "争议解决", "质保", "保修"],
     SemanticZoneType.template: ["投标文件格式", "（格式）", "声明函", "报价表", "承诺函", "法定代表人", "模板", "范本", "盖章", "签字"],
-    SemanticZoneType.policy_explanation: ["政府采购", "节能产品", "环境标志", "政策", "管理办法", "扶持", "采购促进"],
+    SemanticZoneType.policy_explanation: ["政府采购", "节能产品", "环境标志", "政策", "管理办法", "扶持", "采购促进", "警示条款", "特别警示条款"],
     SemanticZoneType.appendix_reference: ["详见附件", "见附件", "另册提供", "附表", "另附", "参见附件", "附件1", "附件一", "附件二"],
 }
 
@@ -33,6 +33,7 @@ CONTRACT_STRONG_TOKENS = ["付款", "验收", "违约", "解除", "争议", "质
 QUALIFICATION_STRONG_TOKENS = ["资格", "资质", "准入", "资格条件", "资格要求", "资格证明"]
 TECHNICAL_STRONG_TOKENS = ["技术", "参数", "指标", "规范", "样品", "检测报告"]
 BUSINESS_STRONG_TOKENS = ["商务", "交货", "交付", "售后", "服务", "培训", "实施"]
+WARNING_HEADING_TOKENS = ["警示条款", "特别警示条款", "风险知悉确认书", "违法行为风险知悉确认书"]
 QUALIFICATION_HEADING_TOKENS = ["申请人的资格要求", "投标人资格要求", "资格要求", "一般资格要求", "特定资格要求", "资格条件", "资格审查"]
 QUALIFICATION_CONTEXT_BREAK_TOKENS = [
     "评分标准",
@@ -56,6 +57,18 @@ QUALIFICATION_GATE_TOKENS = [
     "科技型中小企业",
     "同类项目业绩",
     "业绩不少于",
+]
+SCORING_SUBSECTION_TOKENS = [
+    "技术保障措施",
+    "施工安全保障措施",
+    "检测报告",
+    "样品/演示",
+    "免费保修期内售后服务条款偏离情况",
+    "免费保修期外售后服务条款偏离情况",
+    "其他商务条款偏离情况",
+    "投标人近三年同类业绩",
+    "诚信",
+    "奖项",
 ]
 
 
@@ -98,6 +111,9 @@ def _classify_node(
 
     if any(token in haystack for token in ["页眉", "页脚", "深圳政府采购网", "信息公开"]):
         return SemanticZoneType.public_copy_or_noise, 0.95, ["noise_keyword"]
+
+    if _looks_like_warning_heading(node, haystack):
+        return SemanticZoneType.policy_explanation, 0.92, ["warning_heading"]
 
     if any(token in haystack for token in ["目录"]) and node.node_type == NodeType.catalog_entry:
         return SemanticZoneType.catalog_or_navigation, 1.0, ["catalog_keyword"]
@@ -164,10 +180,14 @@ def _classify_node(
         basis.append("path_appendix")
 
     if any(token in node.path for token in ["合同", "通用条款", "专用条款"]) and any(
-        token in haystack for token in CONTRACT_STRONG_TOKENS
+        token in " ".join(part for part in [node.title, node.text] if part) for token in CONTRACT_STRONG_TOKENS
     ):
         scores[SemanticZoneType.contract] += 0.75
         basis.append("path_contract")
+
+    if _looks_like_scoring_subsection(node, node_index):
+        scores[SemanticZoneType.scoring] += 0.95
+        basis.append("scoring_subsection_context")
 
     if qualification_context:
         scores[SemanticZoneType.qualification] += 0.85
@@ -302,4 +322,34 @@ def _has_qualification_heading_context(
                 return False
             if any(token in sibling_text for token in QUALIFICATION_HEADING_TOKENS):
                 return True
+    return False
+
+
+def _looks_like_warning_heading(node: DocumentNode, haystack: str) -> bool:
+    compact = re.sub(r"\s+", "", haystack)
+    if compact in WARNING_HEADING_TOKENS:
+        return True
+    return node.node_type in {NodeType.chapter, NodeType.section, NodeType.subsection, NodeType.paragraph} and any(
+        token == compact or token in node.title for token in WARNING_HEADING_TOKENS
+    )
+
+
+def _looks_like_scoring_subsection(
+    node: DocumentNode,
+    node_index: dict[str, DocumentNode],
+) -> bool:
+    if node.node_type not in {NodeType.section, NodeType.subsection, NodeType.paragraph}:
+        return False
+    title_text = " ".join(part for part in [node.title, node.text] if part)
+    if not any(token in title_text for token in SCORING_SUBSECTION_TOKENS):
+        return False
+    if any(token in title_text for token in SCORING_STRONG_TOKENS):
+        return True
+    for child_id in node.children_ids[:4]:
+        child = node_index.get(child_id)
+        if child is None:
+            continue
+        child_text = " ".join(part for part in [child.title, child.text, child.path] if part)
+        if any(token in child_text for token in SCORING_STRONG_TOKENS):
+            return True
     return False

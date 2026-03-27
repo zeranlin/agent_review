@@ -1,6 +1,8 @@
 from agent_review.extractors.clause_units import build_clause_units
 from agent_review.models import DocumentNode, EffectTagResult, SemanticZone, SourceAnchor
 from agent_review.ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType
+from agent_review.structure.effect_tagger import tag_effects
+from agent_review.structure.zone_classifier import classify_semantic_zones
 
 
 def _build_nodes() -> tuple[list[DocumentNode], list[SemanticZone], list[EffectTagResult]]:
@@ -175,3 +177,61 @@ def test_clause_unit_marks_generic_sme_price_matrix_as_conditional_policy() -> N
     assert unit.conditional_context["conditional_policy"] == "true"
     assert unit.conditional_context["project_binding"] == "false"
     assert unit.conditional_context["policy_branch"] == "set_aside"
+
+
+def test_clause_unit_builder_resolves_parser_regression_samples() -> None:
+    nodes = [
+        DocumentNode(node_id="root", node_type=NodeType.volume, title="ROOT", text="", path="ROOT"),
+        DocumentNode(
+            node_id="q-head",
+            node_type=NodeType.paragraph,
+            title="资格性审查表",
+            text="资格性审查表",
+            path="ROOT > 招标文件信息 > 资格性审查表",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:4"),
+        ),
+        DocumentNode(
+            node_id="warn",
+            node_type=NodeType.paragraph,
+            title="警示条款",
+            text="警示条款",
+            path="ROOT > 评标信息 > （2021） > 警示条款",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:18"),
+        ),
+        DocumentNode(
+            node_id="score-sub",
+            node_type=NodeType.subsection,
+            title="（二）技术保障措施（可选）",
+            text="（二）技术保障措施（可选）",
+            path="ROOT > 第一册 专用条款 > 三、投标人情况及资格证明文件 > （二）技术保障措施（可选）",
+            parent_id="root",
+            children_ids=["score-child"],
+            anchor=SourceAnchor(line_hint="line:266"),
+        ),
+        DocumentNode(
+            node_id="score-child",
+            node_type=NodeType.paragraph,
+            title="特别提示",
+            text="投标人须按本招标文件评标信息中“技术保障措施”这一评审因素要求，提供证明资料。",
+            path="ROOT > 第一册 专用条款 > 三、投标人情况及资格证明文件 > （二）技术保障措施（可选） > 特别提示",
+            parent_id="score-sub",
+            anchor=SourceAnchor(line_hint="line:267"),
+        ),
+    ]
+
+    zones = classify_semantic_zones(nodes)
+    effects = tag_effects(nodes, zones)
+    units = build_clause_units(nodes, zones, effects)
+    by_id = {unit.source_node_id: unit for unit in units}
+
+    assert by_id["q-head"].zone_type == SemanticZoneType.qualification
+    assert by_id["q-head"].clause_semantic_type == ClauseSemanticType.qualification_condition
+
+    assert by_id["warn"].zone_type == SemanticZoneType.policy_explanation
+    assert by_id["warn"].clause_semantic_type == ClauseSemanticType.policy_clause
+    assert EffectTag.policy_background in by_id["warn"].effect_tags
+
+    assert by_id["score-sub"].zone_type == SemanticZoneType.scoring
+    assert by_id["score-sub"].clause_semantic_type == ClauseSemanticType.scoring_factor
