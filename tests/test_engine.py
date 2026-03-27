@@ -492,6 +492,57 @@ def test_clause_units_are_projected_into_legal_fact_candidates() -> None:
     )
 
 
+def test_legal_fact_candidates_capture_policy_binding_and_conditional_scope() -> None:
+    text = """
+    1、关于享受优惠政策的主体、价格扣除比例及采购标的所属行业的说明
+    （1）专门面向中小企业采购的项目，不再执行价格扣除比例。
+    9.本项目为非专门面向中小企业采购项目。
+    本项目仍适用价格扣除。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="policy_fact_demo.txt")
+    facts = report.parse_result.legal_fact_candidates
+
+    assert any(
+        item.fact_type == "policy_matrix_statement"
+        and item.condition_scope == "conditional_only"
+        and item.policy_branch == "set_aside"
+        and item.binding_strength == "conditional"
+        for item in facts
+    )
+    assert any(
+        item.fact_type == "policy_statement"
+        and item.project_binding is True
+        and item.binding_strength == "strong"
+        and item.policy_branch == "non_set_aside"
+        for item in facts
+    )
+    assert any(
+        item.fact_type == "policy_statement"
+        and item.project_binding is True
+        and "价格扣除保留" in item.normalized_terms
+        for item in facts
+    )
+
+
+def test_legal_fact_candidates_capture_source_role_and_rebuttal_strength() -> None:
+    text = """
+    中小企业声明函（格式）
+    仅供参考。
+    本项目专门面向中小企业采购。
+    价格扣除不适用本项目。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="policy_rebuttal_demo.txt")
+    facts = report.parse_result.legal_fact_candidates
+
+    assert any(item.source_role == "template" and item.binding_strength == "weak" for item in facts)
+    assert any(
+        item.fact_type == "policy_statement"
+        and item.rebuttal_strength == "strong"
+        and item.project_binding is True
+        for item in facts
+    )
+
+
 def test_review_planning_contract_consumes_review_point_contract_metadata() -> None:
     text = """
     申请人的资格要求：

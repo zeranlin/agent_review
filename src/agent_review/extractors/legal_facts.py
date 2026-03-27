@@ -37,6 +37,13 @@ def extract_legal_facts_from_units(
                 normalized_terms=_normalized_terms(unit),
                 constraint_type=_infer_constraint_type(unit),
                 constraint_value=_infer_constraint_value(unit),
+                legal_effect_type=unit.legal_effect_type.value,
+                source_role=_infer_source_role(unit),
+                project_binding=_infer_project_binding(unit),
+                binding_strength=_infer_binding_strength(unit),
+                rebuttal_strength=_infer_rebuttal_strength(unit),
+                condition_scope=_infer_condition_scope(unit),
+                policy_branch=_infer_policy_branch(unit),
                 evidence_stage=_infer_evidence_stage(unit),
                 counterparty=_infer_counterparty(unit),
                 anchor=unit.anchor.to_dict(),
@@ -112,10 +119,18 @@ def _extract_fallback_facts_from_text(
                         *constraint.region_tokens,
                         *constraint.industry_tokens,
                         constraint.evidence_source,
+                        *_policy_terms_from_text(text),
                     ]
                 ),
                 constraint_type=_infer_constraint_type_from_constraint(zone_type, clause_semantic_type, constraint),
                 constraint_value=_infer_constraint_value_from_constraint(text, zone_type, constraint),
+                legal_effect_type=legal_effect.value,
+                source_role=_infer_source_role_from_fallback(zone_type, clause_semantic_type, text),
+                project_binding=_infer_project_binding_from_text(text),
+                binding_strength=_infer_fallback_binding_strength(text, zone_type, clause_semantic_type),
+                rebuttal_strength=_infer_rebuttal_strength_from_text(text),
+                condition_scope=_infer_condition_scope_from_text(text),
+                policy_branch=_infer_policy_branch_from_text(text),
                 evidence_stage=_infer_fallback_evidence_stage(zone_type, clause_semantic_type),
                 counterparty=_infer_counterparty_from_text(text),
                 anchor={"line_hint": f"line:{line_no}", "block_no": line_no, "paragraph_no": line_no},
@@ -172,6 +187,10 @@ def _fallback_fact_candidate(
         return SemanticZoneType.contract, ClauseSemanticType.acceptance_term, "acceptance_term"
     if "投标报价不得低于预算金额" in compact or ("预算金额" in compact and "无效投标" in compact):
         return SemanticZoneType.business, ClauseSemanticType.business_requirement, "delivery_requirement"
+    if "专门面向中小企业采购的项目" in compact or "非专门面向中小企业采购的项目" in compact:
+        return SemanticZoneType.policy_explanation, ClauseSemanticType.conditional_policy, "policy_matrix_statement"
+    if any(token in compact for token in ["本项目专门面向中小企业采购", "本项目为非专门面向中小企业采购项目", "价格扣除不适用本项目", "本项目仍适用价格扣除"]):
+        return SemanticZoneType.policy_explanation, ClauseSemanticType.policy_clause, "policy_statement"
     return None
 
 
@@ -259,6 +278,14 @@ def _dedupe_strings(items: list[str]) -> list[str]:
 
 def _infer_fact_type(unit: ClauseUnit) -> str:
     clause_type = unit.clause_semantic_type
+    if _looks_like_policy_statement(unit.text):
+        return "policy_statement" if _infer_project_binding(unit) else "policy_reference"
+    if clause_type == ClauseSemanticType.conditional_policy:
+        return "policy_matrix_statement"
+    if clause_type == ClauseSemanticType.policy_clause:
+        if _infer_project_binding(unit):
+            return "policy_statement"
+        return "policy_reference"
     if clause_type == ClauseSemanticType.qualification_condition:
         if any(axis == RestrictionAxis.performance_count for axis in unit.clause_constraint.restriction_axes):
             return "performance_requirement"
@@ -295,7 +322,7 @@ def _infer_fact_type(unit: ClauseUnit) -> str:
 
 
 def _infer_predicate(text: str) -> str:
-    for token in ["须具备", "应具备", "须提供", "应提供", "得分", "扣分", "支付", "验收", "解除"]:
+    for token in ["须具备", "应具备", "须提供", "应提供", "得分", "扣分", "支付", "验收", "解除", "不适用", "执行价格扣除", "专门面向中小企业", "非专门面向中小企业"]:
         if token in text:
             return token
     return ""
@@ -307,8 +334,20 @@ def _normalized_terms(unit: ClauseUnit) -> list[str]:
         *unit.clause_constraint.region_tokens,
         *unit.clause_constraint.industry_tokens,
     ]
+    conditional_context = unit.conditional_context or {}
+    if conditional_context.get("policy_branch") == "set_aside":
+        tokens.append("专门面向中小企业路径")
+    if conditional_context.get("policy_branch") == "non_set_aside":
+        tokens.append("非专门面向中小企业路径")
+    if conditional_context.get("price_deduction_rule") == "allowed":
+        tokens.append("价格扣除保留")
+    if conditional_context.get("price_deduction_rule") == "forbidden":
+        tokens.append("价格扣除不适用")
+    if conditional_context.get("project_binding") == "true":
+        tokens.append("项目事实绑定")
     if unit.clause_constraint.evidence_source:
         tokens.append(unit.clause_constraint.evidence_source)
+    tokens.extend(_policy_terms_from_text(unit.text))
     seen: set[str] = set()
     ordered: list[str] = []
     for token in tokens:
@@ -412,6 +451,170 @@ def _needs_llm_disambiguation(unit: ClauseUnit) -> bool:
     return unit.zone_type in {SemanticZoneType.qualification, SemanticZoneType.scoring} and (
         "检测报告" in unit.text or "证书" in unit.text or "业绩" in unit.text
     )
+
+
+def _infer_source_role(unit: ClauseUnit) -> str:
+    if EffectTag.template in unit.effect_tags:
+        return "template"
+    if EffectTag.reference_only in unit.effect_tags:
+        return "reference"
+    if unit.zone_type == SemanticZoneType.policy_explanation:
+        return "policy"
+    if unit.zone_type == SemanticZoneType.contract:
+        return "contract"
+    if unit.zone_type == SemanticZoneType.scoring:
+        return "scoring"
+    if unit.zone_type == SemanticZoneType.qualification:
+        return "qualification"
+    return "unknown"
+
+
+def _infer_project_binding(unit: ClauseUnit) -> bool:
+    conditional_context = unit.conditional_context or {}
+    if conditional_context.get("project_binding") == "true":
+        return True
+    return _infer_project_binding_from_text(unit.text)
+
+
+def _infer_binding_strength(unit: ClauseUnit) -> str:
+    if EffectTag.template in unit.effect_tags or EffectTag.reference_only in unit.effect_tags:
+        return "weak"
+    if _infer_project_binding(unit):
+        return "strong"
+    if unit.clause_semantic_type == ClauseSemanticType.conditional_policy:
+        return "conditional"
+    if unit.zone_type in {
+        SemanticZoneType.qualification,
+        SemanticZoneType.scoring,
+        SemanticZoneType.technical,
+        SemanticZoneType.business,
+        SemanticZoneType.contract,
+    }:
+        return "strong"
+    return "contextual"
+
+
+def _infer_rebuttal_strength(unit: ClauseUnit) -> str:
+    compact = re.sub(r"\s+", "", unit.text)
+    if any(token in compact for token in ["不适用", "不再执行", "不执行", "非专门面向中小企业"]):
+        return "strong"
+    if any(token in compact for token in ["仅供参考", "示例", "格式"]):
+        return "weak"
+    return "none"
+
+
+def _infer_condition_scope(unit: ClauseUnit) -> str:
+    conditional_context = unit.conditional_context or {}
+    if conditional_context.get("conditional_policy") == "true":
+        return "project_bound" if conditional_context.get("project_binding") == "true" else "conditional_only"
+    return "project_bound" if _infer_project_binding(unit) else "standalone"
+
+
+def _infer_policy_branch(unit: ClauseUnit) -> str:
+    conditional_context = unit.conditional_context or {}
+    if conditional_context.get("policy_branch"):
+        return conditional_context["policy_branch"]
+    return _infer_policy_branch_from_text(unit.text)
+
+
+def _infer_source_role_from_fallback(
+    zone_type: SemanticZoneType,
+    clause_semantic_type: ClauseSemanticType,
+    text: str,
+) -> str:
+    if clause_semantic_type == ClauseSemanticType.conditional_policy:
+        return "policy"
+    if zone_type == SemanticZoneType.policy_explanation:
+        return "policy"
+    if any(token in text for token in ["示例", "格式", "模板"]):
+        return "template"
+    return zone_type.value
+
+
+def _infer_project_binding_from_text(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    return any(token in compact for token in ["本项目", "本包", "本采购包", "本次采购"])
+
+
+def _infer_fallback_binding_strength(
+    text: str,
+    zone_type: SemanticZoneType,
+    clause_semantic_type: ClauseSemanticType,
+) -> str:
+    if _infer_project_binding_from_text(text):
+        return "strong"
+    if clause_semantic_type == ClauseSemanticType.conditional_policy:
+        return "conditional"
+    if zone_type in {
+        SemanticZoneType.qualification,
+        SemanticZoneType.scoring,
+        SemanticZoneType.technical,
+        SemanticZoneType.business,
+        SemanticZoneType.contract,
+    }:
+        return "strong"
+    return "contextual"
+
+
+def _infer_rebuttal_strength_from_text(text: str) -> str:
+    compact = re.sub(r"\s+", "", text)
+    if any(token in compact for token in ["不适用", "不再执行", "不执行", "非专门面向中小企业"]):
+        return "strong"
+    if any(token in compact for token in ["示例", "格式", "模板"]):
+        return "weak"
+    return "none"
+
+
+def _infer_condition_scope_from_text(text: str) -> str:
+    compact = re.sub(r"\s+", "", text)
+    if "专门面向中小企业采购的项目" in compact or "非专门面向中小企业采购的项目" in compact:
+        return "conditional_only"
+    if _infer_project_binding_from_text(text):
+        return "project_bound"
+    return "standalone"
+
+
+def _infer_policy_branch_from_text(text: str) -> str:
+    compact = re.sub(r"\s+", "", text)
+    if "非专门面向中小企业" in compact:
+        return "non_set_aside"
+    if "专门面向中小企业" in compact:
+        return "set_aside"
+    return ""
+
+
+def _looks_like_policy_statement(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if "中小企业" not in compact and "价格扣除" not in compact:
+        return False
+    return any(
+        token in compact
+        for token in [
+            "本项目专门面向中小企业采购",
+            "本项目为非专门面向中小企业采购项目",
+            "本项目非专门面向中小企业采购",
+            "价格扣除不适用本项目",
+            "本项目仍适用价格扣除",
+            "本项目执行价格扣除",
+        ]
+    )
+
+
+def _policy_terms_from_text(text: str) -> list[str]:
+    compact = re.sub(r"\s+", "", text)
+    tokens: list[str] = []
+    if any(token in compact for token in ["本项目", "本包", "本采购包", "本次采购"]):
+        tokens.append("项目事实绑定")
+    if "非专门面向中小企业" in compact:
+        tokens.append("非专门面向中小企业路径")
+    elif "专门面向中小企业" in compact:
+        tokens.append("专门面向中小企业路径")
+    if "价格扣除" in compact:
+        if any(token in compact for token in ["不适用", "不再执行", "不执行"]):
+            tokens.append("价格扣除不适用")
+        elif any(token in compact for token in ["仍适用", "继续适用", "执行", "给予", "参与评审"]):
+            tokens.append("价格扣除保留")
+    return tokens
 
 
 def _normalize_extracted_scope(text: str) -> str:

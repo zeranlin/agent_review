@@ -229,6 +229,13 @@ class LegalFactCandidate:
     normalized_terms: list[str] = field(default_factory=list)
     constraint_type: str = ""
     constraint_value: dict[str, object] = field(default_factory=dict)
+    legal_effect_type: str = ""
+    source_role: str = ""
+    project_binding: bool = False
+    binding_strength: str = "weak"
+    rebuttal_strength: str = "none"
+    condition_scope: str = "unknown"
+    policy_branch: str = ""
     evidence_stage: str = "unknown"
     counterparty: str = ""
     anchor: dict[str, object] = field(default_factory=dict)

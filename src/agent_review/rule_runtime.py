@@ -17,6 +17,13 @@ def generate_rule_hits(legal_fact_candidates: list[LegalFactCandidate]) -> list[
                 " ".join(fact.normalized_terms),
                 fact.zone_type,
                 fact.fact_type,
+                fact.legal_effect_type,
+                fact.source_role,
+                fact.binding_strength,
+                fact.rebuttal_strength,
+                fact.condition_scope,
+                fact.policy_branch,
+                "project_binding" if fact.project_binding else "",
             ]
         )
         for rule in list_rule_definitions():
@@ -92,6 +99,24 @@ def _matched_slots(fact: LegalFactCandidate, required_slots: list[str]) -> list[
             matched.append(current)
             continue
         if current == "constraint_value" and normalized_value:
+            matched.append(current)
+            continue
+        if current == "project_binding" and fact.project_binding:
+            matched.append(current)
+            continue
+        if current == "binding_strength" and fact.binding_strength:
+            matched.append(current)
+            continue
+        if current == "rebuttal_strength" and fact.rebuttal_strength and fact.rebuttal_strength != "none":
+            matched.append(current)
+            continue
+        if current == "condition_scope" and fact.condition_scope:
+            matched.append(current)
+            continue
+        if current == "policy_branch" and fact.policy_branch:
+            matched.append(current)
+            continue
+        if current == "legal_effect_type" and fact.legal_effect_type:
             matched.append(current)
             continue
         if current in normalized_value:
