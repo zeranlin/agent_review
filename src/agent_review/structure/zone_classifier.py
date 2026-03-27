@@ -9,6 +9,7 @@ from ..ontology import NodeType, SemanticZoneType
 ZONE_RULES: dict[SemanticZoneType, list[str]] = {
     SemanticZoneType.administrative_info: ["关键信息", "招标文件信息", "采购人信息", "项目属性", "项目编号", "项目名称", "预算金额", "最高限价", "采购人", "采购单位", "采购代理机构"],
     SemanticZoneType.qualification: ["资格要求", "资格审查", "资格条件", "资格证明", "资质要求", "业绩要求", "投标人资格", "特定资格", "一般资格", "准入条件", "资格性审查表"],
+    SemanticZoneType.conformity_review: ["符合性审查表", "符合性审查", "符合性检查", "实质性满足", "实质性响应", "投标文件初审", "初审", "投标无效", "无效投标"],
     SemanticZoneType.technical: ["技术要求", "技术规范", "技术参数", "技术指标", "货物清单", "样品要求", "检测报告", "参数", "性能指标"],
     SemanticZoneType.business: ["商务要求", "商务部分", "交货", "交付", "售后", "服务要求", "实施方案", "培训", "响应", "供货"],
     SemanticZoneType.scoring: ["评分标准", "评标信息", "综合评分", "评分办法", "评标办法", "评分项", "分值", "得分", "评审因素", "评分规则", "量化"],
@@ -71,6 +72,15 @@ SCORING_SUBSECTION_TOKENS = [
     "投标人近三年同类业绩",
     "诚信",
     "奖项",
+]
+CONFORMITY_REVIEW_STRONG_TOKENS = [
+    "符合性审查表",
+    "符合性审查",
+    "符合性检查",
+    "投标文件初审",
+    "初审",
+    "实质性满足",
+    "实质性响应",
 ]
 CATALOG_HEADING_TOKENS = [
     "招标公告",
@@ -143,6 +153,7 @@ def _classify_node(
 
     _score_keyword_family(scores, basis, node, SemanticZoneType.administrative_info, ZONE_RULES[SemanticZoneType.administrative_info])
     _score_keyword_family(scores, basis, node, SemanticZoneType.qualification, ZONE_RULES[SemanticZoneType.qualification])
+    _score_keyword_family(scores, basis, node, SemanticZoneType.conformity_review, ZONE_RULES[SemanticZoneType.conformity_review])
     _score_keyword_family(scores, basis, node, SemanticZoneType.technical, ZONE_RULES[SemanticZoneType.technical])
     _score_keyword_family(scores, basis, node, SemanticZoneType.business, ZONE_RULES[SemanticZoneType.business])
     _score_keyword_family(scores, basis, node, SemanticZoneType.scoring, ZONE_RULES[SemanticZoneType.scoring])
@@ -160,6 +171,9 @@ def _classify_node(
     if node.node_type == NodeType.table_row and any(token in haystack for token in QUALIFICATION_STRONG_TOKENS):
         scores[SemanticZoneType.qualification] += 0.35
         basis.append("table_row_qualification_header")
+    if node.node_type == NodeType.table_row and any(token in haystack for token in CONFORMITY_REVIEW_STRONG_TOKENS):
+        scores[SemanticZoneType.conformity_review] += 0.65
+        basis.append("table_row_conformity_header")
     if node.node_type == NodeType.table_row and any(token in haystack for token in TECHNICAL_STRONG_TOKENS):
         scores[SemanticZoneType.technical] += 0.3
         basis.append("table_row_technical_context")
@@ -216,6 +230,18 @@ def _classify_node(
         if any(token in haystack for token in QUALIFICATION_GATE_TOKENS):
             scores[SemanticZoneType.qualification] += 0.45
             basis.append("qualification_gate_phrase")
+
+    if any(token in compact_title_text for token in ["符合性审查表", "投标文件初审"]):
+        scores[SemanticZoneType.conformity_review] += 1.0
+        basis.append("conformity_review_heading")
+    elif any(token in compact_text for token in ["符合性审查", "符合性检查"]) and "资格性审查表" not in compact_text:
+        scores[SemanticZoneType.conformity_review] += 0.75
+        basis.append("conformity_review_phrase")
+    elif any(token in compact_text for token in ["初审不通过", "按投标无效处理", "作投标无效处理"]) and any(
+        token in compact_text for token in ["资格性审查", "符合性审查", "实质性满足", "实质性响应"]
+    ):
+        scores[SemanticZoneType.conformity_review] += 0.7
+        basis.append("conformity_invalid_phrase")
 
     if any(token in haystack for token in APPENDIX_STRONG_TOKENS) and len(compact_text) < 80:
         scores[SemanticZoneType.appendix_reference] += 0.9

@@ -75,6 +75,8 @@ def infer_legal_effect(
 
     if zone_type == SemanticZoneType.qualification:
         return LegalEffectType.qualification_gate
+    if zone_type == SemanticZoneType.conformity_review:
+        return LegalEffectType.review_procedure
     if zone_type == SemanticZoneType.scoring:
         return LegalEffectType.scoring_factor
     if zone_type == SemanticZoneType.technical:

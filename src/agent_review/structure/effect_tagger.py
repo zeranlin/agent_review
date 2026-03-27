@@ -34,6 +34,7 @@ BINDING_MARKERS = [
 ]
 SUBSTANTIVE_ZONES = {
     SemanticZoneType.qualification,
+    SemanticZoneType.conformity_review,
     SemanticZoneType.technical,
     SemanticZoneType.business,
     SemanticZoneType.scoring,
@@ -183,6 +184,8 @@ def _has_binding_signals(node: DocumentNode, zone_type: SemanticZoneType, haysta
     if zone_type in SUBSTANTIVE_ZONES and _contains_any(haystack, BINDING_MARKERS):
         return True
     if zone_type == SemanticZoneType.qualification and _contains_any(haystack, ["资格要求", "投标人", "供应商", "资质", "证书", "证明"]):
+        return True
+    if zone_type == SemanticZoneType.conformity_review and _contains_any(haystack, ["符合性审查", "初审", "投标无效", "无效投标", "实质性响应"]):
         return True
     if zone_type == SemanticZoneType.scoring and _contains_any(haystack, ["评分", "分值", "得分", "扣分", "评分项"]):
         return True

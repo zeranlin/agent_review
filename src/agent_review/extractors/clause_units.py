@@ -108,6 +108,13 @@ def _infer_clause_semantic_type(
     if zone_type == SemanticZoneType.administrative_info:
         return ClauseSemanticType.administrative_clause
 
+    if zone_type == SemanticZoneType.conformity_review:
+        if "投标文件初审" in compact_text or "初审" in compact_text:
+            return ClauseSemanticType.preliminary_review_clause
+        if any(token in compact_text for token in ["投标无效", "无效投标", "作无效处理", "按投标无效处理", "不予通过"]):
+            return ClauseSemanticType.invalid_bid_clause
+        return ClauseSemanticType.conformity_review_clause
+
     if zone_type == SemanticZoneType.qualification:
         if any(token in text for token in ["证明", "资质证明", "原件备查", "材料", "证书"]):
             return ClauseSemanticType.qualification_material_requirement

@@ -24,6 +24,7 @@ _PROCUREMENT_KIND_TOKENS: dict[str, list[str]] = {
 _ZONE_IMPORTANCE: dict[SemanticZoneType, int] = {
     SemanticZoneType.scoring: 100,
     SemanticZoneType.qualification: 95,
+    SemanticZoneType.conformity_review: 93,
     SemanticZoneType.contract: 90,
     SemanticZoneType.template: 85,
     SemanticZoneType.appendix_reference: 80,

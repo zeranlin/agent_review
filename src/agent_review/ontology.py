@@ -6,6 +6,7 @@ from enum import Enum
 class SemanticZoneType(str, Enum):
     administrative_info = "administrative_info"
     qualification = "qualification"
+    conformity_review = "conformity_review"
     technical = "technical"
     business = "business"
     scoring = "scoring"
@@ -24,6 +25,7 @@ ZONE_ONTOLOGY_VERSION = "v1"
 ZONE_PRIMARY_REVIEW_TYPES: dict[SemanticZoneType, str] = {
     SemanticZoneType.administrative_info: "基础信息",
     SemanticZoneType.qualification: "资格",
+    SemanticZoneType.conformity_review: "符合性审查",
     SemanticZoneType.technical: "技术",
     SemanticZoneType.business: "商务",
     SemanticZoneType.scoring: "评分",
@@ -40,6 +42,7 @@ ZONE_PRIMARY_REVIEW_TYPES: dict[SemanticZoneType, str] = {
 ZONE_EVIDENCE_POLICY: dict[SemanticZoneType, str] = {
     SemanticZoneType.administrative_info: "可作为头信息与基础事实证据。",
     SemanticZoneType.qualification: "可作为资格审查直接证据。",
+    SemanticZoneType.conformity_review: "可作为符合性审查、初审和无效投标程序条款证据。",
     SemanticZoneType.technical: "可作为技术要求直接证据。",
     SemanticZoneType.business: "可作为商务履约要求直接证据。",
     SemanticZoneType.scoring: "可作为评分规则直接证据。",
@@ -173,6 +176,7 @@ ONTOLOGY_DESCRIPTIONS: dict[str, dict[str, str]] = {
     "semantic_zones": {
         SemanticZoneType.administrative_info.value: "项目名称、项目编号、预算金额、采购人、代理机构等基础信息。",
         SemanticZoneType.qualification.value: "投标人资格、资质、业绩及准入条件。",
+        SemanticZoneType.conformity_review.value: "符合性审查、实质性响应、初审和投标无效判定程序。",
         SemanticZoneType.technical.value: "技术参数、功能配置、样品和检测要求。",
         SemanticZoneType.business.value: "交付、实施、售后和服务响应要求。",
         SemanticZoneType.scoring.value: "评分项、分值、评分规则和量化标准。",
