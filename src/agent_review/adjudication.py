@@ -169,12 +169,14 @@ def _rank_instance_fact_ids(
             if "第三方检测机构" in text:
                 score_value -= 3
         elif instance.point_id == "RP-QUAL-004":
+            if getattr(fact, "zone_type", "") == "qualification":
+                score_value += 5
             if any(token in text for token in ["同类项目业绩", "类似项目业绩"]):
                 score_value += 6
             if any(token in text for token in ["深圳市", "广州市", "行业"]):
                 score_value += 3
             if any(token in text for token in ["得分", "评分内容", "评分依据"]):
-                score_value += 2
+                score_value -= 1
         elif instance.point_id == "RP-QUAL-003":
             if any(token in text for token in ["高新技术企业", "纳税信用", "成立满", "科技型中小企业"]):
                 score_value += 4
@@ -936,6 +938,12 @@ def _resolve_review_point_evidence(
     if not evidence:
         return "未明确定位", "当前自动抽取未定位到可直接引用的原文。"
 
+    if point.catalog_id == "RP-QUAL-004" and point.evidence_bundle.direct_evidence:
+        primary_direct = point.evidence_bundle.direct_evidence[0]
+        direct_quote = primary_direct.quote.strip()
+        if direct_quote and evidence_supports_title(point.title, direct_quote):
+            return primary_direct.section_hint or "未明确定位", _sanitize_formal_quote(point.title, direct_quote)
+
     if any(source.startswith("risk_hit:") for source in point.source_findings):
         ranked_direct = _rank_evidence_for_formal(point.title, list(evidence), report_text)
         if ranked_direct:
@@ -1281,15 +1289,26 @@ def _build_qualification_gate_cluster(
             (
                 clause
                 for clause in ordered
-                if "同类业绩" in clause.content or "类似项目业绩" in clause.content
+                if ("同类业绩" in clause.content or "类似项目业绩" in clause.content)
+                and clause.semantic_zone == SemanticZoneType.qualification
             ),
             None,
         )
+        if performance_clause is None:
+            performance_clause = next(
+                (
+                    clause
+                    for clause in ordered
+                    if "同类业绩" in clause.content or "类似项目业绩" in clause.content
+                ),
+                None,
+            )
         scoring_clause = next(
             (
                 clause
                 for clause in ordered
                 if any(token in clause.content for token in ["得分", "评分内容", "评分依据"])
+                and clause.semantic_zone == SemanticZoneType.scoring
             ),
             None,
         )

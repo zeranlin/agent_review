@@ -9,10 +9,15 @@ from ..ontology import ClauseSemanticType, EffectTag, LegalEffectType, SemanticZ
 
 
 ClauseExtractor = Callable[[list[str]], ExtractedClause | None]
+UnitFieldNormalizer = Callable[[list[ClauseUnit], list[ExtractedClause]], ExtractedClause | None]
 
 
 def extract_clauses(text: str, field_names: set[str] | None = None) -> list[ExtractedClause]:
     lines = text.splitlines()
+    return _extract_clauses_from_lines(lines, field_names=field_names)
+
+
+def _extract_clauses_from_lines(lines: list[str], field_names: set[str] | None = None) -> list[ExtractedClause]:
     clauses: list[ExtractedClause] = []
     for category, field_name, extractor in FIELD_EXTRACTORS:
         if field_names is not None and field_name not in field_names:
@@ -46,35 +51,29 @@ def extract_clauses_from_units(
     filtered_units = [
         unit
         for unit in clause_units
-        if unit.zone_type
-        in {
-            SemanticZoneType.administrative_info,
-            SemanticZoneType.qualification,
-            SemanticZoneType.technical,
-            SemanticZoneType.business,
-            SemanticZoneType.scoring,
-            SemanticZoneType.contract,
-            SemanticZoneType.policy_explanation,
-            SemanticZoneType.appendix_reference,
-        }
-        and EffectTag.catalog not in unit.effect_tags
-        and EffectTag.public_copy_noise not in unit.effect_tags
-        and (target_zones is None or unit.zone_type.value in target_zones)
+        if _unit_is_clause_candidate(unit, target_zones=target_zones)
     ]
     if not filtered_units:
         return []
 
-    unit_clauses = []
+    unit_clauses: list[ExtractedClause] = []
     for unit in filtered_units:
         if not unit.text.strip():
             continue
         clause = _clause_from_unit(unit)
+        if not clause.field_name:
+            continue
         if field_names is not None and clause.field_name not in field_names:
             continue
         unit_clauses.append(clause)
-    synthetic_text = "\n".join(unit.text for unit in filtered_units if unit.text.strip())
-    fallback_clauses = extract_clauses(synthetic_text, field_names=field_names)
-    return _merge_extracted_clauses(unit_clauses, fallback_clauses)
+    normalized_clauses = _normalize_unit_fields(filtered_units, unit_clauses, field_names=field_names)
+    covered_fields = {item.field_name for item in [*unit_clauses, *normalized_clauses] if item.field_name}
+    fallback_fields = _fallback_field_names(field_names=field_names, covered_fields=covered_fields)
+    fallback_clauses: list[ExtractedClause] = []
+    if fallback_fields:
+        synthetic_text = "\n".join(unit.text for unit in filtered_units if unit.text.strip())
+        fallback_clauses = _extract_clauses_from_lines(synthetic_text.splitlines(), field_names=fallback_fields)
+    return _merge_extracted_clauses([*unit_clauses, *normalized_clauses], fallback_clauses)
 
 
 def classify_extracted_clauses(clauses: list[ExtractedClause]) -> list[ExtractedClause]:
@@ -82,6 +81,58 @@ def classify_extracted_clauses(clauses: list[ExtractedClause]) -> list[Extracted
         clause.clause_role = classify_clause_role(clause.content)
         _enrich_extracted_clause(clause)
     return clauses
+
+
+def _unit_is_clause_candidate(unit: ClauseUnit, *, target_zones: set[str] | None = None) -> bool:
+    if EffectTag.catalog in unit.effect_tags or EffectTag.public_copy_noise in unit.effect_tags:
+        return False
+    effective_zone = _effective_unit_zone_type(unit)
+    allowed_zones = {
+        SemanticZoneType.administrative_info,
+        SemanticZoneType.qualification,
+        SemanticZoneType.technical,
+        SemanticZoneType.business,
+        SemanticZoneType.scoring,
+        SemanticZoneType.contract,
+        SemanticZoneType.policy_explanation,
+        SemanticZoneType.appendix_reference,
+    }
+    if effective_zone not in allowed_zones:
+        return False
+    return target_zones is None or effective_zone.value in target_zones
+
+
+def _effective_unit_zone_type(unit: ClauseUnit) -> SemanticZoneType:
+    if unit.zone_type != SemanticZoneType.mixed_or_uncertain:
+        return unit.zone_type
+    text = _unit_text_context(unit)
+    if unit.clause_semantic_type in {ClauseSemanticType.scoring_rule, ClauseSemanticType.scoring_factor}:
+        return SemanticZoneType.scoring
+    if unit.legal_effect_type == LegalEffectType.scoring_factor or any(token in text for token in ["得分", "扣分", "评分标准", "最高得", "ITSS"]):
+        return SemanticZoneType.scoring
+    if unit.clause_semantic_type in {
+        ClauseSemanticType.payment_term,
+        ClauseSemanticType.acceptance_term,
+        ClauseSemanticType.breach_term,
+        ClauseSemanticType.termination_term,
+        ClauseSemanticType.contract_obligation,
+    }:
+        return SemanticZoneType.contract
+    if unit.legal_effect_type == LegalEffectType.contract_obligation or any(token in text for token in ["付款", "验收", "履约担保", "质量保证金", "第三方检测费用"]):
+        return SemanticZoneType.contract
+    if unit.clause_semantic_type in {ClauseSemanticType.qualification_condition, ClauseSemanticType.qualification_material_requirement}:
+        return SemanticZoneType.qualification
+    if unit.legal_effect_type == LegalEffectType.qualification_gate:
+        return SemanticZoneType.qualification
+    if unit.clause_constraint.evidence_source or unit.legal_effect_type == LegalEffectType.evidence_source_requirement:
+        return SemanticZoneType.technical
+    if unit.clause_semantic_type == ClauseSemanticType.business_requirement:
+        return SemanticZoneType.business
+    if any(token in text for token in ["预算金额", "无效投标", "不得低于"]):
+        return SemanticZoneType.business
+    if unit.clause_semantic_type in {ClauseSemanticType.policy_clause, ClauseSemanticType.conditional_policy}:
+        return SemanticZoneType.policy_explanation
+    return unit.zone_type
 
 
 def _anchor_to_hint(unit: ClauseUnit) -> str:
@@ -98,17 +149,18 @@ def _anchor_to_hint(unit: ClauseUnit) -> str:
 
 
 def _clause_from_unit(unit: ClauseUnit) -> ExtractedClause:
-    field_name = _infer_unit_field_name(unit)
+    effective_zone = _effective_unit_zone_type(unit)
+    field_name = _infer_unit_field_name(unit, effective_zone=effective_zone)
     content = unit.text.strip()
     return ExtractedClause(
-        category=_infer_unit_category(unit, field_name),
+        category=_infer_unit_category(unit, field_name, effective_zone=effective_zone),
         field_name=field_name,
         content=content,
         source_anchor=unit.anchor.line_hint or _anchor_to_hint(unit),
-        normalized_value=_infer_unit_normalized_value(unit, field_name),
+        normalized_value=_infer_unit_normalized_value(unit, field_name, effective_zone=effective_zone),
         relation_tags=_infer_unit_relation_tags(unit, field_name),
         clause_role=classify_clause_role(content),
-        semantic_zone=unit.zone_type,
+        semantic_zone=effective_zone,
         effect_tags=list(unit.effect_tags),
         adoption_status=AdoptionStatus.rule_based,
         legal_effect_type=unit.legal_effect_type,
@@ -117,7 +169,8 @@ def _clause_from_unit(unit: ClauseUnit) -> ExtractedClause:
     )
 
 
-def _infer_unit_category(unit: ClauseUnit, field_name: str) -> str:
+def _infer_unit_category(unit: ClauseUnit, field_name: str, *, effective_zone: SemanticZoneType | None = None) -> str:
+    zone_type = effective_zone or _effective_unit_zone_type(unit)
     if field_name in {"项目名称", "项目编号", "采购人", "采购单位", "采购代理机构", "采购方式", "采购方式适用理由", "采购标的", "品目名称", "项目属性", "预算金额", "最高限价", "合同履行期限", "合同类型", "采购内容构成", "是否含持续性服务", "采购包数量", "采购包划分说明", "需求调查结论", "专家论证结论"}:
         return "项目基本信息"
     if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "信用要求", "是否允许联合体", "是否允许分包"}:
@@ -147,14 +200,15 @@ def _infer_unit_category(unit: ClauseUnit, field_name: str) -> str:
         SemanticZoneType.catalog_or_navigation: "目录导航",
         SemanticZoneType.public_copy_or_noise: "公开噪声",
         SemanticZoneType.mixed_or_uncertain: "未分类",
-    }.get(unit.zone_type, "未分类")
+    }.get(zone_type, "未分类")
 
 
-def _infer_unit_field_name(unit: ClauseUnit) -> str:
+def _infer_unit_field_name(unit: ClauseUnit, *, effective_zone: SemanticZoneType | None = None) -> str:
     text = _unit_text_context(unit)
     title = str(unit.table_context.get("title", "")).strip()
     row_label = str(unit.table_context.get("row_label", "")).strip()
     clause_type = unit.clause_semantic_type
+    zone_type = effective_zone or _effective_unit_zone_type(unit)
 
     if clause_type in {ClauseSemanticType.declaration_template, ClauseSemanticType.template_instruction}:
         if "中小企业声明函" in text:
@@ -167,7 +221,7 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
     if clause_type == ClauseSemanticType.noise_clause:
         return "公开噪声"
 
-    if unit.zone_type == SemanticZoneType.administrative_info:
+    if zone_type == SemanticZoneType.administrative_info:
         if "项目名称" in text:
             return "项目名称"
         if "项目编号" in text:
@@ -201,7 +255,7 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
         if "专家论证" in text:
             return "专家论证结论"
 
-    if unit.zone_type == SemanticZoneType.qualification:
+    if zone_type == SemanticZoneType.qualification:
         if "特定资格要求" in text or "资质要求" in text:
             return "特定资格要求"
         if any(token in text for token in ["投标人资格要求", "供应商资格", "一般资格要求", "资格要求"]):
@@ -224,7 +278,7 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
         ):
             return "资格条件明细"
 
-    if unit.zone_type == SemanticZoneType.technical:
+    if zone_type == SemanticZoneType.technical:
         if "样品" in text:
             return "样品要求"
         if "演示" in text:
@@ -242,7 +296,7 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
         if any(token in text for token in ["高质量完成", "满足采购人要求", "由采购人认定", "按行业标准", "优质服务"]):
             return "技术服务可验证性信号"
 
-    if unit.zone_type == SemanticZoneType.scoring:
+    if zone_type == SemanticZoneType.scoring:
         if any(token in text for token in ["评分方法", "综合评分", "评标办法"]):
             return "评分方法"
         if any(token in text for token in ["评分项", "评分标准"]):
@@ -260,7 +314,7 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
         if any(token in text for token in ["证书总分", "证书类评分总分", "检测报告总分"]):
             return "证书类评分总分"
 
-    if unit.zone_type == SemanticZoneType.business:
+    if zone_type == SemanticZoneType.business:
         if any(token in text for token in ["采购内容", "供货", "安装", "驻场", "运维"]):
             return "采购内容构成"
         if any(token in text for token in ["持续性服务", "长期服务", "驻场"]):
@@ -268,7 +322,9 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
         if "商务要求" in text:
             return "商务要求"
 
-    if unit.zone_type == SemanticZoneType.contract:
+    if zone_type == SemanticZoneType.contract:
+        if any(token in text for token in ["履约担保", "履约保证金", "质量保证金"]):
+            return "履约保证金"
         if any(token in text for token in ["付款", "支付", "尾款"]):
             return "付款节点"
         if "验收" in text:
@@ -296,7 +352,7 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
         if any(token in text for token in ["转包", "外包", "分包"]):
             return "转包外包条款"
 
-    if unit.zone_type == SemanticZoneType.policy_explanation:
+    if zone_type == SemanticZoneType.policy_explanation:
         if "价格扣除比例及采购标的所属行业的说明" in text:
             return "所属行业划分"
         if "中小企业声明函" in text:
@@ -318,33 +374,33 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
         if "进口产品" in text:
             return "是否涉及进口产品"
 
-    if unit.zone_type == SemanticZoneType.qualification and "采购方式" in title and "资格" in text:
+    if zone_type == SemanticZoneType.qualification and "采购方式" in title and "资格" in text:
         return "一般资格要求"
     if row_label and row_label not in {"评分项", "分值", "评分标准"}:
-        if unit.zone_type == SemanticZoneType.scoring and any(token in text for token in ["分值", "得分"]):
+        if zone_type == SemanticZoneType.scoring and any(token in text for token in ["分值", "得分"]):
             return "评分项明细"
-        if unit.zone_type == SemanticZoneType.qualification:
+        if zone_type == SemanticZoneType.qualification:
             return "资格条件明细"
-        if unit.zone_type == SemanticZoneType.contract:
+        if zone_type == SemanticZoneType.contract:
             return "合同条款"
-        if unit.zone_type == SemanticZoneType.business:
+        if zone_type == SemanticZoneType.business:
             return "商务要求"
-        if unit.zone_type == SemanticZoneType.technical:
+        if zone_type == SemanticZoneType.technical:
             return "技术要求"
 
     if title and len(title) <= 60:
-        if unit.zone_type == SemanticZoneType.scoring:
+        if zone_type == SemanticZoneType.scoring:
             if any(token in title for token in ["评分办法", "综合评分", "评标办法"]):
                 return "评分方法"
             if any(token in title for token in ["评分项", "评分标准"]):
                 return "评分项明细"
-        if unit.zone_type == SemanticZoneType.contract and "合同条款" in title:
+        if zone_type == SemanticZoneType.contract and "合同条款" in title:
             return "合同条款"
-        if unit.zone_type == SemanticZoneType.qualification and any(token in title for token in ["投标人资格", "供应商资格", "资格要求"]):
+        if zone_type == SemanticZoneType.qualification and any(token in title for token in ["投标人资格", "供应商资格", "资格要求"]):
             return "一般资格要求"
-        if unit.zone_type == SemanticZoneType.business and any(token in title for token in ["商务要求", "商务部分"]):
+        if zone_type == SemanticZoneType.business and any(token in title for token in ["商务要求", "商务部分"]):
             return "商务要求"
-        if unit.zone_type == SemanticZoneType.administrative_info:
+        if zone_type == SemanticZoneType.administrative_info:
             if "采购代理机构" in title:
                 return "采购代理机构"
             if "采购单位" in title:
@@ -366,10 +422,11 @@ def _infer_unit_field_name(unit: ClauseUnit) -> str:
     return ""
 
 
-def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str) -> str:
+def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str, *, effective_zone: SemanticZoneType | None = None) -> str:
     text = _unit_text_context(unit)
     if not text:
         return ""
+    zone_type = effective_zone or _effective_unit_zone_type(unit)
     conditional_context = unit.conditional_context or {}
     if field_name in {"项目属性"}:
         for token in ["货物", "服务", "工程"]:
@@ -399,9 +456,19 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str) -> str:
             return match.group(1)
     if field_name in {"是否要求检测报告", "是否要求认证证书", "是否要求专利", "是否设置★实质性条款"}:
         return "存在" if text else ""
+    if field_name == "行业相关性存疑评分项":
+        matched_terms = [
+            token
+            for token in ["软件企业认定证书", "ITSS", "人力资源测评师", "非金属矿采矿许可证", "采矿许可证", "利润率", "财务报告"]
+            if token in text
+        ]
+        if matched_terms:
+            return ";".join(dict.fromkeys(matched_terms))
     if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "评分项明细", "是否仍保留价格扣除条款", "是否专门面向中小企业", "是否为预留份额采购", "是否涉及进口产品", "证明来源要求"}:
         return "存在"
     if field_name in {"付款节点", "验收标准", "考核条款", "满意度条款", "扣款条款", "解约条款", "违约责任", "质保期", "履约保证金", "整改条款", "申辩条款", "单方解释权", "转包外包条款"}:
+        return "存在"
+    if field_name == "评分项明细" and zone_type == SemanticZoneType.scoring:
         return "存在"
     return unit.clause_semantic_type.value if unit.clause_semantic_type != ClauseSemanticType.unknown_clause else ""
 
@@ -448,6 +515,108 @@ def _unit_text_context(unit: ClauseUnit) -> str:
         unit.path.strip(),
     ]
     return " ".join(part for part in parts if part)
+
+
+def _normalize_unit_fields(
+    clause_units: list[ClauseUnit],
+    direct_clauses: list[ExtractedClause],
+    *,
+    field_names: set[str] | None = None,
+) -> list[ExtractedClause]:
+    normalized: list[ExtractedClause] = []
+    covered_fields = {item.field_name for item in direct_clauses if item.field_name}
+    for category, field_name, normalizer in UNIT_FIELD_NORMALIZERS:
+        if field_names is not None and field_name not in field_names:
+            continue
+        if field_name in covered_fields:
+            continue
+        clause = normalizer(clause_units, direct_clauses)
+        if clause is None:
+            continue
+        clause.category = category
+        clause.field_name = field_name
+        normalized.append(_enrich_extracted_clause(clause))
+        covered_fields.add(field_name)
+    return normalized
+
+
+def _fallback_field_names(*, field_names: set[str] | None, covered_fields: set[str]) -> set[str]:
+    if field_names is not None:
+        return {field for field in field_names if field not in covered_fields}
+    return {
+        field_name
+        for _, field_name, _ in FIELD_EXTRACTORS
+        if field_name not in covered_fields
+    }
+
+
+def _clause_from_normalizer(
+    unit: ClauseUnit,
+    *,
+    content: str | None = None,
+    normalized_value: str = "存在",
+    relation_tags: list[str] | None = None,
+    semantic_zone: SemanticZoneType | None = None,
+) -> ExtractedClause:
+    quote = (content or unit.text).strip()
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content=quote,
+        source_anchor=unit.anchor.line_hint or _anchor_to_hint(unit),
+        normalized_value=normalized_value,
+        relation_tags=relation_tags or [],
+        clause_role=classify_clause_role(quote),
+        semantic_zone=semantic_zone or _effective_unit_zone_type(unit),
+        effect_tags=list(unit.effect_tags),
+        adoption_status=AdoptionStatus.rule_based,
+        legal_effect_type=unit.legal_effect_type,
+        legal_principle_tags=list(unit.legal_principle_tags),
+        clause_constraint=unit.clause_constraint,
+    )
+
+
+def _normalize_unit_guarantee_field(
+    clause_units: list[ClauseUnit],
+    direct_clauses: list[ExtractedClause],
+) -> ExtractedClause | None:
+    del direct_clauses
+    for unit in clause_units:
+        text = _unit_text_context(unit)
+        if _effective_unit_zone_type(unit) != SemanticZoneType.contract:
+            continue
+        if any(token in text for token in ["履约担保", "履约保证金", "质量保证金"]):
+            return _clause_from_normalizer(
+                unit,
+                relation_tags=["履约保证金", "保证金归一"],
+                semantic_zone=SemanticZoneType.contract,
+            )
+    return None
+
+
+def _normalize_unit_scoring_mismatch_field(
+    clause_units: list[ClauseUnit],
+    direct_clauses: list[ExtractedClause],
+) -> ExtractedClause | None:
+    del direct_clauses
+    mismatch_tokens = ["软件企业认定证书", "ITSS", "人力资源测评师", "非金属矿采矿许可证", "采矿许可证", "利润率", "财务报告"]
+    candidates = [
+        unit
+        for unit in clause_units
+        if _effective_unit_zone_type(unit) == SemanticZoneType.scoring
+        and any(token in _unit_text_context(unit) for token in mismatch_tokens)
+    ]
+    if not candidates:
+        return None
+    content = "；".join(dict.fromkeys(unit.text.strip() for unit in candidates if unit.text.strip()))[:320]
+    matched_terms = [token for token in mismatch_tokens if token in content]
+    return _clause_from_normalizer(
+        candidates[0],
+        content=content,
+        normalized_value=";".join(dict.fromkeys(matched_terms)) if matched_terms else "存在",
+        relation_tags=["行业相关性存疑评分项", *matched_terms],
+        semantic_zone=SemanticZoneType.scoring,
+    )
 
 
 def _merge_extracted_clauses(primary: list[ExtractedClause], fallback: list[ExtractedClause]) -> list[ExtractedClause]:
@@ -1823,6 +1992,12 @@ def _build_clause(
         normalized_value=normalized_value,
         relation_tags=relation_tags or [],
     )
+
+
+UNIT_FIELD_NORMALIZERS: list[tuple[str, str, UnitFieldNormalizer]] = [
+    ("合同条款", "履约保证金", _normalize_unit_guarantee_field),
+    ("评分条款", "行业相关性存疑评分项", _normalize_unit_scoring_mismatch_field),
+]
 
 
 FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [

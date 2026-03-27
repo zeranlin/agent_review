@@ -249,6 +249,52 @@ def test_extract_clauses_from_units_builds_constraint_axes_for_regional_performa
     assert "industry_segment" in [item.value for item in regional_gate.clause_constraint.restriction_axes]
 
 
+def test_extract_clauses_from_units_can_normalize_mixed_scoring_and_guarantee_units() -> None:
+    nodes = [
+        DocumentNode(node_id="root", node_type=NodeType.volume, title="ROOT", text="", path="ROOT"),
+        DocumentNode(
+            node_id="s-1",
+            node_type=NodeType.paragraph,
+            title="投标人具有有效的ITSS证书得5分。",
+            text="投标人具有有效的ITSS证书得5分。",
+            path="ROOT > 评分标准 > 投标人具有有效的ITSS证书得5分。",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:30"),
+        ),
+        DocumentNode(
+            node_id="c-1",
+            node_type=NodeType.paragraph,
+            title="履约担保：合同总价的5%作为质量保证金，须以银行转账方式缴纳，质保期满后无息退还。",
+            text="履约担保：合同总价的5%作为质量保证金，须以银行转账方式缴纳，质保期满后无息退还。",
+            path="ROOT > 合同条款 > 履约担保：合同总价的5%作为质量保证金，须以银行转账方式缴纳，质保期满后无息退还。",
+            parent_id="root",
+            anchor=SourceAnchor(paragraph_no=31, line_hint="line:31"),
+        ),
+    ]
+    zones = [
+        SemanticZone("root", SemanticZoneType.catalog_or_navigation, 1.0, ["root"]),
+        SemanticZone("s-1", SemanticZoneType.mixed_or_uncertain, 0.62, ["low_confidence_scoring"]),
+        SemanticZone("c-1", SemanticZoneType.contract, 0.9, ["contract_clause"]),
+    ]
+    effects = [
+        EffectTagResult("root", [EffectTag.catalog], 1.0, ["root"]),
+        EffectTagResult("s-1", [EffectTag.binding], 0.72, ["binding"]),
+        EffectTagResult("c-1", [EffectTag.binding], 0.9, ["binding"]),
+    ]
+
+    units = build_clause_units(nodes, zones, effects)
+    clauses = extract_clauses_from_units(units)
+    clause_map = {item.field_name: item for item in clauses if item.field_name}
+
+    assert "行业相关性存疑评分项" in clause_map
+    assert "ITSS" in clause_map["行业相关性存疑评分项"].content
+    assert clause_map["行业相关性存疑评分项"].semantic_zone == SemanticZoneType.scoring
+    assert "履约保证金" in clause_map
+    assert "质量保证金" in clause_map["履约保证金"].content
+    assert clause_map["履约保证金"].semantic_zone == SemanticZoneType.contract
+    assert clause_map["履约保证金"].source_anchor == "line:31"
+
+
 def test_text_extractors_capture_qualification_gate_and_scoring_mismatch_terms() -> None:
     text = """
     申请人的资格要求：
