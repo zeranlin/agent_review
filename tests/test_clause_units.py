@@ -235,3 +235,55 @@ def test_clause_unit_builder_resolves_parser_regression_samples() -> None:
 
     assert by_id["score-sub"].zone_type == SemanticZoneType.scoring
     assert by_id["score-sub"].clause_semantic_type == ClauseSemanticType.scoring_factor
+
+
+def test_clause_unit_builder_assigns_administrative_and_catalog_semantics() -> None:
+    nodes = [
+        DocumentNode(node_id="root", node_type=NodeType.volume, title="ROOT", text="", path="ROOT"),
+        DocumentNode(
+            node_id="info",
+            node_type=NodeType.paragraph,
+            title="招标文件信息",
+            text="招标文件信息",
+            path="ROOT > 招标文件信息",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:1"),
+        ),
+        DocumentNode(
+            node_id="chapter",
+            node_type=NodeType.chapter,
+            title="第一章 招标公告",
+            text="第一章 招标公告",
+            path="ROOT > 第一章 招标公告",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:2"),
+        ),
+        DocumentNode(
+            node_id="policy",
+            node_type=NodeType.list_item,
+            title="1、关于享受优惠政策的主体及价格扣除比例",
+            text="1、关于享受优惠政策的主体及价格扣除比例",
+            path="ROOT > 二、其他关键信息 > 1、关于享受优惠政策的主体及价格扣除比例",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:3"),
+        ),
+    ]
+    zones = [
+        SemanticZone("root", SemanticZoneType.catalog_or_navigation, 1.0, ["root"]),
+        SemanticZone("info", SemanticZoneType.administrative_info, 0.92, ["title:招标文件信息"]),
+        SemanticZone("chapter", SemanticZoneType.catalog_or_navigation, 0.9, ["structural_heading"]),
+        SemanticZone("policy", SemanticZoneType.policy_explanation, 0.86, ["policy_signal"]),
+    ]
+    effects = [
+        EffectTagResult("root", [EffectTag.catalog], 1.0, ["root"]),
+        EffectTagResult("info", [EffectTag.binding], 0.75, ["binding"]),
+        EffectTagResult("chapter", [EffectTag.catalog], 0.92, ["catalog"]),
+        EffectTagResult("policy", [EffectTag.policy_background], 0.86, ["policy_background"]),
+    ]
+
+    units = build_clause_units(nodes, zones, effects)
+    by_id = {unit.source_node_id: unit for unit in units}
+
+    assert by_id["info"].clause_semantic_type == ClauseSemanticType.administrative_clause
+    assert by_id["chapter"].clause_semantic_type == ClauseSemanticType.catalog_clause
+    assert by_id["policy"].clause_semantic_type == ClauseSemanticType.policy_clause

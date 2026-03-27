@@ -218,3 +218,62 @@ def test_zone_classifier_uses_child_context_for_scoring_subsection_inside_templa
     zones = _zone_map([subsection, score_child])
 
     assert zones[subsection.node_id].zone_type == SemanticZoneType.scoring
+
+
+def test_zone_classifier_recognizes_generic_performance_scoring_subsection() -> None:
+    subsection = _node(
+        "perf-sub",
+        node_type=NodeType.subsection,
+        title="（五）近三年同类业绩（可选）",
+        text="（五）近三年同类业绩（可选）",
+        path="ROOT > 第一册 专用条款 > 三、投标人情况及资格证明文件 > （五）近三年同类业绩（可选）",
+    )
+    subsection.children_ids = ["perf-child"]
+    score_child = _node(
+        "perf-child",
+        node_type=NodeType.paragraph,
+        title="特别提示",
+        text="投标人须按本招标文件评标信息中“近三年同类业绩”这一评审因素要求，提供证明资料。",
+        path="ROOT > 第一册 专用条款 > 三、投标人情况及资格证明文件 > （五）近三年同类业绩（可选） > 特别提示",
+    )
+    score_child.parent_id = subsection.node_id
+
+    zones = _zone_map([subsection, score_child])
+
+    assert zones[subsection.node_id].zone_type == SemanticZoneType.scoring
+
+
+def test_zone_classifier_recognizes_scoring_subsection_by_title_alone() -> None:
+    subsection = _node(
+        "perf-title",
+        node_type=NodeType.subsection,
+        title="（五）近三年同类业绩（可选）",
+        text="（五）近三年同类业绩（可选）",
+        path="ROOT > 第一册 专用条款 > 三、投标人情况及资格证明文件 > （五）近三年同类业绩（可选）",
+    )
+
+    zones = _zone_map([subsection])
+
+    assert zones[subsection.node_id].zone_type == SemanticZoneType.scoring
+
+
+def test_zone_classifier_marks_structural_chapters_as_catalog_navigation() -> None:
+    chapter_node = _node(
+        "chap-1",
+        node_type=NodeType.chapter,
+        title="第一章 招标公告",
+        text="第一章 招标公告",
+        path="ROOT > 第一章 招标公告",
+    )
+    info_node = _node(
+        "info-1",
+        node_type=NodeType.paragraph,
+        title="招标文件信息",
+        text="招标文件信息",
+        path="ROOT > 招标文件信息",
+    )
+
+    zones = _zone_map([chapter_node, info_node])
+
+    assert zones[chapter_node.node_id].zone_type == SemanticZoneType.catalog_or_navigation
+    assert zones[info_node.node_id].zone_type == SemanticZoneType.administrative_info

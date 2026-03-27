@@ -38,6 +38,8 @@ def infer_legal_effect(
     if field_name in {"是否专门面向中小企业", "是否仍保留价格扣除条款", "是否为预留份额采购"}:
         return LegalEffectType.policy_statement
 
+    if clause_semantic_type == ClauseSemanticType.administrative_clause:
+        return LegalEffectType.unknown
     if clause_semantic_type in {
         ClauseSemanticType.qualification_condition,
         ClauseSemanticType.qualification_material_requirement,

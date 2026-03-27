@@ -85,6 +85,7 @@ def _infer_clause_semantic_type(
     conditional_context: dict[str, str] | None = None,
 ) -> ClauseSemanticType:
     text = " ".join(part for part in [node.title, node.text, node.path] if part)
+    compact_text = "".join(text.split())
     if EffectTag.template in effect_tags:
         if "声明函" in text:
             return ClauseSemanticType.declaration_template
@@ -95,6 +96,9 @@ def _infer_clause_semantic_type(
         return ClauseSemanticType.reference_clause
     if EffectTag.catalog in effect_tags:
         return ClauseSemanticType.catalog_clause
+
+    if zone_type == SemanticZoneType.administrative_info:
+        return ClauseSemanticType.administrative_clause
 
     if zone_type == SemanticZoneType.qualification:
         if any(token in text for token in ["证明", "资质证明", "原件备查", "材料", "证书"]):
@@ -135,6 +139,13 @@ def _infer_clause_semantic_type(
 
     if zone_type == SemanticZoneType.public_copy_or_noise:
         return ClauseSemanticType.noise_clause
+
+    if node.node_type in {NodeType.chapter, NodeType.section, NodeType.subsection} and _looks_like_structural_heading(compact_text):
+        return ClauseSemanticType.catalog_clause
+    if any(token in compact_text for token in ["如下划线处如实填写", "下划线处如实填写", "声明函样式见", "格式详见", "样式见本招标文件"]):
+        return ClauseSemanticType.template_instruction
+    if any(token in compact_text for token in ["价格扣除", "优惠政策", "中小企业发展管理办法", "节能产品政府采购品目清单"]):
+        return ClauseSemanticType.policy_clause
 
     return ClauseSemanticType.unknown_clause
 
@@ -261,6 +272,14 @@ def _row_label(text: str) -> str:
     if not cells:
         return ""
     return cells[0]
+
+
+def _looks_like_structural_heading(compact_text: str) -> bool:
+    if compact_text in {"目录", "招标文件信息", "关键信息", "采购人信息"}:
+        return True
+    if compact_text.startswith("第") and "章" in compact_text:
+        return True
+    return False
 
 
 def _looks_like_table_header(cells: list[str]) -> bool:

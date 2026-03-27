@@ -54,6 +54,7 @@ ZONE_EVIDENCE_POLICY: dict[SemanticZoneType, str] = {
 
 
 class ClauseSemanticType(str, Enum):
+    administrative_clause = "administrative_clause"
     qualification_condition = "qualification_condition"
     qualification_material_requirement = "qualification_material_requirement"
     technical_requirement = "technical_requirement"

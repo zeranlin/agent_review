@@ -7,14 +7,14 @@ from ..ontology import NodeType, SemanticZoneType
 
 
 ZONE_RULES: dict[SemanticZoneType, list[str]] = {
-    SemanticZoneType.administrative_info: ["关键信息", "项目属性", "项目编号", "项目名称", "预算金额", "最高限价", "采购人", "采购单位", "采购代理机构"],
+    SemanticZoneType.administrative_info: ["关键信息", "招标文件信息", "采购人信息", "项目属性", "项目编号", "项目名称", "预算金额", "最高限价", "采购人", "采购单位", "采购代理机构"],
     SemanticZoneType.qualification: ["资格要求", "资格审查", "资格条件", "资格证明", "资质要求", "业绩要求", "投标人资格", "特定资格", "一般资格", "准入条件", "资格性审查表"],
     SemanticZoneType.technical: ["技术要求", "技术规范", "技术参数", "技术指标", "货物清单", "样品要求", "检测报告", "参数", "性能指标"],
     SemanticZoneType.business: ["商务要求", "商务部分", "交货", "交付", "售后", "服务要求", "实施方案", "培训", "响应", "供货"],
     SemanticZoneType.scoring: ["评分标准", "评标信息", "综合评分", "评分办法", "评标办法", "评分项", "分值", "得分", "评审因素", "评分规则", "量化"],
     SemanticZoneType.contract: ["合同条款", "合同专用条款", "合同通用条款", "专用条款", "通用条款", "付款方式", "付款", "验收", "违约责任", "解除合同", "争议解决", "质保", "保修"],
     SemanticZoneType.template: ["投标文件格式", "（格式）", "声明函", "报价表", "承诺函", "法定代表人", "模板", "范本", "盖章", "签字"],
-    SemanticZoneType.policy_explanation: ["政府采购", "节能产品", "环境标志", "政策", "管理办法", "扶持", "采购促进", "警示条款", "特别警示条款"],
+    SemanticZoneType.policy_explanation: ["政府采购", "节能产品", "环境标志", "政策", "管理办法", "扶持", "采购促进", "价格扣除", "优惠政策", "警示条款", "特别警示条款"],
     SemanticZoneType.appendix_reference: ["详见附件", "见附件", "另册提供", "附表", "另附", "参见附件", "附件1", "附件一", "附件二"],
 }
 
@@ -60,15 +60,32 @@ QUALIFICATION_GATE_TOKENS = [
 ]
 SCORING_SUBSECTION_TOKENS = [
     "技术保障措施",
+    "技术要求偏离情况",
     "施工安全保障措施",
     "检测报告",
     "样品/演示",
     "免费保修期内售后服务条款偏离情况",
     "免费保修期外售后服务条款偏离情况",
     "其他商务条款偏离情况",
+    "近三年同类业绩",
     "投标人近三年同类业绩",
     "诚信",
     "奖项",
+]
+CATALOG_HEADING_TOKENS = [
+    "招标公告",
+    "用户需求书",
+    "总则",
+    "招标文件",
+    "投标文件的编制",
+    "投标文件的递交",
+    "开标",
+    "评审要求",
+    "评审程序及评审方法",
+    "定标及公示",
+    "公开招标失败的后续处理",
+    "合同的授予与备案",
+    "质疑处理",
 ]
 
 
@@ -104,6 +121,7 @@ def _classify_node(
         part for part in [node.title, node.text, node.path] if part
     )
     compact_text = re.sub(r"\s+", "", haystack)
+    compact_title_text = re.sub(r"\s+", "", " ".join(part for part in [node.title, node.text] if part))
     scores: dict[SemanticZoneType, float] = {
         zone: 0.0 for zone in SemanticZoneType if zone != SemanticZoneType.mixed_or_uncertain
     }
@@ -111,6 +129,9 @@ def _classify_node(
 
     if any(token in haystack for token in ["页眉", "页脚", "深圳政府采购网", "信息公开"]):
         return SemanticZoneType.public_copy_or_noise, 0.95, ["noise_keyword"]
+
+    if _looks_like_catalog_heading(node, compact_title_text):
+        return SemanticZoneType.catalog_or_navigation, 0.9, ["structural_heading"]
 
     if _looks_like_warning_heading(node, haystack):
         return SemanticZoneType.policy_explanation, 0.92, ["warning_heading"]
@@ -201,11 +222,11 @@ def _classify_node(
         basis.append("short_appendix_reference")
 
     if any(token in haystack for token in POLICY_CONTEXT_TOKENS) and any(
-        token in haystack for token in ["中小企业", "节能产品", "环境标志", "政府采购", "采购促进"]
+        token in haystack for token in ["中小企业", "节能产品", "环境标志", "政府采购", "采购促进", "价格扣除", "优惠政策"]
     ):
         scores[SemanticZoneType.policy_explanation] += 0.95
         basis.append("policy_context")
-    elif any(token in haystack for token in ["政府采购", "管理办法", "扶持", "政策", "节能产品", "环境标志"]):
+    elif any(token in haystack for token in ["政府采购", "管理办法", "扶持", "政策", "节能产品", "环境标志", "价格扣除", "优惠政策"]):
         scores[SemanticZoneType.policy_explanation] += 0.5
         basis.append("policy_signal")
 
@@ -343,6 +364,8 @@ def _looks_like_scoring_subsection(
     title_text = " ".join(part for part in [node.title, node.text] if part)
     if not any(token in title_text for token in SCORING_SUBSECTION_TOKENS):
         return False
+    if any(token in title_text for token in ["近三年同类业绩", "免费保修期内售后服务条款偏离情况", "免费保修期外售后服务条款偏离情况"]):
+        return True
     if any(token in title_text for token in SCORING_STRONG_TOKENS):
         return True
     for child_id in node.children_ids[:4]:
@@ -353,3 +376,14 @@ def _looks_like_scoring_subsection(
         if any(token in child_text for token in SCORING_STRONG_TOKENS):
             return True
     return False
+
+
+def _looks_like_catalog_heading(node: DocumentNode, compact_text: str) -> bool:
+    if node.node_type not in {NodeType.chapter, NodeType.section}:
+        return False
+    normalized = compact_text.replace(" ", "")
+    if normalized == "目录" or normalized == "目目录":
+        return True
+    if re.match(r"^第[一二三四五六七八九十百0-9]+章", normalized):
+        return True
+    return any(token in normalized for token in CATALOG_HEADING_TOKENS)
