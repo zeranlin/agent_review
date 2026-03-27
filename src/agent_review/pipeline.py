@@ -16,6 +16,7 @@ from .adjudication import (
     convert_review_points_to_findings,
     merge_review_points,
 )
+from .agent_compliance_bridge import run_agent_compliance_review_from_parsed_tender_document
 from .domain_profiles import profile_activation_tags
 from .external_data import external_profile_planning_hints
 from .checklist import DEFAULT_DIMENSIONS
@@ -42,6 +43,7 @@ from .models import (
     Finding,
     FindingType,
     DocumentProfile,
+    LegalBasis,
     ParseResult,
     ParsedPage,
     Recommendation,
@@ -84,6 +86,7 @@ class ReviewPipelineState:
     document_name: str
     parse_result: ParseResult
     normalized_text: str
+    review_mode: ReviewMode = ReviewMode.fast
     source_documents: list[SourceDocument] = field(default_factory=list)
     file_info: FileInfo | None = None
     document_profile: DocumentProfile | None = None
@@ -96,6 +99,7 @@ class ReviewPipelineState:
     risk_hits: list = field(default_factory=list)
     consistency_checks: list = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
+    compliance_bridge_findings: list[Finding] = field(default_factory=list)
     relative_strengths: list[str] = field(default_factory=list)
     recommendations: list[Recommendation] = field(default_factory=list)
     manual_review_queue: list[str] = field(default_factory=list)
@@ -132,6 +136,7 @@ class ReviewPipeline:
         "applicability_check": {"stage_layer": "adjudication", "primary_object": "ApplicabilityCheck", "owned_by": "adjudication", "is_mainline": True},
         "review_quality_gate": {"stage_layer": "adjudication", "primary_object": "ReviewQualityGate", "owned_by": "adjudication", "is_mainline": True},
         "formal_adjudication": {"stage_layer": "adjudication", "primary_object": "FormalAdjudication", "owned_by": "adjudication", "is_mainline": True},
+        "compliance_engine_bridge": {"stage_layer": "adjudication", "primary_object": "Finding", "owned_by": "compliance_bridge", "is_mainline": True},
         "finalize_report": {"stage_layer": "output", "primary_object": "ReviewReport", "owned_by": "output", "is_mainline": True},
         "llm_semantic_review": {"stage_layer": "llm", "primary_object": "LLMSemanticReview", "owned_by": "llm_enhancement", "is_mainline": False},
     }
@@ -161,6 +166,7 @@ class ReviewPipeline:
             self._stage_applicability_check,
             self._stage_review_quality_gate,
             self._stage_formal_adjudication,
+            self._stage_compliance_engine_bridge,
             self._stage_finalize_report,
         )
 
@@ -175,6 +181,7 @@ class ReviewPipeline:
             document_name=document_name,
             parse_result=parse_result,
             normalized_text=parse_result.text,
+            review_mode=review_mode,
             source_documents=source_documents or [],
         )
         for stage in self.stages:
@@ -671,8 +678,9 @@ class ReviewPipeline:
         )
 
     def _stage_finalize_report(self, state: ReviewPipelineState) -> None:
+        base_findings = convert_review_points_to_findings(state.review_points)
         state.findings = annotate_findings(
-            dedupe_findings(convert_review_points_to_findings(state.review_points))
+            dedupe_findings(base_findings + state.compliance_bridge_findings)
         )
         state.manual_review_queue = dedupe_strings(state.manual_review_queue)
         state.relative_strengths = dedupe_strings(
@@ -695,6 +703,53 @@ class ReviewPipeline:
                 status="completed",
                 item_count=len(state.findings),
                 detail=f"完成结果归并，形成 {len(state.findings)} 条最终审查结果。",
+            )
+        )
+
+    def _stage_compliance_engine_bridge(self, state: ReviewPipelineState) -> None:
+        if state.review_mode != ReviewMode.enhanced:
+            state.stage_records.append(
+                RunStageRecord(
+                    stage_name="compliance_engine_bridge",
+                    status="completed",
+                    item_count=0,
+                    detail="当前为 fast 模式，未接入 compliance engine bridge。",
+                )
+            )
+            return
+        parsed_tender_document = state.parse_result.parsed_tender_document
+        if parsed_tender_document is None:
+            state.stage_records.append(
+                RunStageRecord(
+                    stage_name="compliance_engine_bridge",
+                    status="completed",
+                    item_count=0,
+                    detail="当前缺少 ParsedTenderDocument，未执行 compliance engine bridge。",
+                )
+            )
+            return
+        bridge_result = run_agent_compliance_review_from_parsed_tender_document(
+            parsed_tender_document,
+            write_outputs=False,
+        )
+        state.compliance_bridge_findings = _map_agent_compliance_findings(
+            bridge_result.review.findings
+        )
+        bridge_summary = bridge_result.llm_artifacts.llm_node_summary or {}
+        bridge_meta = bridge_summary.get("bridge", {}) if isinstance(bridge_summary, dict) else {}
+        state.stage_records.append(
+            RunStageRecord(
+                stage_name="compliance_engine_bridge",
+                status="completed",
+                item_count=len(state.compliance_bridge_findings),
+                detail=(
+                    f"已通过 compliance engine bridge 回灌 {len(state.compliance_bridge_findings)} 条 finding。"
+                    + (
+                        f" clause来源={bridge_meta.get('clause_source')}，数量={bridge_meta.get('clause_count')}。"
+                        if bridge_meta
+                        else ""
+                    )
+                ),
             )
         )
 
@@ -748,6 +803,89 @@ def _merge_extracted_clauses(
         seen.add(key)
         merged.append(clause)
     return merged
+
+
+def _map_agent_compliance_findings(compliance_findings: list[object]) -> list[Finding]:
+    results: list[Finding] = []
+    for item in compliance_findings:
+        evidence = []
+        section_hint = item.section_path or item.source_section or item.page_hint or ""
+        if item.source_text:
+            evidence.append(Evidence(quote=item.source_text, section_hint=section_hint))
+        legal_basis = []
+        if item.legal_or_policy_basis:
+            legal_basis.append(
+                LegalBasis(
+                    source_name=item.primary_authority or "agent_compliance",
+                    article_hint="",
+                    summary=item.legal_or_policy_basis,
+                )
+            )
+        finding_type = (
+            FindingType.manual_review_required
+            if item.needs_human_review
+            else _finding_type_from_compliance_judgment(item.compliance_judgment)
+        )
+        results.append(
+            Finding(
+                dimension=_dimension_from_issue_type(item.issue_type),
+                finding_type=finding_type,
+                severity=_severity_from_risk_level(item.risk_level),
+                title=item.problem_title,
+                rationale=item.why_it_is_risky,
+                evidence=evidence,
+                legal_basis=legal_basis,
+                confidence=_confidence_from_label(item.confidence),
+                next_action=item.rewrite_suggestion,
+                adoption_status=AdoptionStatus.direct,
+                review_note=(
+                    f"来源：agent_compliance bridge；issue_type={item.issue_type}；"
+                    f"judgment={item.compliance_judgment}；"
+                    f"section={section_hint or 'unknown'}"
+                ),
+            )
+        )
+    return results
+
+
+def _dimension_from_issue_type(issue_type: str) -> str:
+    mapping = {
+        "excessive_supplier_qualification": "资格条件适度性风险",
+        "qualification_domain_mismatch": "资格与评分边界风险",
+        "geographic_restriction": "A.限制竞争风险",
+        "scoring_content_mismatch": "评审标准相关性风险",
+        "one_sided_commercial_term": "合同与履约风险",
+        "payment_acceptance_linkage": "合同与履约风险",
+        "unclear_acceptance_standard": "采购需求完整性风险",
+        "narrow_technical_parameter": "项目结构风险",
+        "technical_justification_needed": "项目结构风险",
+    }
+    return mapping.get(issue_type, "程序审慎性复核")
+
+
+def _severity_from_risk_level(risk_level: str) -> Severity:
+    mapping = {
+        "high": Severity.high,
+        "medium": Severity.medium,
+        "low": Severity.low,
+        "none": Severity.low,
+    }
+    return mapping.get(risk_level, Severity.medium)
+
+
+def _confidence_from_label(value: str) -> float:
+    mapping = {"high": 0.9, "medium": 0.7, "low": 0.45}
+    return mapping.get(value, 0.6)
+
+
+def _finding_type_from_compliance_judgment(value: str) -> FindingType:
+    mapping = {
+        "likely_non_compliant": FindingType.confirmed_issue,
+        "potentially_problematic": FindingType.warning,
+        "needs_human_review": FindingType.manual_review_required,
+        "likely_compliant": FindingType.pass_,
+    }
+    return mapping.get(value, FindingType.warning)
 
 
 def _review_dimension(text: str, dimension: ReviewDimension) -> list[Finding]:

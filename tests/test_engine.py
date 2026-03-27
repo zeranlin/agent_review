@@ -183,6 +183,7 @@ def test_missing_dimension_generates_missing_evidence() -> None:
         "applicability_check",
         "review_quality_gate",
         "formal_adjudication",
+        "compliance_engine_bridge",
         "finalize_report",
     ]
     assert all(isinstance(item.clause_role, ClauseRole) for item in report.extracted_clauses)
@@ -198,6 +199,23 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     assert legal_fact_stage.is_mainline is True
     assert formal_stage.stage_layer == "adjudication"
     assert formal_stage.primary_object == "FormalAdjudication"
+
+
+def test_enhanced_mode_runs_compliance_engine_bridge_and_merges_findings() -> None:
+    text = """
+    项目名称：某设备采购项目
+    第三章 资格要求
+    投标人须具备高新技术企业证书。
+    第四章 评标信息
+    评分项：高新技术企业证书，提供得5分。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.enhanced).review_text(text, document_name="demo.txt")
+
+    bridge_stage = next(item for item in report.stage_records if item.stage_name == "compliance_engine_bridge")
+    assert bridge_stage.item_count is not None
+    assert bridge_stage.item_count >= 1
+    assert any(item.adoption_status == AdoptionStatus.direct for item in report.findings)
+    assert any("agent_compliance bridge" in item.review_note for item in report.findings)
     assert any(item.task_name == "formal_adjudication" and item.stage_layer == "adjudication" for item in report.task_records)
 
 
