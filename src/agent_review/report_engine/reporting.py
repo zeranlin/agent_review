@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from ..authority_bindings import list_bindings_for_point
 from ..header_info import resolve_header_info
 from ..quality import clause_window_from_anchor, evidence_supports_title
 from ..models import FindingType, QualityGateStatus, ReviewMode, ReviewReport
@@ -845,12 +846,28 @@ def _build_review_review_items(report: ReviewReport) -> list[dict[str, str]]:
 
 def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object]]:
     point_index = {item.point_id: item for item in report.review_points}
+    included_catalog_ids = {
+        item.catalog_id
+        for item in report.formal_adjudication
+        if item.included_in_formal and item.catalog_id
+    }
+    specific_scoring_catalogs = {
+        "RP-SCORE-005",
+        "RP-SCORE-011",
+        "RP-SCORE-014",
+        "RP-SCORE-015",
+        "RP-SCORE-016",
+        "RP-SCORE-017",
+        "RP-SCORE-018",
+    }
     grouped_entries: dict[str, dict[str, object]] = {}
     for adjudication in report.formal_adjudication:
         if not _include_in_reviewer_issue_entries(adjudication):
             continue
         point = point_index.get(adjudication.point_id)
         if point is None:
+            continue
+        if point.catalog_id == "RP-SCORE-013" and included_catalog_ids.intersection(specific_scoring_catalogs):
             continue
         group_key, title, dimension, severity = _reviewer_issue_group_definition(point)
         group_key = _canonical_reviewer_group_key(group_key, title)
@@ -929,12 +946,32 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
             ("structure_mismatch", "项目属性与采购内容、合同类型不一致", "项目属性一致性审查", "高风险"),
         ),
         (
-            {"RP-SCORE-005", "RP-SCORE-008"},
+            {"RP-SCORE-005", "RP-SCORE-008", "RP-SCORE-013"},
             ("scoring_relevance", "评分项与采购标的不相关", "评分因素关联性审查", "高风险"),
         ),
         (
             {"RP-SCORE-011"},
             ("credit_evaluation", "信用评价作为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-014"},
+            ("asset_scoring_factor", "资产总额被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-015"},
+            ("staff_scoring_factor", "从业人员被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-016"},
+            ("tax_scoring_factor", "纳税额被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-017"},
+            ("age_scoring_factor", "成立年限被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-018"},
+            ("price_method_mismatch", "综合评分法价格分未采用低价优先法", "价格评分规则审查", "高风险"),
         ),
         (
             {"RP-SCORE-012"},
@@ -955,6 +992,22 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
         (
             {"RP-REQ-001"},
             ("verifiability", "技术或服务要求可验证性不足", "采购需求完整性审查", "高风险"),
+        ),
+        (
+            {"RP-REQ-002"},
+            ("invalid_standard", "疑似使用不存在的技术标准", "技术标准有效性审查", "高风险"),
+        ),
+        (
+            {"RP-REQ-003"},
+            ("parameter_interval_missing", "技术参数区间说明不足", "技术参数明确性审查", "高风险"),
+        ),
+        (
+            {"RP-REQ-004"},
+            ("parameter_interval_conflict", "同一技术参数区间说明冲突", "技术参数一致性审查", "高风险"),
+        ),
+        (
+            {"RP-REQ-005"},
+            ("subjective_requirement", "技术要求存在主观描述", "技术要求客观性审查", "高风险"),
         ),
         (
             {"RP-CONTRACT-008"},
@@ -1013,6 +1066,8 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
 
 
 def _canonical_reviewer_group_key(group_key: str, title: str) -> str:
+    if group_key and group_key != title and not group_key.startswith("RP-"):
+        return group_key
     normalized_title = re.sub(r"\s+", "", title or "")
     explicit_clusters = {
         "履约保证金转质量保证金或长期无息占压": "contract_retention_money",
@@ -1068,6 +1123,46 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             limit=4,
             strict=True,
         )
+    if title == "资产总额被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["资产总额"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
+    if title == "从业人员被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["从业人员"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
+    if title == "纳税额被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["纳税额"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
+    if title == "成立年限被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["成立时间满", "成立年限", "成立满"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
+    if title == "综合评分法价格分未采用低价优先法":
+        return _select_group_quote_records(
+            quote_records,
+            ["价格分计算方法"],
+            ["中间价优先法", "平均值作为评标基准价", "去掉最高价和最低价"],
+            limit=3,
+            strict=True,
+        )
     if title == "方案评分主观性过强，量化不足":
         return _select_group_quote_records(
             quote_records,
@@ -1114,6 +1209,36 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
         return _select_group_quote_records(
             quote_records,
             ["满足采购人要求", "按行业标准", "高质量完成", "由采购人认定"],
+            limit=3,
+            strict=True,
+        )
+    if title == "疑似使用不存在的技术标准":
+        return _select_group_quote_records(
+            quote_records,
+            ["GB/T", "标准", "规范"],
+            limit=2,
+            strict=True,
+        )
+    if title == "技术参数区间说明不足":
+        return _select_group_quote_records(
+            quote_records,
+            ["响应时间", "精度", "范围", "区间"],
+            ["ms", "mm"],
+            limit=3,
+            strict=True,
+        )
+    if title == "同一技术参数区间说明冲突":
+        return _select_group_quote_records(
+            quote_records,
+            ["不允许正偏离", "不允许负偏离", "不得偏离", "≤"],
+            ["±", "偏差", "允许"],
+            limit=3,
+            strict=True,
+        )
+    if title == "技术要求存在主观描述":
+        return _select_group_quote_records(
+            quote_records,
+            ["操作体验", "设计美观", "友好美观", "人体工程学设计"],
             limit=3,
             strict=True,
         )
@@ -1199,6 +1324,22 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
             r"信用分[^。；\n]{0,100}",
             r"征信[^。；\n]{0,100}",
         ],
+        "资产总额被设为评分因素": [
+            r"资产总额[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
+        "从业人员被设为评分因素": [
+            r"从业人员[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
+        "纳税额被设为评分因素": [
+            r"纳税额[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
+        "成立年限被设为评分因素": [
+            r"(成立时间满|成立年限|成立满)[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
+        "综合评分法价格分未采用低价优先法": [
+            r"价格分计算方法[^。；\n]{0,180}",
+            r"(中间价优先法|平均值作为评标基准价|去掉最高价和最低价)[^。；\n]{0,180}",
+        ],
         "方案评分主观性过强，量化不足": [
             r"以上方案齐全且无缺陷得30分[^。；\n]{0,120}",
             r"以上方案齐全且无缺陷得15分[^。；\n]{0,120}",
@@ -1254,6 +1395,19 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
         ],
         "技术或服务要求可验证性不足": [
             r"(满足采购人要求|按行业标准|高质量完成|由采购人认定)[^。；\n]{0,160}",
+        ],
+        "疑似使用不存在的技术标准": [
+            r"GB/T\s*\d+-\d{4}[^。；\n]{0,120}",
+        ],
+        "技术参数区间说明不足": [
+            r"(响应时间|精度|范围|区间)[^。；\n]{0,120}(ms|mm)[^。；\n]{0,120}",
+        ],
+        "同一技术参数区间说明冲突": [
+            r"[^。；\n]{0,120}(不允许正偏离|不允许负偏离|不得偏离|不接受偏离|≤)[^。；\n]{0,120}",
+            r"[^。；\n]{0,120}(±|偏差|允许)[^。；\n]{0,120}",
+        ],
+        "技术要求存在主观描述": [
+            r"(操作体验|界面友好美观|设计美观|人体工程学设计|良好的操作体验|友好美观)[^。；\n]{0,160}",
         ],
         "验收与付款/考核/满意度联动不当": [
             r"(尾款|付款|支付)[^。；\n]{0,140}",
@@ -1326,6 +1480,11 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
         "structure_mismatch": "文件将项目定性为货物，但采购内容中同时包含持续性作业服务，合同类型又偏向承揽或服务口径，项目属性、采购内容与合同类型之间存在明显错配风险。",
         "scoring_relevance": "评分中出现利润率、软件企业认定证书、ITSS 或财务报告等内容，与项目实际履约能力缺乏直接关联，存在限制竞争风险。",
         "credit_evaluation": "评分中出现信用评价、信用分或征信等内容，如作为评分因素，需复核其与项目履约能力的直接关联和分值是否适度。",
+        "asset_scoring_factor": "评分直接以供应商资产总额作为加分条件，属于以企业规模替代项目履约能力的高风险做法。",
+        "staff_scoring_factor": "评分直接以供应商从业人员数量作为加分条件，容易把企业规模条件错当作项目履约能力。",
+        "tax_scoring_factor": "评分直接以纳税额作为加分条件，属于以经营结果替代项目履约能力评价的高风险做法。",
+        "age_scoring_factor": "评分直接以供应商成立年限作为加分条件，容易对新设企业形成不当限制。",
+        "price_method_mismatch": "综合评分法中的价格分采用中间价优先法或均值法，偏离低价优先的法定评审口径，容易影响价格评审公平性。",
         "scoring_quant": "方案评分以主观分档和“无缺陷得满分”等规则为核心，量化和客观性不足，评委裁量空间较大。",
         "contract_template": "合同条款中出现“项目成果、移作他用、泄露成果”等表述，更符合咨询、设计或信息化项目，和当前项目行业场景明显不匹配。",
         "acceptance_flexible": "验收条款赋予采购人较大的单方裁量空间，缺乏固定、明确、可预期的验收标准，容易引发履约争议。",
@@ -1333,6 +1492,10 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
         "warranty_scope": "项目核心履约内容包含持续性作业或服务责任，但合同条款仍仅以货物质保表述概括，未能准确覆盖实际履约责任。",
         "team_stability": "团队稳定性要求将供应商内部人员构成或稳定性过度前置为采购要求，容易形成不必要的履约门槛。",
         "personnel_change": "人员更换限制过强会使采购人审批介入供应商内部人员管理，容易扩大为不必要的人员控制条款。",
+        "invalid_standard": "文件引用的技术标准编号疑似不存在或异常，占用采购需求的技术依据基础，容易影响技术要求的真实性和可执行性。",
+        "parameter_interval_missing": "关键技术参数仅给出数值或区间，但未同步说明偏离判断和取值逻辑，评审口径容易不清。",
+        "parameter_interval_conflict": "同一技术参数同时出现刚性限制和允许偏差两套口径，前后冲突会直接影响投标响应和评审判断。",
+        "subjective_requirement": "技术要求采用体验、美观、友好等主观描述，缺少可量化、可核验的客观标准，容易形成争议或指向性要求。",
     }
     if group_key in templates:
         return templates[group_key]
@@ -1462,6 +1625,14 @@ def _reviewer_legal_basis_lines(point) -> list[str]:
         label = _normalize_reviewer_basis_label(label)
         if label not in lines:
             lines.append(label)
+    if not lines and point.catalog_id:
+        for binding in list_bindings_for_point(point.catalog_id):
+            label = f"《{binding.doc_title}》"
+            if binding.article_label:
+                label = f"{label} {binding.article_label}"
+            label = _normalize_reviewer_basis_label(label)
+            if label not in lines:
+                lines.append(label)
     if not lines:
         lines.append("当前结果未自动挂接明确法规依据")
     return lines

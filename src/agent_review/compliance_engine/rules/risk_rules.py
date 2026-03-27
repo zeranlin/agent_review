@@ -167,7 +167,7 @@ def match_risk_rules(text: str) -> list[RiskHit]:
                 RiskHit(
                     risk_group="技术参数与标准风险",
                     rule_name="技术参数区间说明不足",
-                    severity=Severity.medium,
+                    severity=Severity.high,
                     matched_text=line[:160],
                     rationale="响应时间、精度等敏感技术参数直接以具体值或区间表达，但未同步说明设置依据和区间判定逻辑，易形成评审争议。",
                     source_anchor=f"line:{line_no}",
@@ -180,7 +180,7 @@ def match_risk_rules(text: str) -> list[RiskHit]:
                     RiskHit(
                         risk_group="技术参数与标准风险",
                         rule_name="技术参数区间说明不足",
-                        severity=Severity.medium,
+                        severity=Severity.high,
                         matched_text=line[:160],
                         rationale="技术参数使用区间表达，但未见对应区间说明、偏离判断或取值逻辑，易导致评审口径不清。",
                         source_anchor=f"line:{line_no}",

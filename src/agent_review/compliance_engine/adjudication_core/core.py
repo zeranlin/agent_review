@@ -482,6 +482,8 @@ def build_formal_adjudication(
         )
         if risk_hit_direct and point.legal_basis:
             legal_basis_applicable = True
+        if risk_hit_direct and authority_bindings:
+            legal_basis_applicable = True
         external_boundary = lookup_external_manual_review_boundary(
             catalog_id=point.catalog_id,
             title=point.title,
