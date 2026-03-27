@@ -178,6 +178,21 @@ def _rank_instance_fact_ids(
         elif instance.point_id == "RP-QUAL-003":
             if any(token in text for token in ["高新技术企业", "纳税信用", "成立满", "科技型中小企业"]):
                 score_value += 4
+        elif instance.point_id == "RP-CONTRACT-012":
+            if any(token in text for token in ["履约担保", "履约保证金", "质量保证金"]):
+                score_value += 6
+            if any(token in text for token in ["银行转账", "无息退还"]):
+                score_value += 4
+        elif instance.point_id == "RP-CONTRACT-013":
+            if "第三方检测费用" in text:
+                score_value += 6
+            if any(token in text for token in ["中标人承担", "无论检测结果是否合格"]):
+                score_value += 4
+        elif instance.point_id == "RP-COMP-001":
+            if any(token in text for token in ["预算金额", "不得低于", "无效投标"]):
+                score_value += 6
+            if "%" in text:
+                score_value += 3
         line_hint = str(getattr(fact, "anchor", {}).get("line_hint", ""))
         return (
             score_value,

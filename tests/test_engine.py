@@ -661,6 +661,34 @@ def test_rule_hits_consume_structured_fact_slots_for_evidence_scoring_and_contra
     assert "RP-CONTRACT-011" in instance_map
 
 
+def test_rule_hits_consume_structured_slots_for_guarantee_test_cost_and_price_floor() -> None:
+    text = """
+    履约担保：合同总价的5%作为质量保证金，须以银行转账方式缴纳，质保期满后无息退还。
+    检测验证：验收时产生的第三方检测费用由中标人承担，无论检测结果是否合格。
+    投标报价不得低于预算金额的80%，低于此价格的投标将被视为无效投标。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="contract_price_rule_slots_demo.txt")
+    hit_map = {item.rule_id: item for item in report.parse_result.rule_hits}
+    instance_map = {item.point_id: item for item in report.parse_result.review_point_instances}
+    formal_map = {item.catalog_id: item for item in report.formal_adjudication}
+
+    assert "RULE-CONTRACT-GUAR-001" in hit_map
+    assert {"guarantee_transform", "guarantee_ratio", "payment_method", "refund_policy"} <= set(hit_map["RULE-CONTRACT-GUAR-001"].matched_slots)
+    assert "RULE-CONTRACT-TEST-001" in hit_map
+    assert {"cost_bearer", "result_condition", "contract_control"} <= set(hit_map["RULE-CONTRACT-TEST-001"].matched_slots)
+    assert "RULE-PRICE-FLOOR-001" in hit_map
+    assert {"price_floor_ratio", "price_floor_base", "rejection_trigger", "pricing_control"} <= set(hit_map["RULE-PRICE-FLOOR-001"].matched_slots)
+    assert "RP-CONTRACT-012" in instance_map
+    assert "RP-CONTRACT-013" in instance_map
+    assert "RP-COMP-001" in instance_map
+    assert formal_map["RP-CONTRACT-012"].included_in_formal is True
+    assert "质量保证金" in formal_map["RP-CONTRACT-012"].primary_quote
+    assert formal_map["RP-CONTRACT-013"].included_in_formal is True
+    assert "第三方检测费用" in formal_map["RP-CONTRACT-013"].primary_quote
+    assert formal_map["RP-COMP-001"].included_in_formal is True
+    assert "预算金额的80%" in formal_map["RP-COMP-001"].primary_quote
+
+
 def test_high_frequency_instances_can_generate_review_points() -> None:
     text = """
     合同条款：

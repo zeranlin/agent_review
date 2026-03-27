@@ -340,6 +340,8 @@ def _infer_fact_type(unit: ClauseUnit) -> str:
     if clause_type == ClauseSemanticType.reference_clause:
         return "template_reference"
     if unit.legal_effect_type == LegalEffectType.contract_obligation:
+        if "履约担保" in unit.text or "履约保证金" in unit.text or "质量保证金" in unit.text:
+            return "acceptance_term"
         if "付款" in unit.text or "支付" in unit.text or "尾款" in unit.text:
             return "payment_term"
         if "验收" in unit.text:
@@ -352,6 +354,8 @@ def _infer_fact_zone_type(unit: ClauseUnit, fact_type: str) -> SemanticZoneType:
         return SemanticZoneType.scoring
     if fact_type in {"payment_term", "acceptance_term", "breach_term", "termination_term"}:
         return SemanticZoneType.contract
+    if fact_type == "delivery_requirement" and _looks_like_price_floor_clause(unit.text):
+        return SemanticZoneType.business
     if fact_type == "evidence_source_requirement" and unit.zone_type == SemanticZoneType.mixed_or_uncertain:
         return SemanticZoneType.technical
     return unit.zone_type
@@ -689,6 +693,18 @@ def _semantic_terms_from_text(
         tokens.append("单方弹性判断")
     if clause_semantic_type == ClauseSemanticType.acceptance_term and "第三方检测费用" in compact:
         tokens.append("第三方检测费用")
+    if any(token in compact for token in ["履约担保", "履约保证金"]) and "质量保证金" in compact:
+        tokens.append("履约转质保")
+    if "银行转账" in compact:
+        tokens.append("银行转账")
+    if "无息退还" in compact:
+        tokens.append("无息退还")
+    if "第三方检测费用" in compact and "中标人承担" in compact:
+        tokens.append("检测费用转嫁")
+    if "无论检测结果是否合格" in compact:
+        tokens.append("结果无关承担")
+    if _looks_like_price_floor_clause(text):
+        tokens.append("预算比例最低价")
     return tokens
 
 
@@ -738,6 +754,38 @@ def _augment_constraint_value_from_text(
         contract_control = _infer_contract_control(compact)
         if contract_control:
             value.setdefault("contract_control", contract_control)
+        guarantee_transform = _infer_guarantee_transform(compact)
+        if guarantee_transform:
+            value.setdefault("guarantee_transform", guarantee_transform)
+        guarantee_ratio = _infer_guarantee_ratio(compact)
+        if guarantee_ratio is not None:
+            value.setdefault("guarantee_ratio", guarantee_ratio)
+        payment_method = _infer_payment_method(compact)
+        if payment_method:
+            value.setdefault("payment_method", payment_method)
+        refund_policy = _infer_refund_policy(compact)
+        if refund_policy:
+            value.setdefault("refund_policy", refund_policy)
+        cost_bearer = _infer_cost_bearer(compact)
+        if cost_bearer:
+            value.setdefault("cost_bearer", cost_bearer)
+        result_condition = _infer_result_condition(compact)
+        if result_condition:
+            value.setdefault("result_condition", result_condition)
+
+    if zone_type == SemanticZoneType.business or clause_semantic_type == ClauseSemanticType.business_requirement or _looks_like_price_floor_clause(text):
+        price_floor_ratio = _infer_price_floor_ratio(compact)
+        if price_floor_ratio is not None:
+            value.setdefault("price_floor_ratio", price_floor_ratio)
+        price_floor_base = _infer_price_floor_base(compact)
+        if price_floor_base:
+            value.setdefault("price_floor_base", price_floor_base)
+        rejection_trigger = _infer_rejection_trigger(compact)
+        if rejection_trigger:
+            value.setdefault("rejection_trigger", rejection_trigger)
+        pricing_control = _infer_pricing_control(compact)
+        if pricing_control:
+            value.setdefault("pricing_control", pricing_control)
     return value
 
 
@@ -806,11 +854,90 @@ def _infer_payment_phase(compact: str) -> str:
 def _infer_contract_control(compact: str) -> str:
     if "第三方检测费用" in compact and "承担" in compact:
         return "test_cost_allocation"
+    if any(token in compact for token in ["履约担保", "履约保证金"]) and "质量保证金" in compact:
+        return "guarantee_fund_occupation"
     if any(token in compact for token in ["付款", "支付", "尾款"]) and any(token in compact for token in ["考核", "满意度", "验收"]):
         return "payment_control"
     if "验收" in compact and any(token in compact for token in ["采购人确认", "最终解释", "优胜的原则", "确定验收标准"]):
         return "acceptance_control"
     return ""
+
+
+def _infer_guarantee_transform(compact: str) -> str:
+    if any(token in compact for token in ["履约担保", "履约保证金"]) and "质量保证金" in compact:
+        return "performance_to_quality"
+    return ""
+
+
+def _infer_guarantee_ratio(compact: str) -> float | None:
+    match = re.search(r"合同总价的(\d+(?:\.\d+)?)%", compact)
+    if match is None:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _infer_payment_method(compact: str) -> str:
+    if "银行转账" in compact:
+        return "bank_transfer"
+    return ""
+
+
+def _infer_refund_policy(compact: str) -> str:
+    if "无息退还" in compact:
+        return "no_interest_return"
+    return ""
+
+
+def _infer_cost_bearer(compact: str) -> str:
+    if "中标人承担" in compact:
+        return "awardee"
+    if "供应商承担" in compact:
+        return "supplier"
+    return ""
+
+
+def _infer_result_condition(compact: str) -> str:
+    if "无论检测结果是否合格" in compact or "无论结果是否合格" in compact:
+        return "regardless_of_result"
+    return ""
+
+
+def _infer_price_floor_ratio(compact: str) -> float | None:
+    match = re.search(r"预算金额的(\d+(?:\.\d+)?)%", compact)
+    if match is None:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _infer_price_floor_base(compact: str) -> str:
+    if "预算金额" in compact:
+        return "budget_amount"
+    if "最高限价" in compact:
+        return "ceiling_price"
+    return ""
+
+
+def _infer_rejection_trigger(compact: str) -> str:
+    if "无效投标" in compact:
+        return "invalid_bid"
+    return ""
+
+
+def _infer_pricing_control(compact: str) -> str:
+    if _looks_like_price_floor_clause(compact):
+        return "hard_price_floor"
+    return ""
+
+
+def _looks_like_price_floor_clause(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    return "不得低于预算金额的" in compact and "无效投标" in compact
 
 
 def _normalize_extracted_scope(text: str) -> str:

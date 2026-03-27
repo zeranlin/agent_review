@@ -87,3 +87,28 @@ def test_contract_linkage_rule_and_binding_are_registered() -> None:
     assert contract.legal_theme == "合同公平性与付款客观性"
     assert binding is not None
     assert "付款节点" in binding.legal_proposition
+
+
+def test_new_contract_and_price_floor_rules_are_registered() -> None:
+    guarantee_rule = get_rule_definition("RULE-CONTRACT-GUAR-001")
+    test_cost_rule = get_rule_definition("RULE-CONTRACT-TEST-001")
+    price_floor_rule = get_rule_definition("RULE-PRICE-FLOOR-001")
+    guarantee_contract = get_review_point_contract("RP-CONTRACT-012")
+    test_cost_contract = get_review_point_contract("RP-CONTRACT-013")
+    price_floor_contract = get_review_point_contract("RP-COMP-001")
+    guarantee_binding = get_authority_binding("AUTH-RP-CONTRACT-012-001")
+    test_cost_binding = get_authority_binding("AUTH-RP-CONTRACT-013-001")
+    price_floor_binding = get_authority_binding("AUTH-RP-COMP-001-001")
+
+    assert guarantee_rule is not None
+    assert "guarantee_transform" in guarantee_rule.required_fact_slots
+    assert test_cost_rule is not None
+    assert "result_condition" in test_cost_rule.required_fact_slots
+    assert price_floor_rule is not None
+    assert "price_floor_ratio" in price_floor_rule.required_fact_slots
+    assert guarantee_contract is not None
+    assert test_cost_contract is not None
+    assert price_floor_contract is not None
+    assert guarantee_binding is not None
+    assert test_cost_binding is not None
+    assert price_floor_binding is not None

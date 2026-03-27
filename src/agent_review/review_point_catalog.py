@@ -531,6 +531,42 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="当项目实际包含持续性服务或作业责任时，合同履约条款不宜仅以货物质保表述替代整体责任安排。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-012",
+        title="履约保证金转质量保证金或长期无息占压",
+        dimension="合同与履约风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract"],
+        required_conditions=[
+            ReviewPointCondition("存在履约担保转质量保证金", signal_groups=[["履约担保", "质量保证金"]]),
+            ReviewPointCondition("存在无息占压特征", signal_groups=[["银行转账"], ["无息退还"]]),
+        ],
+        basis_hint="履约担保和质量保证安排应合理适度，不宜形成长期无息资金占压。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-013",
+        title="第三方检测费用无论结果均由中标人承担",
+        dimension="合同与履约风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract"],
+        required_conditions=[
+            ReviewPointCondition("存在第三方检测费用", signal_groups=[["第三方检测费用"]]),
+            ReviewPointCondition("存在结果无关转嫁", signal_groups=[["中标人承担"], ["无论检测结果是否合格"]]),
+        ],
+        basis_hint="检测和验收费用承担应与责任来源和检测结果相匹配。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-COMP-001",
+        title="以预算金额比例设最低报价门槛",
+        dimension="A.限制竞争风险",
+        default_severity=Severity.high,
+        scenario_tags=["competition"],
+        required_conditions=[
+            ReviewPointCondition("存在预算金额比例下限", signal_groups=[["预算金额"], ["不得低于"]]),
+            ReviewPointCondition("存在无效投标后果", signal_groups=[["无效投标"]]),
+        ],
+        basis_hint="不宜以固定最低报价比例直接否决投标，应依法采用异常低价审查机制。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-STRUCT-001",
         title="货物项目混入大量服务履约内容",
         dimension="项目结构风险",
