@@ -124,6 +124,28 @@ REVIEW_POINT_CONTRACTS: list[ReviewPointContract] = [
         report_group="合同履约风险",
         report_priority=30,
     ),
+    ReviewPointContract(
+        point_id="RP-CONTRACT-011",
+        title="验收与付款/考核/满意度联动不当",
+        description="审查付款是否被验收、考核或满意度条款以主观方式控制。",
+        risk_family="contract",
+        legal_theme="合同公平性与付款客观性",
+        applicable_procurement_kinds=["goods", "service", "mixed", "unknown"],
+        target_zone_types=["contract"],
+        primary_review_types=["合同"],
+        required_fact_types=["payment_term", "acceptance_term"],
+        supporting_fact_types=["breach_term"],
+        activation_rule_ids=["RULE-CONTRACT-PAY-001"],
+        required_fields=["付款节点", "验收标准"],
+        enhancement_fields=["考核条款", "满意度条款", "扣款条款"],
+        evidence_policy="context_linkage_required",
+        quality_gate_policy="template_or_example_filtered",
+        manual_boundary_policy="authority_driven",
+        authority_binding_ids=["AUTH-RP-CONTRACT-011-001"],
+        severity_policy="high",
+        report_group="合同履约风险",
+        report_priority=31,
+    ),
 ]
 
 

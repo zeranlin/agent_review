@@ -54,6 +54,7 @@ def test_review_point_contract_registry_exposes_sample_contracts() -> None:
     assert contract.legal_theme == "评分相关性"
     assert "评分项明细" in contract.required_fields
     assert any(item.point_id == "RP-CONTRACT-009" for item in list_review_point_contracts())
+    assert any(item.point_id == "RP-CONTRACT-011" for item in list_review_point_contracts())
 
 
 def test_rule_definitions_registry_supports_point_lookup() -> None:
@@ -72,3 +73,17 @@ def test_authority_bindings_registry_supports_point_lookup() -> None:
     assert binding is not None
     assert "验收标准" in binding.legal_proposition
     assert any("特殊法定必要性" in item for item in point_bindings[0].requires_human_review_when)
+
+
+def test_contract_linkage_rule_and_binding_are_registered() -> None:
+    rule = get_rule_definition("RULE-CONTRACT-PAY-001")
+    contract = get_review_point_contract("RP-CONTRACT-011")
+    binding = get_authority_binding("AUTH-RP-CONTRACT-011-001")
+
+    assert rule is not None
+    assert "payment_term" in rule.applicable_fact_types
+    assert "payment_linkage" in rule.required_fact_slots
+    assert contract is not None
+    assert contract.legal_theme == "合同公平性与付款客观性"
+    assert binding is not None
+    assert "付款节点" in binding.legal_proposition

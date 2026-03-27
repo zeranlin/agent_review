@@ -585,6 +585,82 @@ def test_legal_fact_candidates_can_generate_rule_hits_and_review_point_instances
     assert any(item.point_id == "RP-SCORE-005" for item in instances)
 
 
+def test_legal_fact_candidates_capture_evidence_scoring_and_contract_semantics() -> None:
+    text = """
+    技术要求：
+    投标人须提供深圳市医疗器械检测中心出具的产品检测报告。
+    评分标准：
+    投标人具有有效的ITSS证书得5分。
+    财务能力：营业收入越高得分越高，最高得8分。
+    合同条款：
+    尾款于验收合格后支付，采购人满意度考核达标后一次性支付。
+    验收标准以采购人最终解释为准。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="fact_semantics_demo.txt")
+    facts = report.parse_result.legal_fact_candidates
+
+    assert any(
+        item.fact_type == "evidence_source_requirement"
+        and item.constraint_value.get("evidence_source") == "深圳市医疗器械检测中心"
+        and item.constraint_value.get("source_category") == "检测中心"
+        and item.constraint_value.get("evidence_kind") == "检测报告"
+        for item in facts
+    )
+    assert any(
+        item.fact_type == "scoring_factor"
+        and item.constraint_value.get("scoring_item_type") == "certificate"
+        and item.constraint_value.get("score") == 5
+        for item in facts
+    )
+    assert any(
+        item.fact_type == "scoring_factor"
+        and item.constraint_value.get("scoring_item_type") == "financial"
+        and item.constraint_value.get("score") == 8
+        for item in facts
+    )
+    assert any(
+        item.fact_type == "payment_term"
+        and item.constraint_value.get("payment_linkage") == "assessment_or_satisfaction"
+        and item.constraint_value.get("payment_phase") == "final_payment"
+        and item.constraint_value.get("contract_control") == "payment_control"
+        for item in facts
+    )
+    assert any(
+        item.fact_type == "acceptance_term"
+        and item.constraint_value.get("decision_mode") == "unilateral_discretion"
+        and item.constraint_value.get("contract_control") == "acceptance_control"
+        for item in facts
+    )
+
+
+def test_rule_hits_consume_structured_fact_slots_for_evidence_scoring_and_contract() -> None:
+    text = """
+    技术要求：
+    投标人须提供深圳市医疗器械检测中心出具的产品检测报告。
+    评分标准：
+    投标人具有有效的ITSS证书得5分。
+    财务能力：营业收入越高得分越高，最高得8分。
+    合同条款：
+    尾款于验收合格后支付，采购人满意度考核达标后一次性支付。
+    验收标准以采购人最终解释为准。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="rule_slots_demo.txt")
+    hit_map = {item.rule_id: item for item in report.parse_result.rule_hits}
+    instance_map = {item.point_id: item for item in report.parse_result.review_point_instances}
+
+    assert "RULE-EVID-SOURCE-001" in hit_map
+    assert {"evidence_source", "source_category", "evidence_kind"} <= set(hit_map["RULE-EVID-SOURCE-001"].matched_slots)
+    assert "RULE-SCORE-CERT-001" in hit_map
+    assert {"score", "scoring_item_type"} <= set(hit_map["RULE-SCORE-CERT-001"].matched_slots)
+    assert "RULE-SCORE-FIN-001" in hit_map
+    assert {"score", "scoring_item_type"} <= set(hit_map["RULE-SCORE-FIN-001"].matched_slots)
+    assert "RULE-CONTRACT-ACCEPT-001" in hit_map
+    assert {"decision_mode", "contract_control"} <= set(hit_map["RULE-CONTRACT-ACCEPT-001"].matched_slots)
+    assert "RULE-CONTRACT-PAY-001" in hit_map
+    assert {"payment_linkage", "contract_control"} <= set(hit_map["RULE-CONTRACT-PAY-001"].matched_slots)
+    assert "RP-CONTRACT-011" in instance_map
+
+
 def test_high_frequency_instances_can_generate_review_points() -> None:
     text = """
     合同条款：

@@ -22,13 +22,14 @@ def extract_legal_facts_from_units(
         fact_type = _infer_fact_type(unit)
         if not fact_type:
             continue
+        fact_zone_type = _infer_fact_zone_type(unit, fact_type)
         facts.append(
             LegalFactCandidate(
                 fact_id=f"LF-{len(facts) + 1:04d}",
                 document_id=document_id,
                 source_unit_id=unit.unit_id,
                 fact_type=fact_type,
-                zone_type=unit.zone_type.value,
+                zone_type=fact_zone_type.value,
                 clause_semantic_type=unit.clause_semantic_type.value,
                 effect_tags=[item.value for item in unit.effect_tags],
                 subject=unit.clause_constraint.subject,
@@ -181,6 +182,9 @@ def _fallback_fact_candidate(
             else ClauseSemanticType.technical_requirement
         )
         return zone_type, clause_semantic_type, "evidence_source_requirement"
+    if current_zone == SemanticZoneType.scoring and any(token in compact for token in ["得分", "评分", "最高得", "加分", "扣分"]):
+        if any(token in compact for token in ["证书", "认证", "检测报告", "ITSS", "营业收入", "利润率", "资产规模", "信用评价", "业绩", "方案"]):
+            return SemanticZoneType.scoring, ClauseSemanticType.scoring_factor, "scoring_factor"
     if "履约担保" in compact or "质量保证金" in compact or "履约保证金" in compact:
         return SemanticZoneType.contract, ClauseSemanticType.acceptance_term, "acceptance_term"
     if "第三方检测费用" in compact and "中标人承担" in compact:
@@ -225,7 +229,7 @@ def _infer_constraint_value_from_constraint(
     if constraint.industry_tokens:
         value["industry_scope"] = _normalize_extracted_scope(constraint.industry_tokens[0])
     if constraint.evidence_source:
-        value["evidence_source"] = constraint.evidence_source
+        value["evidence_source"] = _normalize_extracted_scope(constraint.evidence_source)
     min_years = _extract_first_int(text, r"成立满(\d+)年")
     if min_years is not None:
         value["min_years"] = min_years
@@ -233,9 +237,22 @@ def _infer_constraint_value_from_constraint(
     if min_count is not None:
         value["min_count"] = min_count
     score = _extract_first_int(text, r"(\d+)\s*分")
-    if score is not None and zone_type == SemanticZoneType.scoring:
+    if score is not None and (zone_type == SemanticZoneType.scoring or _looks_like_scoring_factor(text)):
         value["score"] = score
-    return value
+    clause_type = (
+        ClauseSemanticType.qualification_material_requirement
+        if zone_type == SemanticZoneType.qualification and constraint.evidence_source
+        else ClauseSemanticType.acceptance_term
+        if zone_type == SemanticZoneType.contract and "验收" in text
+        else ClauseSemanticType.payment_term
+        if zone_type == SemanticZoneType.contract and any(token in text for token in ["付款", "支付", "尾款"])
+        else ClauseSemanticType.scoring_factor
+        if zone_type == SemanticZoneType.scoring
+        else ClauseSemanticType.technical_requirement
+        if zone_type == SemanticZoneType.technical
+        else ClauseSemanticType.unknown_clause
+    )
+    return _augment_constraint_value_from_text(text, zone_type, clause_type, value)
 
 
 def _infer_fallback_evidence_stage(zone_type: SemanticZoneType, clause_semantic_type: ClauseSemanticType) -> str:
@@ -278,6 +295,12 @@ def _dedupe_strings(items: list[str]) -> list[str]:
 
 def _infer_fact_type(unit: ClauseUnit) -> str:
     clause_type = unit.clause_semantic_type
+    if unit.legal_effect_type == LegalEffectType.evidence_source_requirement:
+        return "evidence_source_requirement"
+    if unit.clause_constraint.evidence_source:
+        return "evidence_source_requirement"
+    if _looks_like_scoring_factor(unit.text):
+        return "scoring_factor"
     if _looks_like_policy_statement(unit.text):
         return "policy_statement" if _infer_project_binding(unit) else "policy_reference"
     if clause_type == ClauseSemanticType.conditional_policy:
@@ -316,9 +339,22 @@ def _infer_fact_type(unit: ClauseUnit) -> str:
         return "template_reference"
     if clause_type == ClauseSemanticType.reference_clause:
         return "template_reference"
-    if unit.legal_effect_type == LegalEffectType.evidence_source_requirement:
-        return "evidence_source_requirement"
+    if unit.legal_effect_type == LegalEffectType.contract_obligation:
+        if "付款" in unit.text or "支付" in unit.text or "尾款" in unit.text:
+            return "payment_term"
+        if "验收" in unit.text:
+            return "acceptance_term"
     return ""
+
+
+def _infer_fact_zone_type(unit: ClauseUnit, fact_type: str) -> SemanticZoneType:
+    if fact_type == "scoring_factor" or _looks_like_scoring_factor(unit.text):
+        return SemanticZoneType.scoring
+    if fact_type in {"payment_term", "acceptance_term", "breach_term", "termination_term"}:
+        return SemanticZoneType.contract
+    if fact_type == "evidence_source_requirement" and unit.zone_type == SemanticZoneType.mixed_or_uncertain:
+        return SemanticZoneType.technical
+    return unit.zone_type
 
 
 def _infer_predicate(text: str) -> str:
@@ -348,6 +384,7 @@ def _normalized_terms(unit: ClauseUnit) -> list[str]:
     if unit.clause_constraint.evidence_source:
         tokens.append(unit.clause_constraint.evidence_source)
     tokens.extend(_policy_terms_from_text(unit.text))
+    tokens.extend(_semantic_terms_from_text(unit.text, unit.zone_type, unit.clause_semantic_type))
     seen: set[str] = set()
     ordered: list[str] = []
     for token in tokens:
@@ -381,7 +418,7 @@ def _infer_constraint_value(unit: ClauseUnit) -> dict[str, object]:
     if unit.clause_constraint.industry_tokens:
         value["industry_scope"] = _normalize_extracted_scope(unit.clause_constraint.industry_tokens[0])
     if unit.clause_constraint.evidence_source:
-        value["evidence_source"] = unit.clause_constraint.evidence_source
+        value["evidence_source"] = _normalize_extracted_scope(unit.clause_constraint.evidence_source)
     min_years = _extract_first_int(unit.text, r"成立满(\d+)年")
     if min_years is not None:
         value["min_years"] = min_years
@@ -389,9 +426,9 @@ def _infer_constraint_value(unit: ClauseUnit) -> dict[str, object]:
     if min_count is not None:
         value["min_count"] = min_count
     score = _extract_first_int(unit.text, r"(\d+)\s*分")
-    if score is not None and unit.zone_type == SemanticZoneType.scoring:
+    if score is not None and (unit.zone_type == SemanticZoneType.scoring or _looks_like_scoring_factor(unit.text)):
         value["score"] = score
-    return value
+    return _augment_constraint_value_from_text(unit.text, unit.zone_type, unit.clause_semantic_type, value)
 
 
 def _extract_first_int(text: str, pattern: str) -> int | None:
@@ -600,6 +637,16 @@ def _looks_like_policy_statement(text: str) -> bool:
     )
 
 
+def _looks_like_scoring_factor(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if not any(token in compact for token in ["得分", "评分", "最高得", "加分", "扣分", "分值"]) and not re.search(r"得\d+(?:\.\d+)?分", compact):
+        return False
+    return any(
+        token in compact
+        for token in ["证书", "认证", "检测报告", "ITSS", "营业收入", "利润率", "资产规模", "信用评价", "业绩", "方案"]
+    )
+
+
 def _policy_terms_from_text(text: str) -> list[str]:
     compact = re.sub(r"\s+", "", text)
     tokens: list[str] = []
@@ -615,6 +662,155 @@ def _policy_terms_from_text(text: str) -> list[str]:
         elif any(token in compact for token in ["仍适用", "继续适用", "执行", "给予", "参与评审"]):
             tokens.append("价格扣除保留")
     return tokens
+
+
+def _semantic_terms_from_text(
+    text: str,
+    zone_type: SemanticZoneType,
+    clause_semantic_type: ClauseSemanticType,
+) -> list[str]:
+    compact = re.sub(r"\s+", "", text)
+    tokens: list[str] = []
+    if any(token in compact for token in ["检测中心", "检测机构", "实验室", "税务部门", "研究院"]):
+        tokens.append("指定机构来源")
+    if "检测报告" in compact:
+        tokens.append("检测报告")
+    if "证明" in compact:
+        tokens.append("证明材料")
+    if any(token in compact for token in ["证书", "认证"]) and zone_type == SemanticZoneType.scoring:
+        tokens.append("证书评分项")
+    if any(token in compact for token in ["财务", "营业收入", "利润率", "资产规模"]) and zone_type == SemanticZoneType.scoring:
+        tokens.append("财务指标评分项")
+    if any(token in compact for token in ["尾款", "验收合格后支付", "验收后支付"]):
+        tokens.append("验收付款联动")
+    if any(token in compact for token in ["考核", "满意度"]) and any(token in compact for token in ["付款", "支付", "尾款"]):
+        tokens.append("考核付款联动")
+    if any(token in compact for token in ["采购人确认", "采购人认为", "最终解释", "单方判断", "确定验收标准"]):
+        tokens.append("单方弹性判断")
+    if clause_semantic_type == ClauseSemanticType.acceptance_term and "第三方检测费用" in compact:
+        tokens.append("第三方检测费用")
+    return tokens
+
+
+def _augment_constraint_value_from_text(
+    text: str,
+    zone_type: SemanticZoneType,
+    clause_semantic_type: ClauseSemanticType,
+    base: dict[str, object],
+) -> dict[str, object]:
+    value = dict(base)
+    compact = re.sub(r"\s+", "", text)
+
+    evidence_source = _infer_designated_source_category(compact)
+    if evidence_source and "source_category" not in value:
+        value["source_category"] = evidence_source
+    evidence_kind = _infer_evidence_kind(compact)
+    if evidence_kind and "evidence_kind" not in value:
+        value["evidence_kind"] = evidence_kind
+
+    if (
+        zone_type == SemanticZoneType.scoring
+        or clause_semantic_type in {ClauseSemanticType.scoring_rule, ClauseSemanticType.scoring_factor}
+        or _looks_like_scoring_factor(text)
+    ):
+        scoring_item_type = _infer_scoring_item_type(compact)
+        if scoring_item_type:
+            value.setdefault("scoring_item_type", scoring_item_type)
+        scoring_mode = _infer_scoring_mode(compact)
+        if scoring_mode:
+            value.setdefault("scoring_mode", scoring_mode)
+
+    if zone_type == SemanticZoneType.contract or clause_semantic_type in {
+        ClauseSemanticType.payment_term,
+        ClauseSemanticType.acceptance_term,
+        ClauseSemanticType.breach_term,
+        ClauseSemanticType.termination_term,
+    }:
+        decision_mode = _infer_contract_decision_mode(compact)
+        if decision_mode:
+            value.setdefault("decision_mode", decision_mode)
+        payment_linkage = _infer_payment_linkage(compact)
+        if payment_linkage:
+            value.setdefault("payment_linkage", payment_linkage)
+        payment_phase = _infer_payment_phase(compact)
+        if payment_phase:
+            value.setdefault("payment_phase", payment_phase)
+        contract_control = _infer_contract_control(compact)
+        if contract_control:
+            value.setdefault("contract_control", contract_control)
+    return value
+
+
+def _infer_designated_source_category(compact: str) -> str:
+    for token in ["检测中心", "检测机构", "实验室", "税务部门", "研究院"]:
+        if token in compact:
+            return token
+    return ""
+
+
+def _infer_evidence_kind(compact: str) -> str:
+    for token in ["检测报告", "证明", "证书", "合同扫描件", "营业执照复印件"]:
+        if token in compact:
+            return token
+    return ""
+
+
+def _infer_scoring_item_type(compact: str) -> str:
+    if any(token in compact for token in ["证书", "认证证书", "管理体系认证", "ITSS"]):
+        return "certificate"
+    if "检测报告" in compact:
+        return "report"
+    if any(token in compact for token in ["财务", "营业收入", "利润率", "资产规模"]):
+        return "financial"
+    if any(token in compact for token in ["项目负责人", "人员配置", "学历", "职称", "社保"]):
+        return "personnel"
+    if any(token in compact for token in ["业绩", "同类项目"]):
+        return "performance"
+    if any(token in compact for token in ["方案", "实施方案", "售后服务方案"]):
+        return "plan"
+    if any(token in compact for token in ["信用评价", "信用分", "信用等级"]):
+        return "credit"
+    return ""
+
+
+def _infer_scoring_mode(compact: str) -> str:
+    if any(token in compact for token in ["扣分", "每缺项扣", "每处缺陷扣"]):
+        return "deduction"
+    if any(token in compact for token in ["得分", "得", "最高得", "加分"]):
+        return "additive"
+    return ""
+
+
+def _infer_contract_decision_mode(compact: str) -> str:
+    if any(token in compact for token in ["采购人确认", "采购人认为", "最终解释", "单方判断", "优胜的原则", "确定验收标准"]):
+        return "unilateral_discretion"
+    return ""
+
+
+def _infer_payment_linkage(compact: str) -> str:
+    if any(token in compact for token in ["考核", "满意度"]) and any(token in compact for token in ["付款", "支付", "尾款"]):
+        return "assessment_or_satisfaction"
+    if "验收" in compact and any(token in compact for token in ["付款", "支付", "尾款"]):
+        return "acceptance"
+    return ""
+
+
+def _infer_payment_phase(compact: str) -> str:
+    if "尾款" in compact:
+        return "final_payment"
+    if any(token in compact for token in ["预付款", "预付"]):
+        return "advance_payment"
+    return ""
+
+
+def _infer_contract_control(compact: str) -> str:
+    if "第三方检测费用" in compact and "承担" in compact:
+        return "test_cost_allocation"
+    if any(token in compact for token in ["付款", "支付", "尾款"]) and any(token in compact for token in ["考核", "满意度", "验收"]):
+        return "payment_control"
+    if "验收" in compact and any(token in compact for token in ["采购人确认", "最终解释", "优胜的原则", "确定验收标准"]):
+        return "acceptance_control"
+    return ""
 
 
 def _normalize_extracted_scope(text: str) -> str:

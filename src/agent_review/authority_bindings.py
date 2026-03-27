@@ -109,6 +109,27 @@ AUTHORITY_BINDINGS: list[AuthorityBinding] = [
         suggested_remedy_template="将验收标准改写为明确、客观、可复核的指标和程序。",
         priority="primary",
     ),
+    AuthorityBinding(
+        binding_id="AUTH-RP-CONTRACT-011-001",
+        authority_id="LEGAL-001",
+        clause_id="LEGAL-001-ART-021",
+        doc_title="政府采购需求管理办法",
+        article_label="第二十一条",
+        norm_level="ministerial_order",
+        binding_scope="point",
+        point_id="RP-CONTRACT-011",
+        legal_proposition="付款节点、验收、考核和满意度机制应客观、明确、可执行，不宜形成采购人单方控制付款的安排。",
+        applicability_conditions=["存在付款节点与验收、考核或满意度条款联动"],
+        exclusion_conditions=["法定分期验收付款机制且考核标准客观量化明确"],
+        requires_human_review_when=[
+            "项目属于持续服务且合同已设置客观量化考核体系",
+            "付款联动仅对应法定验收节点且不存在采购人单方自由裁量",
+        ],
+        evidence_expectations=["需要付款条款直接引文", "优先保留与验收或考核的上下文联动"],
+        reasoning_template="如付款释放明显受采购人主观验收、考核或满意度控制，应审慎认定合同公平性风险。",
+        suggested_remedy_template="将付款条件改写为客观、量化、可复核的验收或考核节点，避免单方主观控制。",
+        priority="primary",
+    ),
 ]
 
 

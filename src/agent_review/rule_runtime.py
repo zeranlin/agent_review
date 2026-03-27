@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from .authority_bindings import list_bindings_for_point
 from .models import LegalFactCandidate, ReviewPointInstance, RuleHit
 from .review_point_contract_registry import get_review_point_contract
@@ -24,6 +26,9 @@ def generate_rule_hits(legal_fact_candidates: list[LegalFactCandidate]) -> list[
                 fact.condition_scope,
                 fact.policy_branch,
                 "project_binding" if fact.project_binding else "",
+                json.dumps(fact.constraint_value, ensure_ascii=False, sort_keys=True),
+                " ".join(str(key) for key in fact.constraint_value.keys()),
+                " ".join(str(value) for value in fact.constraint_value.values()),
             ]
         )
         for rule in list_rule_definitions():
