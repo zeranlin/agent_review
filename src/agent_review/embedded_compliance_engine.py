@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import json
 import os
 import re
+
+from .llm.client import OpenAICompatibleClient, QwenLocalConfig
 
 
 def utc_now_iso() -> str:
@@ -157,6 +160,7 @@ class EmbeddedReviewResult:
 
 @dataclass
 class EmbeddedLLMArtifacts:
+    added_findings: list[EmbeddedFinding] = field(default_factory=list)
     llm_node_summary: dict[str, object] | None = None
 
 
@@ -209,7 +213,7 @@ EMBEDDED_RULES: tuple[EmbeddedRuleDefinition, ...] = (
     EmbeddedRuleDefinition(
         rule_id="QUAL-011",
         issue_type="excessive_supplier_qualification",
-        pattern=re.compile(r"类似项目业绩.*方可投标|类似项目业绩.*不得少于\d+个|成立满\d+年|经营年限不低于|提供类似业绩证明材料方可"),
+        pattern=re.compile(r"类似项目业绩.*方可投标|类似项目业绩.*不得少于\d+个|成立满\d+年|经营年限不低于|提供类似业绩证明材料方可|深圳市.*同类项目业绩不少于\d+个|广州市.*同类项目业绩不少于\d+个"),
         rationale="将类似业绩、经营年限或成立年限直接前置为资格条件，容易把履约经验泛化成准入门槛。",
         severity_score=3,
         source_section="申请人的资格要求",
@@ -219,7 +223,7 @@ EMBEDDED_RULES: tuple[EmbeddedRuleDefinition, ...] = (
     EmbeddedRuleDefinition(
         rule_id="QUAL-012",
         issue_type="excessive_supplier_qualification",
-        pattern=re.compile(r"注册资本不低于|年收入不低于|净利润不低于|员工总数不得少于|参保人数不得少于"),
+        pattern=re.compile(r"注册资本不低于|年收入不低于|净利润不低于|员工总数不得少于|参保人数不得少于|纳税信用A级|纳税信用A"),
         rationale="设置一般性财务、资产或人员规模门槛，通常超出法定资格和必要履约能力范围。",
         severity_score=3,
         source_section="申请人的资格要求",
@@ -235,6 +239,16 @@ EMBEDDED_RULES: tuple[EmbeddedRuleDefinition, ...] = (
         source_section="申请人的资格要求",
         rewrite_hint="删除与项目标的不相称的资质或登记要求，改为与履约直接相关的条件。",
         merge_key="qualification-domain-mismatch",
+    ),
+    EmbeddedRuleDefinition(
+        rule_id="QUAL-015",
+        issue_type="evidence_source_restriction",
+        pattern=re.compile(r"提供税务部门出具的证明扫描件|提供营业执照复印件方可投标|指定主管机关出具.*证明"),
+        rationale="指定特定机关或证明载体作为准入证明来源，可能不当提高证明负担或限制证明方式。",
+        severity_score=2,
+        source_section="申请人的资格要求",
+        rewrite_hint="允许依法可替代的证明材料，不宜将单一证明机关或载体设为唯一方式。",
+        merge_key="qualification-proof-source",
     ),
     EmbeddedRuleDefinition(
         rule_id="SCORE-003",
@@ -267,6 +281,26 @@ EMBEDDED_RULES: tuple[EmbeddedRuleDefinition, ...] = (
         merge_key="scoring-past-performance",
     ),
     EmbeddedRuleDefinition(
+        rule_id="SCORE-011",
+        issue_type="scoring_content_mismatch",
+        pattern=re.compile(r"注册资本.*得\d+分|纳税额.*得\d+分|成立年限.*得\d+分|企业规模.*得\d+分"),
+        rationale="以企业规模、纳税额、成立年限等一般经营指标打分，通常与采购标的履约质量无直接关系。",
+        severity_score=3,
+        source_section="评标信息",
+        rewrite_hint="删除与履约无直接关系的经营指标评分项。",
+        merge_key="scoring-business-scale",
+    ),
+    EmbeddedRuleDefinition(
+        rule_id="SCORE-012",
+        issue_type="qualification_scoring_overlap",
+        pattern=re.compile(r"类似业绩.*得\d+分|高新技术企业.*得\d+分|纳税信用A级.*得\d+分|科技型中小企业.*得\d+分"),
+        rationale="资格门槛事项再次进入评分，可能形成资格与评分重复放大。",
+        severity_score=2,
+        source_section="评标信息",
+        rewrite_hint="核查该事项是否已作为资格条件，避免重复加分。",
+        merge_key="qualification-score-overlap",
+    ),
+    EmbeddedRuleDefinition(
         rule_id="TECH-001",
         issue_type="narrow_technical_parameter",
         pattern=re.compile(r"不允许正偏离|响应时间[:：]?\s*\d+ms|精度[:：]?\s*0\.\d+-0\.\d+mm|设备重量≤\d+kg"),
@@ -285,6 +319,26 @@ EMBEDDED_RULES: tuple[EmbeddedRuleDefinition, ...] = (
         source_section="用户需求书",
         rewrite_hint="删除单一机构限定，改为认可具备资质的同类检测机构或等效证明。",
         merge_key="technical-proof-source",
+    ),
+    EmbeddedRuleDefinition(
+        rule_id="TECH-003",
+        issue_type="evidence_source_restriction",
+        pattern=re.compile(r"深圳市医疗器械检测中心出具的产品检测报告|指定.*检测中心出具"),
+        rationale="指定单一检测机构出具报告，可能形成证明来源限制和潜在竞争壁垒。",
+        severity_score=3,
+        source_section="用户需求书",
+        rewrite_hint="改为接受依法具备资质的同类检测机构出具的等效报告。",
+        merge_key="technical-designated-test-center",
+    ),
+    EmbeddedRuleDefinition(
+        rule_id="TECH-004",
+        issue_type="narrow_technical_parameter",
+        pattern=re.compile(r"不允许负偏离|不得负偏离|不接受偏离|手术机械臂精度|产品响应时间|免费保修期_\d+"),
+        rationale="存在过窄技术或质保参数，可能对竞争形成不当约束。",
+        severity_score=2,
+        source_section="用户需求书",
+        rewrite_hint="审查技术、质保和响应参数的必要性，避免过窄约束。",
+        merge_key="technical-tight-parameter",
     ),
     EmbeddedRuleDefinition(
         rule_id="CONTRACT-001",
@@ -308,13 +362,43 @@ EMBEDDED_RULES: tuple[EmbeddedRuleDefinition, ...] = (
     ),
     EmbeddedRuleDefinition(
         rule_id="CONTRACT-003",
-        issue_type="one_sided_commercial_term",
+        issue_type="bid_price_floor",
         pattern=re.compile(r"报价不得低于预算金额的80%|低于此价格的投标将被视为无效"),
         rationale="设置最低报价门槛可能影响价格竞争，应审查其合法性和必要性。",
         severity_score=3,
         source_section="商务要求",
         rewrite_hint="删除缺乏依据的最低报价门槛，依法通过异常低价评审机制处理。",
         merge_key="contract-price-floor",
+    ),
+    EmbeddedRuleDefinition(
+        rule_id="CONTRACT-004",
+        issue_type="one_sided_commercial_term",
+        pattern=re.compile(r"须以银行转账方式缴纳|合同总价的5%作为质量保证金|质保期满后无息退还"),
+        rationale="强制保证金缴纳方式、比例或无息返还安排可能加重中标人负担，应审查必要性和公平性。",
+        severity_score=3,
+        source_section="商务要求",
+        rewrite_hint="审查保证金的设置依据、比例和返还条件，避免不当加重供应商负担。",
+        merge_key="contract-guarantee-burden",
+    ),
+    EmbeddedRuleDefinition(
+        rule_id="CONTRACT-005",
+        issue_type="one_sided_commercial_term",
+        pattern=re.compile(r"第三方检测费用由中标人承担|无论检测结果是否合格|检测费用.*由中标人承担"),
+        rationale="将第三方检测费用一概转由中标人承担，且不区分检测结果，可能形成不公平费用转嫁。",
+        severity_score=3,
+        source_section="商务要求",
+        rewrite_hint="明确检测触发条件、费用承担边界和不合格责任分配，不宜一概转嫁。",
+        merge_key="contract-test-cost",
+    ),
+    EmbeddedRuleDefinition(
+        rule_id="CONTRACT-006",
+        issue_type="delivery_period_restriction",
+        pattern=re.compile(r"签订合同后___?\d+___?天.*内交货|交货期限[:：].*\d+天"),
+        rationale="交货期限设置过短或前后不一致时，可能影响供应商实质竞争和履约安排。",
+        severity_score=2,
+        source_section="商务要求",
+        rewrite_hint="核查交货期限是否与采购标的复杂度、供应周期相匹配。",
+        merge_key="contract-delivery-period",
     ),
 )
 
@@ -407,16 +491,26 @@ def run_embedded_compliance_review(
     *,
     llm_config: EmbeddedLLMConfig | None = None,
     parser_mode: str | None = None,
+    llm_client: OpenAICompatibleClient | None = None,
 ) -> EmbeddedComplianceRunResult:
     resolved_llm_config = llm_config or detect_embedded_llm_config()
     resolved_parser_mode = parser_mode or detect_embedded_parser_mode(default="assist")
     hits = run_embedded_rule_scan(document)
     review = build_embedded_review_result(document, hits)
-    llm_summary = {"status": "llm_disabled"} if not resolved_llm_config.enabled else {"status": "not_implemented"}
+    added_findings, llm_summary = _run_embedded_llm_review(
+        document,
+        review.findings,
+        llm_config=resolved_llm_config,
+        llm_client=llm_client,
+    )
+    if added_findings:
+        review.findings = _dedupe_embedded_findings(review.findings + added_findings)
+        review.items_for_human_review = [item.problem_title for item in review.findings if item.needs_human_review]
+        review.overall_risk_summary = _overall_summary(review.findings)
     return EmbeddedComplianceRunResult(
         normalized=document,
         review=review,
-        llm_artifacts=EmbeddedLLMArtifacts(llm_node_summary=llm_summary),
+        llm_artifacts=EmbeddedLLMArtifacts(added_findings=added_findings, llm_node_summary=llm_summary),
         cache_enabled=False,
         cache_used=False,
         cache_key=f"embedded:{document.file_hash}:{resolved_parser_mode}",
@@ -457,19 +551,23 @@ def _problem_title(hit: EmbeddedRuleHit) -> str:
         "geographic_restriction": "存在属地性或本地化限制风险",
         "excessive_supplier_qualification": "资格门槛可能过高或与履约弱相关",
         "qualification_domain_mismatch": "资格或评分项与采购标的领域疑似错配",
+        "qualification_scoring_overlap": "资格事项与评分项可能重复放大",
         "scoring_content_mismatch": "评分项与资格边界或相关性存在风险",
         "narrow_technical_parameter": "技术参数可能过窄或限制偏离",
         "technical_justification_needed": "技术标准或证明来源限制需论证必要性",
+        "evidence_source_restriction": "证明材料或证明来源限制存在风险",
         "payment_acceptance_linkage": "付款与验收或主观评价挂钩风险",
         "one_sided_commercial_term": "合同条款存在单方不利或费用转嫁风险",
+        "bid_price_floor": "最低报价门槛可能影响价格竞争",
+        "delivery_period_restriction": "交货期限设置可能不合理或不一致",
     }
     return mapping.get(hit.issue_type_candidate, "采购条款存在合规风险")
 
 
 def _impact_text(issue_type: str) -> str:
-    if issue_type in {"geographic_restriction", "excessive_supplier_qualification", "irrelevant_certification_or_award"}:
+    if issue_type in {"geographic_restriction", "excessive_supplier_qualification", "irrelevant_certification_or_award", "qualification_scoring_overlap"}:
         return "可能不当缩小供应商竞争范围。"
-    if issue_type in {"narrow_technical_parameter", "technical_justification_needed"}:
+    if issue_type in {"narrow_technical_parameter", "technical_justification_needed", "evidence_source_restriction"}:
         return "可能形成技术壁垒或证明来源限制。"
     return "可能导致评审或履约责任边界失衡。"
 
@@ -480,10 +578,14 @@ def _basis_text(issue_type: str) -> str:
         "excessive_supplier_qualification": "资格条件应与项目履约能力直接相关，不得设置与采购需求无关门槛。",
         "irrelevant_certification_or_award": "企业荣誉、信用等级等通常不得替代与标的直接相关的履约能力要求。",
         "qualification_domain_mismatch": "资格、评分因素应与采购标的、履约能力直接相关，避免模板错贴。",
+        "qualification_scoring_overlap": "同一事项不宜既作资格门槛又在评分中重复放大。",
         "scoring_content_mismatch": "评分因素应与采购标的和履约质量直接相关，避免重复放大资格条件。",
         "technical_justification_needed": "技术标准和证明来源限制应有必要性和可替代性论证。",
+        "evidence_source_restriction": "证明材料和检测报告要求应允许依法可替代的等效证明方式。",
         "one_sided_commercial_term": "合同条款应遵循公平原则，不得单方加重中标人责任。",
         "payment_acceptance_linkage": "付款与验收条款应明确客观条件，不得设置不对等支付前提。",
+        "bid_price_floor": "价格竞争应依法通过异常低价评审机制处理，不宜设置刚性最低报价门槛。",
+        "delivery_period_restriction": "交货期限应与采购标的复杂度和履约周期相匹配。",
     }
     return mapping.get(issue_type, "需结合政府采购公平竞争与需求编制规则综合判断。")
 
@@ -494,10 +596,14 @@ def _primary_authority(issue_type: str) -> str:
         "excessive_supplier_qualification": "《政府采购法》资格条件适度性原则",
         "irrelevant_certification_or_award": "《政府采购需求管理办法》需求相关性要求",
         "qualification_domain_mismatch": "《政府采购需求管理办法》需求相关性要求",
+        "qualification_scoring_overlap": "综合评分法边界要求",
         "scoring_content_mismatch": "综合评分法相关规范",
         "technical_justification_needed": "《政府采购需求管理办法》需求编制要求",
+        "evidence_source_restriction": "《政府采购需求管理办法》需求编制要求",
         "one_sided_commercial_term": "合同公平原则",
         "payment_acceptance_linkage": "验收与付款边界要求",
+        "bid_price_floor": "公平竞争原则",
+        "delivery_period_restriction": "需求编制合理性要求",
     }
     return mapping.get(issue_type, "政府采购一般合规原则")
 
@@ -508,3 +614,189 @@ def _overall_summary(findings: list[EmbeddedFinding]) -> str:
     high = sum(1 for item in findings if item.risk_level == "high")
     manual = sum(1 for item in findings if item.needs_human_review)
     return f"共识别 {len(findings)} 条风险，其中高风险 {high} 条，需人工复核 {manual} 条。"
+
+
+def _dedupe_embedded_findings(findings: list[EmbeddedFinding]) -> list[EmbeddedFinding]:
+    results: list[EmbeddedFinding] = []
+    seen: set[tuple[str, str, str, int, int]] = set()
+    for item in findings:
+        key = (
+            item.problem_title,
+            item.issue_type,
+            item.clause_id,
+            item.text_line_start,
+            item.text_line_end,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(item)
+    return results
+
+
+EMBEDDED_LLM_SYSTEM_PROMPT = (
+    "你是政府采购招标文件审查中的内嵌LLM补偿节点。"
+    "你只识别规则难覆盖但具有明显政府采购合规风险的条款。"
+    "必须基于给定条款输出 JSON 数组。"
+    "每项字段必须包含 clause_id, issue_type, problem_title, why_it_is_risky, rewrite_suggestion, "
+    "needs_human_review, human_review_reason。"
+)
+
+
+def _run_embedded_llm_review(
+    document: EmbeddedNormalizedDocument,
+    base_findings: list[EmbeddedFinding],
+    *,
+    llm_config: EmbeddedLLMConfig,
+    llm_client: OpenAICompatibleClient | None = None,
+) -> tuple[list[EmbeddedFinding], dict[str, object]]:
+    if not llm_config.enabled:
+        return [], {"status": "llm_disabled", "added_count": 0}
+    client = llm_client or OpenAICompatibleClient(
+        QwenLocalConfig(
+            base_url=llm_config.base_url,
+            model=llm_config.model,
+            api_key=llm_config.api_key or "123",
+            timeout=float(llm_config.timeout_seconds),
+        )
+    )
+    candidates = _select_llm_candidate_clauses(document, base_findings)
+    if not candidates:
+        return [], {"status": "no_candidate_clauses", "added_count": 0}
+    try:
+        response = client.generate_text(
+            EMBEDDED_LLM_SYSTEM_PROMPT,
+            _build_embedded_llm_prompt(document, candidates, base_findings),
+        )
+        payload = _parse_embedded_llm_payload(response)
+        added = _materialize_llm_findings(document, payload)
+        return added, {
+            "status": "ok",
+            "candidate_clause_count": len(candidates),
+            "added_count": len(added),
+            "node": "embedded_llm_review",
+        }
+    except Exception as exc:
+        return [], {
+            "status": "failed",
+            "candidate_clause_count": len(candidates),
+            "added_count": 0,
+            "error": str(exc),
+        }
+
+
+def _select_llm_candidate_clauses(
+    document: EmbeddedNormalizedDocument,
+    base_findings: list[EmbeddedFinding],
+) -> list[EmbeddedClause]:
+    hit_clause_ids = {item.clause_id for item in base_findings}
+    candidates: list[EmbeddedClause] = []
+    for clause in document.clauses:
+        if clause.clause_id in hit_clause_ids:
+            continue
+        corpus = " ".join(
+            part for part in [
+                clause.text,
+                clause.section_path or "",
+                clause.source_section or "",
+                clause.table_or_item_label or "",
+            ] if part
+        )
+        if not corpus.strip():
+            continue
+        if any(
+            token in corpus
+            for token in [
+                "高新技术企业",
+                "科技型中小企业",
+                "纳税信用A级",
+                "质量保证金",
+                "第三方检测费用",
+                "最低报价",
+                "不允许正偏离",
+                "检测中心出具",
+                "指定机构出具",
+                "指定单位出具",
+                "项目所在地",
+                "本地服务团队",
+            ]
+        ):
+            candidates.append(clause)
+    return candidates[:12]
+
+
+def _build_embedded_llm_prompt(
+    document: EmbeddedNormalizedDocument,
+    candidates: list[EmbeddedClause],
+    base_findings: list[EmbeddedFinding],
+) -> str:
+    lines = [
+        f"文件：{document.document_name}",
+        "已由规则命中的问题类型：",
+        *[f"- {item.issue_type} | {item.problem_title} | {item.clause_id}" for item in base_findings[:8]],
+        "请只针对下面这些候选条款识别规则未覆盖但明显存在的政府采购风险。",
+        "可使用的 issue_type：geographic_restriction, excessive_supplier_qualification, irrelevant_certification_or_award, qualification_domain_mismatch, qualification_scoring_overlap, scoring_content_mismatch, narrow_technical_parameter, technical_justification_needed, evidence_source_restriction, payment_acceptance_linkage, one_sided_commercial_term, bid_price_floor, delivery_period_restriction。",
+    ]
+    for clause in candidates:
+        lines.extend(
+            [
+                f"- clause_id: {clause.clause_id}",
+                f"  section_path: {clause.section_path}",
+                f"  source_section: {clause.source_section}",
+                f"  text: {clause.text}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _parse_embedded_llm_payload(content: str) -> list[dict[str, object]]:
+    text = content.strip()
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return []
+    payload = json.loads(text[start : end + 1])
+    return payload if isinstance(payload, list) else []
+
+
+def _materialize_llm_findings(
+    document: EmbeddedNormalizedDocument,
+    payload: list[dict[str, object]],
+) -> list[EmbeddedFinding]:
+    clause_index = {item.clause_id: item for item in document.clauses}
+    results: list[EmbeddedFinding] = []
+    for index, item in enumerate(payload, start=1):
+        clause_id = str(item.get("clause_id", "")).strip()
+        issue_type = str(item.get("issue_type", "")).strip()
+        problem_title = str(item.get("problem_title", "")).strip()
+        clause = clause_index.get(clause_id)
+        if not clause or not issue_type or not problem_title:
+            continue
+        results.append(
+            EmbeddedFinding(
+                finding_id=f"EL-{index:03d}",
+                document_name=document.document_name,
+                problem_title=problem_title,
+                page_hint=clause.page_hint,
+                clause_id=clause.clause_id,
+                source_section=clause.source_section or "",
+                section_path=clause.section_path,
+                table_or_item_label=clause.table_or_item_label,
+                text_line_start=clause.line_start,
+                text_line_end=clause.line_end,
+                source_text=clause.text,
+                issue_type=issue_type,
+                risk_level="medium" if bool(item.get("needs_human_review")) else "high",
+                severity_score=2 if bool(item.get("needs_human_review")) else 3,
+                confidence="medium",
+                compliance_judgment="needs_human_review" if bool(item.get("needs_human_review")) else "potentially_problematic",
+                why_it_is_risky=str(item.get("why_it_is_risky", "")).strip() or _basis_text(issue_type),
+                impact_on_competition_or_performance=_impact_text(issue_type),
+                legal_or_policy_basis=_basis_text(issue_type),
+                rewrite_suggestion=str(item.get("rewrite_suggestion", "")).strip() or "建议结合采购目标与法理要求重写条款。",
+                needs_human_review=bool(item.get("needs_human_review")),
+                human_review_reason=str(item.get("human_review_reason", "")).strip() or None,
+                primary_authority=_primary_authority(issue_type),
+            )
+        )
+    return _dedupe_embedded_findings(results)

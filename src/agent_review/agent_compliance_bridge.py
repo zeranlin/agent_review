@@ -14,6 +14,7 @@ from .embedded_compliance_engine import (
     detect_embedded_parser_mode,
     run_embedded_compliance_review,
 )
+from .llm.client import OpenAICompatibleClient
 from .models import ParsedTenderDocument
 
 
@@ -58,6 +59,7 @@ def run_agent_compliance_review_from_parsed_tender_document(
     parsed_tender_document: ParsedTenderDocument,
     *,
     llm_config: EmbeddedLLMConfig | None = None,
+    llm_client: OpenAICompatibleClient | None = None,
     parser_mode: str | None = None,
     output_stem: str | None = None,
     write_outputs: bool = False,
@@ -71,6 +73,7 @@ def run_agent_compliance_review_from_parsed_tender_document(
         normalized,
         llm_config=resolved_llm_config,
         parser_mode=resolved_parser_mode,
+        llm_client=llm_client,
     )
     result.llm_artifacts.llm_node_summary = {
         **(result.llm_artifacts.llm_node_summary or {}),
