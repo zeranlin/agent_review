@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .app import web as _impl
+from .app import workbench as _impl
 
 QwenReviewEnhancer = _impl.QwenReviewEnhancer
 TenderReviewEngine = _impl.TenderReviewEngine

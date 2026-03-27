@@ -8,6 +8,17 @@ from agent_review.models import ReviewMode, TaskRecord, TaskStatus
 from agent_review.web import ReviewJob, ReviewWebApp
 
 
+def test_review_web_home_page_contains_submit_script() -> None:
+    app = ReviewWebApp()
+
+    payload = app._render_home()
+
+    assert 'id="review-form"' in payload
+    assert 'id="review-submit"' in payload
+    assert "正在提交..." in payload
+    assert 'addEventListener("submit"' in payload
+
+
 def test_review_web_run_job_populates_workbench_metadata(
     monkeypatch,
     tmp_path: Path,
