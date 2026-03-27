@@ -86,6 +86,14 @@ def _infer_clause_semantic_type(
 ) -> ClauseSemanticType:
     text = " ".join(part for part in [node.title, node.text, node.path] if part)
     compact_text = "".join(text.split())
+    if "符合性审查表" in compact_text or "符合性检查" in compact_text:
+        return ClauseSemanticType.conformity_review_clause
+    if "资格性审查表" in compact_text or "资格性检查" in compact_text:
+        return ClauseSemanticType.qualification_review_clause
+    if "投标文件初审" in compact_text or ("初审" in compact_text and any(token in compact_text for token in ["资格性审查", "符合性审查", "审查不通过"])):
+        return ClauseSemanticType.preliminary_review_clause
+    if any(token in compact_text for token in ["投标无效", "无效投标", "作无效处理", "按投标无效处理", "不得作为投标无效", "不予通过"]):
+        return ClauseSemanticType.invalid_bid_clause
     if EffectTag.template in effect_tags:
         if "声明函" in text:
             return ClauseSemanticType.declaration_template

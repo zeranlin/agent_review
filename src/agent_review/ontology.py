@@ -55,6 +55,10 @@ ZONE_EVIDENCE_POLICY: dict[SemanticZoneType, str] = {
 
 class ClauseSemanticType(str, Enum):
     administrative_clause = "administrative_clause"
+    qualification_review_clause = "qualification_review_clause"
+    conformity_review_clause = "conformity_review_clause"
+    preliminary_review_clause = "preliminary_review_clause"
+    invalid_bid_clause = "invalid_bid_clause"
     qualification_condition = "qualification_condition"
     qualification_material_requirement = "qualification_material_requirement"
     technical_requirement = "technical_requirement"
@@ -79,6 +83,7 @@ class ClauseSemanticType(str, Enum):
 
 
 class LegalEffectType(str, Enum):
+    review_procedure = "review_procedure"
     qualification_gate = "qualification_gate"
     scoring_factor = "scoring_factor"
     technical_requirement = "technical_requirement"
@@ -188,6 +193,7 @@ ONTOLOGY_DESCRIPTIONS: dict[str, dict[str, str]] = {
     },
     "legal_effects": {
         LegalEffectType.qualification_gate.value: "投标准入门槛或资格审查条件。",
+        LegalEffectType.review_procedure.value: "资格性审查、符合性审查、初审和无效投标判定等程序性要求。",
         LegalEffectType.scoring_factor.value: "进入评分表或量化打分的因素。",
         LegalEffectType.technical_requirement.value: "技术、参数、性能、检测等需求约束。",
         LegalEffectType.business_requirement.value: "交付、实施、售后等商务履约要求。",

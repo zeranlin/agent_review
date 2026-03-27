@@ -227,7 +227,7 @@ def test_clause_unit_builder_resolves_parser_regression_samples() -> None:
     by_id = {unit.source_node_id: unit for unit in units}
 
     assert by_id["q-head"].zone_type == SemanticZoneType.qualification
-    assert by_id["q-head"].clause_semantic_type == ClauseSemanticType.qualification_condition
+    assert by_id["q-head"].clause_semantic_type == ClauseSemanticType.qualification_review_clause
 
     assert by_id["warn"].zone_type == SemanticZoneType.policy_explanation
     assert by_id["warn"].clause_semantic_type == ClauseSemanticType.policy_clause
@@ -287,3 +287,68 @@ def test_clause_unit_builder_assigns_administrative_and_catalog_semantics() -> N
     assert by_id["info"].clause_semantic_type == ClauseSemanticType.administrative_clause
     assert by_id["chapter"].clause_semantic_type == ClauseSemanticType.catalog_clause
     assert by_id["policy"].clause_semantic_type == ClauseSemanticType.policy_clause
+
+
+def test_clause_unit_builder_recognizes_review_procedure_branches() -> None:
+    nodes = [
+        DocumentNode(node_id="root", node_type=NodeType.volume, title="ROOT", text="", path="ROOT"),
+        DocumentNode(
+            node_id="conf-table",
+            node_type=NodeType.paragraph,
+            title="符合性审查表",
+            text="符合性审查表",
+            path="ROOT > 符合性审查表",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:1"),
+        ),
+        DocumentNode(
+            node_id="prelim",
+            node_type=NodeType.paragraph,
+            title="32．投标文件初审",
+            text="32．投标文件初审",
+            path="ROOT > 第七章 评审程序及评审方法 > 32．投标文件初审",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:2"),
+        ),
+        DocumentNode(
+            node_id="invalid",
+            node_type=NodeType.paragraph,
+            title="投标人若有一条审查不通过则按投标无效处理。",
+            text="投标人若有一条审查不通过则按投标无效处理。",
+            path="ROOT > 第七章 评审程序及评审方法 > 投标人若有一条审查不通过则按投标无效处理。",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:3"),
+        ),
+        DocumentNode(
+            node_id="qual-table",
+            node_type=NodeType.paragraph,
+            title="资格性审查表",
+            text="资格性审查表",
+            path="ROOT > 资格性审查表",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:4"),
+        ),
+    ]
+    zones = [
+        SemanticZone("root", SemanticZoneType.catalog_or_navigation, 1.0, ["root"]),
+        SemanticZone("conf-table", SemanticZoneType.qualification, 0.9, ["table_heading"]),
+        SemanticZone("prelim", SemanticZoneType.mixed_or_uncertain, 0.6, ["text:初审"]),
+        SemanticZone("invalid", SemanticZoneType.contract, 0.7, ["text:投标无效"]),
+        SemanticZone("qual-table", SemanticZoneType.qualification, 0.9, ["table_heading"]),
+    ]
+    effects = [
+        EffectTagResult("root", [EffectTag.catalog], 1.0, ["root"]),
+        EffectTagResult("conf-table", [EffectTag.binding], 0.8, ["binding"]),
+        EffectTagResult("prelim", [EffectTag.binding], 0.8, ["binding"]),
+        EffectTagResult("invalid", [EffectTag.binding], 0.8, ["binding"]),
+        EffectTagResult("qual-table", [EffectTag.binding], 0.8, ["binding"]),
+    ]
+
+    units = build_clause_units(nodes, zones, effects)
+    by_id = {unit.source_node_id: unit for unit in units}
+
+    assert by_id["conf-table"].clause_semantic_type == ClauseSemanticType.conformity_review_clause
+    assert by_id["conf-table"].legal_effect_type.value == "review_procedure"
+    assert by_id["prelim"].clause_semantic_type == ClauseSemanticType.preliminary_review_clause
+    assert by_id["invalid"].clause_semantic_type == ClauseSemanticType.invalid_bid_clause
+    assert by_id["qual-table"].clause_semantic_type == ClauseSemanticType.qualification_review_clause

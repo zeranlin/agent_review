@@ -41,6 +41,13 @@ def infer_legal_effect(
     if clause_semantic_type == ClauseSemanticType.administrative_clause:
         return LegalEffectType.unknown
     if clause_semantic_type in {
+        ClauseSemanticType.qualification_review_clause,
+        ClauseSemanticType.conformity_review_clause,
+        ClauseSemanticType.preliminary_review_clause,
+        ClauseSemanticType.invalid_bid_clause,
+    }:
+        return LegalEffectType.review_procedure
+    if clause_semantic_type in {
         ClauseSemanticType.qualification_condition,
         ClauseSemanticType.qualification_material_requirement,
     }:
