@@ -75,6 +75,133 @@ def match_risk_rules(text: str) -> list[RiskHit]:
             )
             break
 
+    for line_no, line in enumerate(lines, start=1):
+        if any(token in line for token in ["资产总额", "从业人员", "纳税额", "成立时间满", "成立年限", "成立满"]) and any(
+            token in line for token in ["得分", "得5分", "得2分", "得3分", "评分", "评审", "分值", "满分"]
+        ):
+            metric_rules = [
+                ("资产总额", "资产总额被设为评分因素", "将供应商资产总额作为评分因素，属于以企业规模条件替代项目履约能力的高风险做法。"),
+                ("从业人员", "从业人员被设为评分因素", "将供应商从业人员数量作为评分因素，属于以企业规模条件替代项目履约能力的高风险做法。"),
+                ("纳税额", "纳税额被设为评分因素", "将供应商纳税额作为评分因素，属于以经营结果替代项目履约能力的高风险做法。"),
+                ("成立时间满", "成立年限被设为评分因素", "将供应商成立年限作为评分因素，容易形成对新设企业的不当限制。"),
+                ("成立年限", "成立年限被设为评分因素", "将供应商成立年限作为评分因素，容易形成对新设企业的不当限制。"),
+                ("成立满", "成立年限被设为评分因素", "将供应商成立年限作为评分因素，容易形成对新设企业的不当限制。"),
+            ]
+            for token, rule_name, rationale in metric_rules:
+                if token not in line:
+                    continue
+                hits.append(
+                    RiskHit(
+                        risk_group="B.评分不规范风险",
+                        rule_name=rule_name,
+                        severity=Severity.high,
+                        matched_text=line[:160],
+                        rationale=rationale,
+                        source_anchor=f"line:{line_no}",
+                    )
+                )
+
+    for line_no, line in enumerate(lines, start=1):
+        next_line = lines[line_no] if line_no < len(lines) else ""
+        combined_line = f"{line} {next_line}"
+        if "价格分计算方法" in line and any(token in combined_line for token in ["中间价优先法", "平均值作为评标基准价", "去掉最高价和最低价"]):
+            hits.append(
+                RiskHit(
+                    risk_group="B.评分不规范风险",
+                    rule_name="综合评分法价格分未采用低价优先法",
+                    severity=Severity.high,
+                    matched_text=combined_line[:180],
+                    rationale="综合评分法下价格分采用中间价优先法或平均价法，偏离低价优先法定口径，需优先复核。",
+                    source_anchor=f"line:{line_no}",
+                )
+            )
+            break
+
+    for line_no, line in enumerate(lines, start=1):
+        if re.search(r"GB/T\s*99999-2024", line):
+            hits.append(
+                RiskHit(
+                    risk_group="技术参数与标准风险",
+                    rule_name="疑似使用不存在的技术标准",
+                    severity=Severity.high,
+                    matched_text=line[:160],
+                    rationale="文件中出现疑似不存在或异常占位的标准编号，需核查标准真实性和现行有效性。",
+                    source_anchor=f"line:{line_no}",
+                )
+            )
+            break
+
+    interval_conflict_candidates: dict[str, list[tuple[int, str]]] = {}
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if "±" in compact and any(token in compact for token in ["偏差", "偏离", "允许"]):
+            key = _parameter_subject_key(compact)
+            interval_conflict_candidates.setdefault(key, []).append((line_no, line))
+        if any(token in compact for token in ["不允许正偏离", "不允许负偏离", "不得偏离", "不接受偏离", "≤"]) and any(
+            token in compact for token in ["重量", "精度", "响应时间", "参数"]
+        ):
+            key = _parameter_subject_key(compact)
+            interval_conflict_candidates.setdefault(key, []).append((line_no, line))
+
+    for key, items in interval_conflict_candidates.items():
+        has_strict = any(any(token in item[1] for token in ["不允许正偏离", "不允许负偏离", "不得偏离", "不接受偏离", "≤"]) for item in items)
+        has_tolerance = any(any(token in item[1] for token in ["±", "偏差", "允许"]) for item in items)
+        if has_strict and has_tolerance and len(items) >= 2:
+            first_line = items[0][0]
+            hits.append(
+                RiskHit(
+                    risk_group="技术参数与标准风险",
+                    rule_name="同一技术参数区间说明冲突",
+                    severity=Severity.high,
+                    matched_text=f"{items[0][1][:80]} | {items[1][1][:80]}",
+                    rationale="同一参数同时出现刚性限制和允许偏差口径，技术参数区间说明前后冲突。",
+                    source_anchor=f"line:{first_line}",
+                )
+            )
+            break
+
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if re.search(r"(响应时间|精度)[:：]?\d+(\.\d+)?(?:-\d+(\.\d+)?)?(ms|mm)", compact):
+            hits.append(
+                RiskHit(
+                    risk_group="技术参数与标准风险",
+                    rule_name="技术参数区间说明不足",
+                    severity=Severity.medium,
+                    matched_text=line[:160],
+                    rationale="响应时间、精度等敏感技术参数直接以具体值或区间表达，但未同步说明设置依据和区间判定逻辑，易形成评审争议。",
+                    source_anchor=f"line:{line_no}",
+                )
+            )
+            break
+        if re.search(r"(精度|范围|区间)[:：]?\d+(\.\d+)?-\d+(\.\d+)?", compact) or re.search(r"\b\d+(\.\d+)?-\d+(\.\d+)?mm\b", compact):
+            if not any(token in text for token in ["区间要求为", "区间说明", "涉及区间的参数", "区间参数"]):
+                hits.append(
+                    RiskHit(
+                        risk_group="技术参数与标准风险",
+                        rule_name="技术参数区间说明不足",
+                        severity=Severity.medium,
+                        matched_text=line[:160],
+                        rationale="技术参数使用区间表达，但未见对应区间说明、偏离判断或取值逻辑，易导致评审口径不清。",
+                        source_anchor=f"line:{line_no}",
+                    )
+                )
+                break
+
+    for line_no, line in enumerate(lines, start=1):
+        if any(token in line for token in ["操作体验", "界面友好美观", "设计美观", "人体工程学设计", "良好的操作体验", "友好美观"]):
+            hits.append(
+                RiskHit(
+                    risk_group="技术参数与标准风险",
+                    rule_name="技术要求存在主观描述",
+                    severity=Severity.high,
+                    matched_text=line[:180],
+                    rationale="技术要求采用主观审美或体验型描述，缺少可验证、可量化的客观标准，容易形成指向性要求。",
+                    source_anchor=f"line:{line_no}",
+                )
+            )
+            break
+
     has_goods = "货物" in text
     has_service_delivery = "运维" in text or "实施" in text or "服务" in text
     if has_goods and has_service_delivery:
@@ -227,6 +354,11 @@ def build_recommendations(findings: list[Finding]) -> list[Recommendation]:
         "行业无关证书或财务指标被纳入评分": "删除与项目履约能力无直接关联的证书、利润率或财务类评分项，仅保留与本项目相关的客观指标。",
         "方案评分量化不足": "将实施方案、保障方案、后续服务等评分项细化为客观、量化、可比的评分标准，避免仅按缺陷扣分。",
         "证书类评分分值偏高": "压缩证书类评分分值，避免证书评分权重明显高于项目实际履约相关性。",
+        "资产总额被设为评分因素": "删除以资产总额作为评分因素的条款，改为与项目履约直接相关的能力指标。",
+        "从业人员被设为评分因素": "删除以从业人员数量作为评分因素的条款，改为与项目团队配置直接相关的客观要求。",
+        "纳税额被设为评分因素": "删除以纳税额作为评分因素的条款，避免将经营结果替代项目履约评价。",
+        "成立年限被设为评分因素": "删除以成立年限作为评分因素的条款，避免对新设企业形成不当限制。",
+        "综合评分法价格分未采用低价优先法": "将综合评分法中的价格分改回低价优先法，并明确价格基准价计算口径。",
         "采购人单方决定": "删除“以采购人意见为准”等单方决定表述，改为客观验收和争议解决机制。",
         "付款节点不明确": "将付款节点与履约节点、验收节点一一对应，并写明触发条件。",
         "模板占位或旧模板残留": "清理“详见附件”“另行通知”“以正式合同为准”等模板残留，补足正式条款。",
@@ -263,6 +395,10 @@ def build_recommendations(findings: list[Finding]) -> list[Recommendation]:
         "验收标准存在优胜原则或单方弹性判断": "删除优胜原则或单方弹性判断表述，改为事先明确、客观、可执行的验收标准。",
         "预算金额与面向中小企业采购金额口径异常": "统一预算金额、最高限价和面向中小企业采购金额的口径，避免错填或混用。",
         "面向中小企业采购金额与最高限价疑似混用": "核对面向中小企业采购金额与最高限价字段，防止将最高限价误填为政策金额。",
+        "疑似使用不存在的技术标准": "核查标准编号和版本有效性，删除疑似不存在或失效的技术标准引用。",
+        "技术参数区间说明不足": "补充区间参数的偏离判断、取值逻辑和评审口径，避免区间表达不清。",
+        "同一技术参数区间说明冲突": "统一同一参数的偏差、偏离和取值规则，删除前后冲突的区间说明。",
+        "技术要求存在主观描述": "将体验、美观、友好等主观表述改写为可量化、可核验的客观技术指标。",
         "一般模板残留": "清理待定、空白、另行通知等模板性表述，减少执行歧义。",
         "服务项目保留货物类声明函模板": "删除服务项目中的制造商等货物类声明函内容，替换为服务项目适用模板。",
         "专门面向中小企业却保留价格扣除模板": "删除价格扣除模板并统一中小企业政策口径，防止评审执行冲突。",
@@ -278,3 +414,10 @@ def build_recommendations(findings: list[Finding]) -> list[Recommendation]:
             recommendations.append(Recommendation(related_issue=finding.title, suggestion=suggestion))
             seen.add(finding.title)
     return recommendations
+
+
+def _parameter_subject_key(text: str) -> str:
+    for token in ["设备重量", "重量", "手术机械臂精度", "精度", "产品响应时间", "响应时间"]:
+        if token in text:
+            return token
+    return "generic_parameter"
