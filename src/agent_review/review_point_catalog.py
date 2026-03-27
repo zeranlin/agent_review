@@ -12,6 +12,10 @@ from .ontology import ClauseSemanticType, EffectTag, SemanticZoneType
 DOMAIN_SCENARIO_TAGS: set[str] = {"goods", "service", "furniture", "property", "personnel"}
 
 
+def list_review_point_registry_definitions() -> list[ReviewPointDefinition]:
+    return [_enrich_definition_metadata(item) for item in CATALOG]
+
+
 CATALOG: list[ReviewPointDefinition] = [
     ReviewPointDefinition(
         catalog_id="RP-SME-001",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .adjudication import (
@@ -113,6 +113,28 @@ class ReviewPipelineState:
 
 
 class ReviewPipeline:
+    STAGE_BOUNDARIES: dict[str, dict[str, object]] = {
+        "document_structure": {"stage_layer": "parser", "primary_object": "DocumentNode/SectionIndex", "owned_by": "parser", "is_mainline": True},
+        "document_profiling": {"stage_layer": "planning", "primary_object": "DocumentProfile", "owned_by": "planning", "is_mainline": True},
+        "parser_semantic_assist": {"stage_layer": "parser", "primary_object": "ClauseUnit/Zone", "owned_by": "parser", "is_mainline": False},
+        "legal_fact_extraction": {"stage_layer": "fact", "primary_object": "LegalFactCandidate", "owned_by": "fact", "is_mainline": True},
+        "rule_hit_generation": {"stage_layer": "rule", "primary_object": "RuleHit", "owned_by": "rule", "is_mainline": True},
+        "review_point_instance_assembly": {"stage_layer": "rule", "primary_object": "ReviewPointInstance", "owned_by": "rule", "is_mainline": True},
+        "clause_extraction": {"stage_layer": "fact", "primary_object": "ExtractedClause", "owned_by": "fact", "is_mainline": True},
+        "clause_role_classification": {"stage_layer": "fact", "primary_object": "ExtractedClause", "owned_by": "fact", "is_mainline": False},
+        "review_task_planning": {"stage_layer": "planning", "primary_object": "ReviewPlanningContract", "owned_by": "planning", "is_mainline": True},
+        "planning_guided_extraction": {"stage_layer": "planning", "primary_object": "ExtractedClause", "owned_by": "planning", "is_mainline": True},
+        "dimension_review": {"stage_layer": "legacy", "primary_object": "ReviewPoint", "owned_by": "legacy_fallback", "is_mainline": False},
+        "rule_evaluation": {"stage_layer": "legacy", "primary_object": "RiskHit", "owned_by": "legacy_fallback", "is_mainline": False},
+        "consistency_review": {"stage_layer": "legacy", "primary_object": "ConsistencyCheck", "owned_by": "legacy_fallback", "is_mainline": False},
+        "review_point_assembly": {"stage_layer": "adjudication", "primary_object": "ReviewPoint", "owned_by": "adjudication", "is_mainline": True},
+        "applicability_check": {"stage_layer": "adjudication", "primary_object": "ApplicabilityCheck", "owned_by": "adjudication", "is_mainline": True},
+        "review_quality_gate": {"stage_layer": "adjudication", "primary_object": "ReviewQualityGate", "owned_by": "adjudication", "is_mainline": True},
+        "formal_adjudication": {"stage_layer": "adjudication", "primary_object": "FormalAdjudication", "owned_by": "adjudication", "is_mainline": True},
+        "finalize_report": {"stage_layer": "output", "primary_object": "ReviewReport", "owned_by": "output", "is_mainline": True},
+        "llm_semantic_review": {"stage_layer": "llm", "primary_object": "LLMSemanticReview", "owned_by": "llm_enhancement", "is_mainline": False},
+    }
+
     def __init__(
         self,
         dimensions: list[ReviewDimension] | None = None,
@@ -156,6 +178,7 @@ class ReviewPipeline:
         )
         for stage in self.stages:
             stage(state)
+        state.stage_records = [self._enrich_stage_record(item) for item in state.stage_records]
 
         return ReviewReport(
             review_mode=review_mode,
@@ -196,10 +219,24 @@ class ReviewPipeline:
                     status=TaskStatus.completed if item.status == "completed" else TaskStatus.failed,
                     detail=item.detail,
                     item_count=item.item_count,
+                    stage_layer=item.stage_layer,
+                    primary_object=item.primary_object,
+                    owned_by=item.owned_by,
+                    is_mainline=item.is_mainline,
                 )
                 for item in state.stage_records
             ],
             rule_selection=state.rule_selection,
+        )
+
+    def _enrich_stage_record(self, record: RunStageRecord) -> RunStageRecord:
+        metadata = self.STAGE_BOUNDARIES.get(record.stage_name, {})
+        return replace(
+            record,
+            stage_layer=str(metadata.get("stage_layer", record.stage_layer)),
+            primary_object=str(metadata.get("primary_object", record.primary_object)),
+            owned_by=str(metadata.get("owned_by", record.owned_by)),
+            is_mainline=bool(metadata.get("is_mainline", record.is_mainline)),
         )
 
     def _stage_document_structure(self, state: ReviewPipelineState) -> None:

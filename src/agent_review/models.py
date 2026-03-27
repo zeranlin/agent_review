@@ -1026,6 +1026,10 @@ class RunStageRecord:
     status: str
     item_count: int | None = None
     detail: str = ""
+    stage_layer: str = ""
+    primary_object: str = ""
+    owned_by: str = ""
+    is_mainline: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -1037,6 +1041,10 @@ class TaskRecord:
     status: TaskStatus
     detail: str = ""
     item_count: int | None = None
+    stage_layer: str = ""
+    primary_object: str = ""
+    owned_by: str = ""
+    is_mainline: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -1044,6 +1052,10 @@ class TaskRecord:
             "status": self.status.value,
             "detail": self.detail,
             "item_count": self.item_count,
+            "stage_layer": self.stage_layer,
+            "primary_object": self.primary_object,
+            "owned_by": self.owned_by,
+            "is_mainline": self.is_mainline,
         }
 
 

@@ -328,7 +328,7 @@ def render_markdown(report: ReviewReport) -> str:
         lines.append("")
 
     if report.review_point_catalog:
-        lines.append("## 审查点目录")
+        lines.append("## 任务注册表快照")
         for item in report.review_point_catalog[:10]:
             lines.append(
                 f"- [{item.catalog_id}] {item.title}: 默认等级 {item.default_severity.value}，适用场景 {', '.join(item.scenario_tags) if item.scenario_tags else '通用'}"
@@ -529,13 +529,16 @@ def render_markdown(report: ReviewReport) -> str:
 
 def _build_middle_trace_summary_lines(report: ReviewReport) -> list[str]:
     profile = report.parse_result.document_profile
-    if profile is None and not report.quality_gates:
+    if profile is None and not report.quality_gates and not report.stage_records:
         return []
 
     lines: list[str] = [
         "## 中间产物摘要",
         "",
     ]
+    mainline_stage_lines = _build_mainline_stage_summary_lines(report.stage_records)
+    if mainline_stage_lines:
+        lines.extend(mainline_stage_lines)
     if profile is not None:
         candidate_text = _format_profile_candidates(profile.domain_profile_candidates[:3])
         zone_text = _format_profile_zone_stats(profile)
@@ -569,6 +572,22 @@ def _build_middle_trace_summary_lines(report: ReviewReport) -> list[str]:
         )
     lines.append("")
     return lines
+
+
+def _build_mainline_stage_summary_lines(stage_records) -> list[str]:
+    if not stage_records:
+        return []
+    mainline = [item for item in stage_records if item.is_mainline]
+    if not mainline:
+        return []
+    stage_flow = " -> ".join(
+        f"{item.stage_name}({item.stage_layer}:{item.primary_object})"
+        for item in mainline
+    )
+    return [
+        f"- 主链阶段: {stage_flow}",
+        f"- 主链阶段数: {len(mainline)}",
+    ]
 
 
 def _format_profile_candidates(candidates) -> str:

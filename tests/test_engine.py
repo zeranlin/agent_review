@@ -191,6 +191,14 @@ def test_missing_dimension_generates_missing_evidence() -> None:
     assert report.applicability_checks
     assert report.quality_gates
     assert report.formal_adjudication
+    legal_fact_stage = next(item for item in report.stage_records if item.stage_name == "legal_fact_extraction")
+    formal_stage = next(item for item in report.stage_records if item.stage_name == "formal_adjudication")
+    assert legal_fact_stage.stage_layer == "fact"
+    assert legal_fact_stage.primary_object == "LegalFactCandidate"
+    assert legal_fact_stage.is_mainline is True
+    assert formal_stage.stage_layer == "adjudication"
+    assert formal_stage.primary_object == "FormalAdjudication"
+    assert any(item.task_name == "formal_adjudication" and item.stage_layer == "adjudication" for item in report.task_records)
 
 
 def test_review_point_catalog_covers_structured_policy_and_contract_points() -> None:
@@ -210,6 +218,21 @@ def test_review_point_catalog_covers_structured_policy_and_contract_points() -> 
         for item in report.review_points
         if item.title == "尾款支付与考核条款联动风险"
     )
+
+
+def test_markdown_surfaces_mainline_stage_summary_and_registry_snapshot() -> None:
+    text = """
+    项目属性：服务
+    采购标的：物业服务
+    """
+    report = TenderReviewEngine().review_text(text, document_name="demo.txt")
+    markdown = render_markdown(report)
+
+    assert "## 中间产物摘要" in markdown
+    assert "- 主链阶段:" in markdown
+    assert "document_structure(parser:DocumentNode/SectionIndex)" in markdown
+    assert "## 任务注册表快照" in markdown
+    assert "## 审查点目录" not in markdown
 
 
 def test_review_task_planning_builds_standard_tasks_without_polluting_findings() -> None:
