@@ -61,6 +61,7 @@ from .models import (
     TaskStatus,
 )
 from .ontology import SemanticZoneType, ZONE_PRIMARY_REVIEW_TYPES
+from .parsed_tender_document import build_parsed_tender_document
 from .quality import derive_conclusion_by_evidence
 from .rules import build_recommendations, execute_rule_registry
 from .review_point_catalog import resolve_review_point_definition
@@ -241,6 +242,10 @@ class ReviewPipeline:
 
     def _stage_document_structure(self, state: ReviewPipelineState) -> None:
         state.parse_result = enrich_parse_result_structure(state.parse_result)
+        state.parse_result.parsed_tender_document = build_parsed_tender_document(
+            state.parse_result,
+            document_name=state.document_name,
+        )
         file_type = detect_file_type(state.normalized_text)
         state.file_info = build_file_info(state.document_name, state.normalized_text, file_type)
         state.scope_statement = build_scope_statement(state.file_info)
@@ -257,6 +262,10 @@ class ReviewPipeline:
     def _stage_document_profiling(self, state: ReviewPipelineState) -> None:
         state.document_profile = build_document_profile(state.parse_result, state.document_name)
         state.parse_result.document_profile = state.document_profile
+        state.parse_result.parsed_tender_document = build_parsed_tender_document(
+            state.parse_result,
+            document_name=state.document_name,
+        )
         candidate_count = len(state.document_profile.domain_profile_candidates)
         state.stage_records.append(
             RunStageRecord(
@@ -282,6 +291,10 @@ class ReviewPipeline:
         if trace.applied_count > 0:
             state.document_profile = build_document_profile(state.parse_result, state.document_name)
             state.parse_result.document_profile = state.document_profile
+        state.parse_result.parsed_tender_document = build_parsed_tender_document(
+            state.parse_result,
+            document_name=state.document_name,
+        )
         detail = (
             "parser 语义补偿未激活，继续沿用规则主链结果。"
             if not trace.activated

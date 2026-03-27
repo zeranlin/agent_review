@@ -862,6 +862,7 @@ class ParseResult:
     review_point_instances: list[ReviewPointInstance] = field(default_factory=list)
     document_profile: DocumentProfile | None = None
     parser_semantic_trace: ParserSemanticTrace | None = None
+    parsed_tender_document: ParsedTenderDocument | None = None
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -884,6 +885,7 @@ class ParseResult:
             "review_point_instances": [item.to_dict() for item in self.review_point_instances],
             "document_profile": self.document_profile.to_dict() if self.document_profile else None,
             "parser_semantic_trace": self.parser_semantic_trace.to_dict() if self.parser_semantic_trace else None,
+            "parsed_tender_document": self.parsed_tender_document.to_dict() if self.parsed_tender_document else None,
             "warnings": self.warnings,
         }
 
@@ -1125,6 +1127,124 @@ class HeaderInfo:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+@dataclass(slots=True)
+class ClauseEvidenceRef:
+    clause_unit_id: str
+    source_node_id: str
+    path: str = ""
+    zone_type: str = ""
+    clause_semantic_type: str = ""
+    anchor: SourceAnchor = field(default_factory=SourceAnchor)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "clause_unit_id": self.clause_unit_id,
+            "source_node_id": self.source_node_id,
+            "path": self.path,
+            "zone_type": self.zone_type,
+            "clause_semantic_type": self.clause_semantic_type,
+            "anchor": self.anchor.to_dict(),
+        }
+
+
+@dataclass(slots=True)
+class ParserWarning:
+    code: str
+    message: str
+    severity: str = Severity.low.value
+    anchor: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ParserConfidenceSummary:
+    overall_confidence: float = 0.0
+    zone_average_confidence: float = 0.0
+    effect_average_confidence: float = 0.0
+    clause_unit_average_confidence: float = 0.0
+    low_confidence_zone_count: int = 0
+    low_confidence_clause_unit_count: int = 0
+    parser_semantic_assist_activated: bool = False
+    parser_semantic_assist_applied_count: int = 0
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ParsedTenderSection:
+    section_id: str
+    node_id: str
+    title: str
+    path: str = ""
+    node_type: str = ""
+    zone_type: str = ""
+    effect_tags: list[str] = field(default_factory=list)
+    anchor: SourceAnchor = field(default_factory=SourceAnchor)
+    text_preview: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "section_id": self.section_id,
+            "node_id": self.node_id,
+            "title": self.title,
+            "path": self.path,
+            "node_type": self.node_type,
+            "zone_type": self.zone_type,
+            "effect_tags": self.effect_tags,
+            "anchor": self.anchor.to_dict(),
+            "text_preview": self.text_preview,
+        }
+
+
+@dataclass(slots=True)
+class ParsedTenderDocument:
+    document_id: str
+    source_path: str
+    document_name: str
+    document_type: str
+    parser_name: str
+    source_format: str
+    normalized_text: str
+    page_count: int | None = None
+    header_info: HeaderInfo = field(default_factory=HeaderInfo)
+    document_profile: DocumentProfile | None = None
+    sections: list[ParsedTenderSection] = field(default_factory=list)
+    document_nodes: list[DocumentNode] = field(default_factory=list)
+    tables: list[ParsedTable] = field(default_factory=list)
+    semantic_zones: list[SemanticZone] = field(default_factory=list)
+    effect_tags: list[EffectTagResult] = field(default_factory=list)
+    clause_units: list[ClauseUnit] = field(default_factory=list)
+    anchors: list[ClauseEvidenceRef] = field(default_factory=list)
+    parser_warnings: list[ParserWarning] = field(default_factory=list)
+    parser_confidence_summary: ParserConfidenceSummary = field(default_factory=ParserConfidenceSummary)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "document_id": self.document_id,
+            "source_path": self.source_path,
+            "document_name": self.document_name,
+            "document_type": self.document_type,
+            "parser_name": self.parser_name,
+            "source_format": self.source_format,
+            "normalized_text": self.normalized_text,
+            "page_count": self.page_count,
+            "header_info": self.header_info.to_dict(),
+            "document_profile": self.document_profile.to_dict() if self.document_profile else None,
+            "sections": [item.to_dict() for item in self.sections],
+            "document_nodes": [item.to_dict() for item in self.document_nodes],
+            "tables": [item.to_dict() for item in self.tables],
+            "semantic_zones": [item.to_dict() for item in self.semantic_zones],
+            "effect_tags": [item.to_dict() for item in self.effect_tags],
+            "clause_units": [item.to_dict() for item in self.clause_units],
+            "anchors": [item.to_dict() for item in self.anchors],
+            "parser_warnings": [item.to_dict() for item in self.parser_warnings],
+            "parser_confidence_summary": self.parser_confidence_summary.to_dict(),
+        }
 
 
 @dataclass(slots=True)

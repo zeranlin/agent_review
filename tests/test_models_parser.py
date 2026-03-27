@@ -1,9 +1,14 @@
 from agent_review.models import (
+    ClauseEvidenceRef,
     ClauseUnit,
     DocumentNode,
     EffectTagResult,
     HeaderInfo,
     ParseResult,
+    ParsedTenderDocument,
+    ParsedTenderSection,
+    ParserConfidenceSummary,
+    ParserWarning,
     RawBlock,
     RawCell,
     RawTable,
@@ -11,6 +16,7 @@ from agent_review.models import (
     SemanticZone,
     SourceAnchor,
 )
+from agent_review.parsed_tender_document import build_parsed_tender_document
 from agent_review.ontology import ClauseSemanticType, EffectTag, NodeType, SemanticZoneType, ZONE_ONTOLOGY_VERSION
 
 
@@ -126,3 +132,94 @@ def test_header_info_and_review_planning_contract_expose_ontology_fields() -> No
     assert header_payload["source_evidence"]["project_name"] == "resolver"
     assert contract_payload["ontology_version"] == ZONE_ONTOLOGY_VERSION
     assert contract_payload["target_primary_review_types"] == ["资格", "评分"]
+
+
+def test_parsed_tender_document_models_are_serializable() -> None:
+    anchor = SourceAnchor(source_path="/tmp/demo.docx", block_no=1, line_hint="line:1")
+    section = ParsedTenderSection(
+        section_id="section-1",
+        node_id="n-1",
+        title="项目概况",
+        path="第一章 > 项目概况",
+        node_type=NodeType.paragraph.value,
+        zone_type=SemanticZoneType.administrative_info.value,
+        effect_tags=[EffectTag.binding.value],
+        anchor=anchor,
+        text_preview="项目概况",
+    )
+    warning = ParserWarning(code="parser_warning_1", message="示例告警", anchor="line:1")
+    confidence = ParserConfidenceSummary(overall_confidence=0.88, zone_average_confidence=0.91)
+    evidence_ref = ClauseEvidenceRef(
+        clause_unit_id="u-1",
+        source_node_id="n-1",
+        path="第一章 > 项目概况",
+        zone_type=SemanticZoneType.administrative_info.value,
+        clause_semantic_type=ClauseSemanticType.administrative_clause.value,
+        anchor=anchor,
+    )
+    doc = ParsedTenderDocument(
+        document_id="demo.docx",
+        source_path="/tmp/demo.docx",
+        document_name="demo.docx",
+        document_type="docx",
+        parser_name="docx",
+        source_format="docx",
+        normalized_text="项目概况",
+        sections=[section],
+        anchors=[evidence_ref],
+        parser_warnings=[warning],
+        parser_confidence_summary=confidence,
+    )
+
+    payload = doc.to_dict()
+
+    assert payload["sections"][0]["zone_type"] == SemanticZoneType.administrative_info.value
+    assert payload["anchors"][0]["clause_semantic_type"] == ClauseSemanticType.administrative_clause.value
+    assert payload["parser_warnings"][0]["message"] == "示例告警"
+    assert payload["parser_confidence_summary"]["overall_confidence"] == 0.88
+
+
+def test_build_parsed_tender_document_from_parse_result() -> None:
+    anchor = SourceAnchor(source_path="/tmp/demo.txt", block_no=1, paragraph_no=1, line_hint="line:1")
+    node = DocumentNode(
+        node_id="n-1",
+        node_type=NodeType.paragraph,
+        title="项目概况",
+        text="项目名称：智慧校园设备采购\n采购人：某学校",
+        path="第一章 招标公告 > 项目概况",
+        anchor=anchor,
+    )
+    zone = SemanticZone(node_id="n-1", zone_type=SemanticZoneType.administrative_info, confidence=0.95)
+    effect = EffectTagResult(node_id="n-1", effect_tags=[EffectTag.binding], confidence=0.9)
+    unit = ClauseUnit(
+        unit_id="u-1",
+        source_node_id="n-1",
+        text="项目名称：智慧校园设备采购",
+        path="第一章 招标公告 > 项目概况",
+        anchor=anchor,
+        zone_type=SemanticZoneType.administrative_info,
+        clause_semantic_type=ClauseSemanticType.administrative_clause,
+        effect_tags=[EffectTag.binding],
+        confidence=0.92,
+    )
+    result = ParseResult(
+        parser_name="text",
+        source_path="/tmp/demo.txt",
+        source_format="txt",
+        page_count=1,
+        text="项目名称：智慧校园设备采购\n采购人：某学校",
+        document_nodes=[node],
+        semantic_zones=[zone],
+        effect_tag_results=[effect],
+        clause_units=[unit],
+        warnings=["目录结构较弱"],
+    )
+
+    parsed = build_parsed_tender_document(result, document_name="demo.txt")
+
+    assert parsed.document_name == "demo.txt"
+    assert parsed.header_info.project_name == "智慧校园设备采购"
+    assert parsed.header_info.purchaser_name == "某学校"
+    assert parsed.sections[0].zone_type == SemanticZoneType.administrative_info.value
+    assert parsed.anchors[0].clause_unit_id == "u-1"
+    assert parsed.parser_warnings[0].message == "目录结构较弱"

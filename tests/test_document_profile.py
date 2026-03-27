@@ -28,6 +28,8 @@ def test_document_profile_is_built_before_review_task_planning() -> None:
     profile = state.parse_result.document_profile
 
     assert profile is not None
+    assert state.parse_result.parsed_tender_document is not None
+    assert state.parse_result.parsed_tender_document.document_profile is not None
     assert profile.procurement_kind in {"goods", "mixed"}
     assert profile.domain_profile_candidates
     assert "heavy_scoring_tables" in profile.structure_flags

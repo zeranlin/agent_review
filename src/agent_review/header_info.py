@@ -3,8 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from .models import EffectTag, HeaderInfo, ReviewReport
+from .models import EffectTag, HeaderInfo, ParseResult, ReviewReport
 from .ontology import SemanticZoneType
+
+
+class _ClauseLike:
+    def __init__(self, path: str, effect_tags) -> None:
+        self.path = path
+        self.effect_tags = effect_tags
+        self.semantic_zone = SemanticZoneType.administrative_info if "招标公告" in path or "项目概况" in path else SemanticZoneType.mixed_or_uncertain
 
 
 def resolve_header_info(report: ReviewReport) -> HeaderInfo:
@@ -40,6 +47,76 @@ def resolve_header_info(report: ReviewReport) -> HeaderInfo:
     )
 
 
+def resolve_header_info_from_parse_result(parse_result: ParseResult, *, document_name: str = "") -> HeaderInfo:
+    project_name = _resolve_project_name_from_parse_result(parse_result, document_name=document_name)
+    project_code = _search_header_text_value(
+        parse_result,
+        [
+            r"项目编号[:：]\s*([^\n]+)",
+            r"项目编号\s*\|\s*([^\|\n]+)",
+        ],
+        extractor=_extract_project_code_value,
+    )
+    purchaser_name = _search_header_text_value(
+        parse_result,
+        [
+            r"采购人(?:名称)?[:：]\s*([^\n]+)",
+            r"采购单位[:：]\s*([^\n]+)",
+            r"(?:^|\n)\s*\d+(?:\.\d+)?\s*\|\s*采购人\s*\|\s*([^\|\n]+)",
+            r"(?:^|\n)\s*\d+(?:\.\d+)?\s*\|\s*采购单位\s*\|\s*([^\|\n]+)",
+        ],
+        extractor=_extract_purchaser_value_fragment,
+    )
+    agency_name = _search_header_text_value(
+        parse_result,
+        [
+            r"采购代理机构(?:名称)?[:：]\s*([^\n]+)",
+            r"(?:^|\n)\s*\d+(?:\.\d+)?\s*\|\s*采购代理机构\s*\|\s*([^\|\n]+)",
+        ],
+        extractor=_extract_agency_value_fragment,
+    )
+    budget_amount = _search_header_text_value(
+        parse_result,
+        [
+            r"预算金额(?:（元）)?[:：]\s*([^\n]+)",
+            r"预算金额\s*\|\s*([^\|\n]+)",
+        ],
+        extractor=_extract_amount_value,
+    )
+    max_price = _search_header_text_value(
+        parse_result,
+        [
+            r"最高限价(?:（元）)?[:：]\s*([^\n]+)",
+            r"最高限价\s*\|\s*([^\|\n]+)",
+        ],
+        extractor=_extract_amount_value,
+    )
+    return HeaderInfo(
+        project_name=project_name,
+        project_code=project_code,
+        purchaser_name=purchaser_name,
+        agency_name=agency_name,
+        budget_amount=budget_amount,
+        max_price=max_price,
+        source_evidence={
+            "project_name": "parse_result_resolver",
+            "project_code": "parse_result_resolver",
+            "purchaser_name": "parse_result_resolver",
+            "agency_name": "parse_result_resolver",
+            "budget_amount": "parse_result_resolver",
+            "max_price": "parse_result_resolver",
+        },
+        confidence={
+            "project_name": 1.0 if project_name else 0.0,
+            "project_code": 1.0 if project_code else 0.0,
+            "purchaser_name": 1.0 if purchaser_name else 0.0,
+            "agency_name": 1.0 if agency_name else 0.0,
+            "budget_amount": 1.0 if budget_amount else 0.0,
+            "max_price": 1.0 if max_price else 0.0,
+        },
+    )
+
+
 def _resolve_project_name(report: ReviewReport) -> str:
     candidates = []
     for clause in report.extracted_clauses:
@@ -60,6 +137,32 @@ def _resolve_project_name(report: ReviewReport) -> str:
         candidates.append((text_value, 120))
     if not candidates:
         return Path(report.file_info.document_name).stem
+    candidates.sort(key=lambda item: (-item[1], len(item[0])))
+    return candidates[0][0]
+
+
+def _resolve_project_name_from_parse_result(parse_result: ParseResult, *, document_name: str = "") -> str:
+    candidates: list[tuple[str, int]] = []
+    for unit in parse_result.clause_units[:80]:
+        if not re.search(r"项目名称[:：]|\|\s*项目名称\s*\|", unit.text):
+            continue
+        value = _extract_project_name_value(unit.text)
+        if not value:
+            continue
+        anchor = unit.anchor.line_hint or ""
+        score = _score_project_name_candidate(unit.text, anchor, _ClauseLike(unit.path, unit.effect_tags))
+        candidates.append((value, score))
+    text_value = _search_text_value(
+        parse_result.text or "",
+        [
+            r"项目名称[:：]\s*([^\n]+)",
+            r"项目名称\s*\|\s*([^\|\n]+)",
+        ],
+    )
+    if text_value:
+        candidates.append((text_value, 120))
+    if not candidates:
+        return Path(document_name or parse_result.source_path).stem
     candidates.sort(key=lambda item: (-item[1], len(item[0])))
     return candidates[0][0]
 
@@ -159,6 +262,32 @@ def _resolve_amount_field(report: ReviewReport, field_name: str) -> str:
     return candidates[0][0]
 
 
+def _search_header_text_value(
+    parse_result: ParseResult,
+    patterns: list[str],
+    *,
+    extractor,
+) -> str:
+    candidates: list[str] = []
+    for unit in parse_result.clause_units[:120]:
+        for pattern in patterns:
+            match = re.search(pattern, unit.text)
+            if not match:
+                continue
+            value = extractor(match.group(1))
+            if value:
+                candidates.append(value)
+    text_value = _search_text_value(parse_result.text or "", patterns)
+    if text_value:
+        normalized = extractor(text_value)
+        if normalized:
+            candidates.append(normalized)
+    if not candidates:
+        return ""
+    candidates.sort(key=len)
+    return candidates[0]
+
+
 def _extract_project_name_value(text: str) -> str:
     cleaned = _strip_field_prefix(text, "项目名称")
     cleaned = _clean_header_value(cleaned)
@@ -189,6 +318,15 @@ def _extract_purchaser_value(text: str) -> str:
     return ""
 
 
+def _extract_purchaser_value_fragment(text: str) -> str:
+    cleaned = _clean_header_value(text)
+    if not cleaned:
+        return ""
+    if any(token in cleaned for token in _PURCHASER_REJECT_TOKENS):
+        return ""
+    return cleaned
+
+
 def _extract_project_code_value(text: str) -> str:
     cleaned = _strip_field_prefix(text, "项目编号")
     cleaned = _clean_header_value(cleaned)
@@ -215,6 +353,15 @@ def _extract_agency_value(text: str) -> str:
             continue
         return cleaned
     return ""
+
+
+def _extract_agency_value_fragment(text: str) -> str:
+    cleaned = _clean_header_value(text)
+    if not cleaned:
+        return ""
+    if any(token in cleaned for token in _AGENCY_REJECT_TOKENS):
+        return ""
+    return cleaned
 
 
 def _extract_amount_value(text: str) -> str:
