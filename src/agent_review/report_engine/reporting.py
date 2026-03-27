@@ -853,6 +853,7 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
         if point is None:
             continue
         group_key, title, dimension, severity = _reviewer_issue_group_definition(point)
+        group_key = _canonical_reviewer_group_key(group_key, title)
         entry = grouped_entries.setdefault(
             group_key,
             {
@@ -865,6 +866,7 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
                 "_basis": [],
             },
         )
+        entry["问题定性"] = _stronger_reviewer_severity(entry["问题定性"], severity)
         for location in _collect_reviewer_locations(point, adjudication):
             if location not in entry["_locations"]:
                 entry["_locations"].append(location)
@@ -900,9 +902,10 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
                 "原文位置": _format_reviewer_locations(selected_locations),
                 "原文摘录": (primary_quotes if primary_quotes else ["当前自动抽取未定位到可直接引用的原文。"]),
                 "风险判断": risk_judgment,
-                "法律/政策依据": entry["_basis"] or ["当前结果未自动挂接明确法规依据"],
+                "法律/政策依据": _dedupe_reviewer_basis_lines(entry["_basis"]) or ["当前结果未自动挂接明确法规依据"],
             }
         )
+    entries.sort(key=_reviewer_issue_sort_key)
     return entries
 
 
@@ -1007,6 +1010,31 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
         point.dimension or "风险点审查",
         _reviewer_severity_label(point.severity.value),
     )
+
+
+def _canonical_reviewer_group_key(group_key: str, title: str) -> str:
+    normalized_title = re.sub(r"\s+", "", title or "")
+    explicit_clusters = {
+        "履约保证金转质量保证金或长期无息占压": "contract_retention_money",
+        "第三方检测费用无论结果均由中标人承担": "contract_third_party_test_cost",
+        "以预算金额比例设最低报价门槛": "competition_min_quote_floor",
+        "资格条件与评分因素重复设门槛": "qualification_scoring_overlap",
+    }
+    cluster_key = explicit_clusters.get(normalized_title)
+    if cluster_key:
+        return cluster_key
+    return normalized_title or group_key
+
+
+def _stronger_reviewer_severity(current: str, candidate: str) -> str:
+    order = {"高风险": 3, "中风险": 2, "低风险": 1}
+    return candidate if order.get(candidate, 0) > order.get(current, 0) else current
+
+
+def _reviewer_issue_sort_key(entry: dict[str, object]) -> tuple[int, str]:
+    severity = str(entry.get("问题定性", "高风险"))
+    order = {"高风险": 0, "中风险": 1, "低风险": 2}
+    return (order.get(severity, 9), str(entry.get("问题标题", "")))
 
 
 def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -1309,8 +1337,25 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
     if group_key in templates:
         return templates[group_key]
     if risk_judgments:
-        return risk_judgments[0]
+        return _select_best_risk_judgment(risk_judgments)
     return "已发现明确风险，证据较充分。"
+
+
+def _select_best_risk_judgment(risk_judgments: list[str]) -> str:
+    def score(text: str) -> tuple[int, int]:
+        normalized = text or ""
+        strength = 0
+        if any(token in normalized for token in ["已形成较直接的条款依据", "相关风险较为明确", "已发现明确风险", "直接以", "容易形成", "需核查是否"]):
+            strength += 4
+        if any(token in normalized for token in ["已发现支持该问题的条款依据", "仍需结合上下文核对风险强度"]):
+            strength += 3
+        if any(token in normalized for token in ["已识别相关风险线索", "代表性仍需继续核对"]):
+            strength += 2
+        if any(token in normalized for token in ["尚不足以直接定性", "尚未找到", "未自动挂接", "建议进一步复核"]):
+            strength -= 2
+        return (strength, len(normalized))
+
+    return sorted(risk_judgments, key=score, reverse=True)[0]
 
 
 def _format_review_date() -> str:
@@ -1414,6 +1459,7 @@ def _reviewer_legal_basis_lines(point) -> list[str]:
         label = f"《{basis.source_name}》"
         if basis.article_hint:
             label = f"{label} {basis.article_hint}"
+        label = _normalize_reviewer_basis_label(label)
         if label not in lines:
             lines.append(label)
     if not lines:
@@ -1433,7 +1479,34 @@ def _build_reviewer_basis_lines(report: ReviewReport) -> list[str]:
         for basis in _reviewer_legal_basis_lines(point):
             if basis not in lines and basis != "当前结果未自动挂接明确法规依据":
                 lines.append(basis)
-    return lines
+    return _dedupe_reviewer_basis_lines(lines)
+
+
+def _normalize_reviewer_basis_label(label: str) -> str:
+    normalized = re.sub(r"\s+", " ", label).strip()
+    if "《中华人民共和国政府采购法、政府采购货物和服务招标投标管理办法》" in normalized:
+        if "报价审查相关条款" in normalized:
+            return "《中华人民共和国政府采购法》 第二十二条、第二十五条"
+        return "《政府采购货物和服务招标投标管理办法》 评审与报价审查相关条款"
+    normalized = normalized.replace("及报价审查相关条款", "报价审查相关条款")
+    normalized = normalized.replace("评审因素设置相关条款", "评审因素设置相关条款")
+    return normalized
+
+
+def _dedupe_reviewer_basis_lines(lines: list[str]) -> list[str]:
+    results: list[str] = []
+    seen_keys: set[str] = set()
+    for line in lines:
+        normalized = _normalize_reviewer_basis_label(line)
+        dedupe_key = normalized
+        dedupe_key = dedupe_key.replace("《中华人民共和国政府采购法》《政府采购货物和服务招标投标管理办法》 ", "")
+        dedupe_key = dedupe_key.replace("《中华人民共和国政府采购法》 ", "")
+        dedupe_key = dedupe_key.replace("《政府采购货物和服务招标投标管理办法》 ", "")
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        results.append(normalized)
+    return results
 
 
 def _format_reviewer_locations(locations: list[str]) -> str:
@@ -1489,17 +1562,31 @@ def _dedupe_quotes(quotes: list[str]) -> list[str]:
 
 
 def _dedupe_quote_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
-    seen: set[tuple[str, str]] = set()
     results: list[dict[str, str]] = []
     for item in records:
         quote = re.sub(r"\s+", " ", item.get("quote", "")).strip(" ；;")
         location = item.get("location", "").strip()
         if not quote:
             continue
-        key = (location, quote)
-        if key in seen:
+        duplicate_index: int | None = None
+        for index, existing in enumerate(results):
+            existing_quote = existing["quote"]
+            same_location = existing["location"] == location
+            if not same_location:
+                continue
+            if quote == existing_quote:
+                duplicate_index = index
+                break
+            if quote in existing_quote:
+                duplicate_index = index
+                break
+            if existing_quote in quote:
+                duplicate_index = index
+                if len(quote) > len(existing_quote):
+                    results[index] = {"location": location, "quote": quote}
+                break
+        if duplicate_index is not None:
             continue
-        seen.add(key)
         results.append({"location": location, "quote": quote})
     return results
 
