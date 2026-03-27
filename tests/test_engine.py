@@ -358,6 +358,45 @@ def test_legal_fact_extraction_can_fallback_to_raw_text_for_misaligned_qualifica
     assert any("深圳市医疗器械行业同类项目业绩不少于2个" in item for item in texts)
 
 
+def test_legal_fact_extraction_builds_structured_technical_parameter_slots() -> None:
+    text = """
+    技术要求：
+    1.6.2.10 产品响应时间：100ms
+    1.6.2.11 手术机械臂精度：0.1-0.5mm
+    1.6.2.12 设备重量≤500kg(不允许正偏离)
+    4、涉及区间的参数，除特别注明以外，产品参数区间与招标要求不一致的均视为负偏离。例：区间要求为0-20ML。
+    """
+    facts = extract_legal_facts_from_units([], document_id="technical-fallback.txt", raw_text=text)
+    technical_facts = [item for item in facts if item.fact_type == "technical_parameter"]
+
+    response_time = next(item for item in technical_facts if "响应时间" in item.object_text)
+    assert response_time.constraint_value["parameter_name"] == "响应时间"
+    assert response_time.constraint_value["parameter_value"] == "100"
+    assert response_time.constraint_value["parameter_unit"].lower() == "ms"
+    assert response_time.constraint_value["is_interval"] is False
+    assert response_time.constraint_value["has_deviation_rule"] is False
+    assert response_time.constraint_value["has_basis_explanation"] is False
+
+    precision = next(item for item in technical_facts if "手术机械臂精度" in item.object_text)
+    assert precision.constraint_value["parameter_name"] == "手术机械臂精度"
+    assert precision.constraint_value["parameter_value"] == "0.1-0.5"
+    assert precision.constraint_value["parameter_unit"].lower() == "mm"
+    assert precision.constraint_value["is_interval"] is True
+
+    weight = next(item for item in technical_facts if "设备重量≤500kg" in item.object_text)
+    assert weight.constraint_value["parameter_name"] == "设备重量"
+    assert weight.constraint_value["parameter_value"] == "≤500"
+    assert weight.constraint_value["parameter_unit"].lower() == "kg"
+    assert weight.constraint_value["is_interval"] is False
+    assert weight.constraint_value["has_deviation_rule"] is True
+    assert weight.constraint_value["has_basis_explanation"] is False
+
+    interval_rule = next(item for item in technical_facts if "涉及区间的参数" in item.object_text)
+    assert interval_rule.constraint_value["is_interval"] is True
+    assert interval_rule.constraint_value["has_deviation_rule"] is True
+    assert interval_rule.constraint_value["has_basis_explanation"] is True
+
+
 def test_qualification_performance_dup_rule_no_longer_triggers_on_bare_scoring_text() -> None:
     text = """
     评分标准：

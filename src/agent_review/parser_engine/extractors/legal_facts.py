@@ -185,6 +185,8 @@ def _fallback_fact_candidate(
     if current_zone == SemanticZoneType.scoring and any(token in compact for token in ["得分", "评分", "最高得", "加分", "扣分"]):
         if any(token in compact for token in ["证书", "认证", "检测报告", "ITSS", "营业收入", "利润率", "资产规模", "信用评价", "业绩", "方案"]):
             return SemanticZoneType.scoring, ClauseSemanticType.scoring_factor, "scoring_factor"
+    if current_zone == SemanticZoneType.technical and _looks_like_technical_parameter_clause(compact):
+        return SemanticZoneType.technical, ClauseSemanticType.technical_requirement, "technical_parameter"
     if "履约担保" in compact or "质量保证金" in compact or "履约保证金" in compact:
         return SemanticZoneType.contract, ClauseSemanticType.acceptance_term, "acceptance_term"
     if "第三方检测费用" in compact and "中标人承担" in compact:
@@ -651,6 +653,22 @@ def _looks_like_scoring_factor(text: str) -> bool:
     )
 
 
+def _looks_like_technical_parameter_clause(compact: str) -> bool:
+    if any(token in compact for token in ["GB/T", "ISO", "检测报告", "技术标准", "规范要求"]) and not any(
+        token in compact for token in ["响应时间", "精度", "重量", "区间", "范围", "偏离", "偏差"]
+    ):
+        return False
+    if any(token in compact for token in ["响应时间", "精度", "重量", "区间", "范围", "偏离", "偏差", "参数"]):
+        return True
+    return bool(
+        re.search(
+            r"(?:[:：≤≥<>=]|±)\d+(?:\.\d+)?(?:(?:-|~|至)\d+(?:\.\d+)?)?\s*(ms|mm|cm|kg|g|mg|ml|mL|L|nm|μm|um|m|°|%|Hz|kHz|MHz|GHz|W|kW|V|A)",
+            compact,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _policy_terms_from_text(text: str) -> list[str]:
     compact = re.sub(r"\s+", "", text)
     tokens: list[str] = []
@@ -705,6 +723,18 @@ def _semantic_terms_from_text(
         tokens.append("结果无关承担")
     if _looks_like_price_floor_clause(text):
         tokens.append("预算比例最低价")
+    parameter_name = _infer_parameter_name(compact)
+    if parameter_name:
+        tokens.append(parameter_name)
+    parameter_unit = _infer_parameter_unit(compact)
+    if parameter_unit:
+        tokens.append(parameter_unit)
+    if _infer_parameter_is_interval(compact):
+        tokens.append("区间参数")
+    if _infer_has_deviation_rule(compact):
+        tokens.append("有偏离规则")
+    if _infer_has_basis_explanation(compact):
+        tokens.append("有依据说明")
     return tokens
 
 
@@ -786,7 +816,122 @@ def _augment_constraint_value_from_text(
         pricing_control = _infer_pricing_control(compact)
         if pricing_control:
             value.setdefault("pricing_control", pricing_control)
+
+    if zone_type == SemanticZoneType.technical or clause_semantic_type in {
+        ClauseSemanticType.technical_requirement,
+        ClauseSemanticType.sample_or_demo_requirement,
+    }:
+        parameter_name = _infer_parameter_name(compact)
+        if parameter_name:
+            value.setdefault("parameter_name", parameter_name)
+        parameter_value = _infer_parameter_value(compact)
+        if parameter_value:
+            value.setdefault("parameter_value", parameter_value)
+        parameter_unit = _infer_parameter_unit(compact)
+        if parameter_unit:
+            value.setdefault("parameter_unit", parameter_unit)
+        if any(key in value for key in ["parameter_name", "parameter_value", "parameter_unit"]) or any(
+            token in compact for token in ["参数", "精度", "响应时间", "重量", "范围", "区间"]
+        ):
+            value.setdefault("is_interval", _infer_parameter_is_interval(compact))
+            value.setdefault("has_deviation_rule", _infer_has_deviation_rule(compact))
+            value.setdefault("has_basis_explanation", _infer_has_basis_explanation(compact))
     return value
+
+
+def _infer_parameter_name(compact: str) -> str:
+    if any(token in compact for token in ["涉及区间的参数", "产品参数区间"]) and any(
+        token in compact for token in ["区间要求为", "均视为负偏离", "偏离"]
+    ):
+        return "参数区间规则"
+    candidate = ""
+    if "：" in compact or ":" in compact:
+        prefix = re.split(r"[:：]", compact, maxsplit=1)[0]
+        prefix = re.split(r"[|｜]", prefix)[-1]
+        candidate = prefix
+    else:
+        match = re.search(
+            r"([一-龥A-Za-z][一-龥A-Za-z0-9（）()\-]{1,40}?)(?:≤|≥|<|>|=|±|\d)",
+            compact,
+        )
+        if match is not None:
+            candidate = match.group(1)
+
+    candidate = re.sub(r"^[\d\.\-（）()一二三四五六七八九十]+", "", candidate)
+    candidate = re.sub(r"^(其中|参数要求|技术要求|产品参数|产品|设备参数)", "", candidate)
+    candidate = candidate.strip("：:;；，,。. ")
+    if len(candidate) < 2:
+        return ""
+    if any(token in candidate for token in ["GB/T", "ISO", "CMA", "CNAS"]):
+        return ""
+    return candidate[:40]
+
+
+def _infer_parameter_value(compact: str) -> str:
+    search_text = compact
+    if "：" in compact or ":" in compact:
+        search_text = re.split(r"[:：]", compact, maxsplit=1)[1]
+    else:
+        search_text = re.sub(r"^(?:\d+(?:\.\d+){1,}[、.]?|[一二三四五六七八九十]+[、.)）])", "", search_text)
+    patterns = [
+        r"±\d+(?:\.\d+)?%?",
+        r"(?:≤|≥|<|>|=)\d+(?:\.\d+)?",
+        r"\d+(?:\.\d+)?(?:-|~|至)\d+(?:\.\d+)?",
+        r"\d+(?:\.\d+)?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, search_text)
+        if match is None:
+            continue
+        return match.group(0)
+    return ""
+
+
+def _infer_parameter_unit(compact: str) -> str:
+    match = re.search(
+        r"(?:±|≤|≥|<|>|=)?\d+(?:\.\d+)?(?:(?:-|~|至)\d+(?:\.\d+)?)?\s*(ms|mm|cm|kg|g|mg|ml|mL|L|nm|μm|um|m|°|%|Hz|kHz|MHz|GHz|W|kW|V|A)",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return ""
+    return match.group(1)
+
+
+def _infer_parameter_is_interval(compact: str) -> bool:
+    return bool(
+        re.search(r"\d+(?:\.\d+)?(?:-|~|至)\d+(?:\.\d+)?", compact)
+        or "±" in compact
+        or "区间" in compact
+        or "范围" in compact
+    )
+
+
+def _infer_has_deviation_rule(compact: str) -> bool:
+    return any(
+        token in compact
+        for token in ["偏离", "偏差", "允许", "不允许", "负偏离", "正偏离", "视为负偏离", "视为正偏离"]
+    )
+
+
+def _infer_has_basis_explanation(compact: str) -> bool:
+    return any(
+        token in compact
+        for token in [
+            "依据",
+            "说明",
+            "理由",
+            "区间要求为",
+            "涉及区间的参数",
+            "特别注明",
+            "例：",
+            "示例",
+            "设置依据",
+            "判定逻辑",
+            "取值逻辑",
+            "均视为",
+        ]
+    )
 
 
 def _infer_designated_source_category(compact: str) -> str:
