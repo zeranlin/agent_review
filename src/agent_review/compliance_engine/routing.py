@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from ..compliance.external_data import (
+from .compliance.external_data import (
     external_profile_activation_tags,
     external_profile_planning_hints,
     match_external_domain_profile_candidates,
 )
-from ..structure import build_document_profile
+from ..parser_engine.structure import build_document_profile
 
 
 def build_routing_profile(*args, **kwargs):

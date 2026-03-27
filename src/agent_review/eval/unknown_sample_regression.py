@@ -13,7 +13,7 @@ from ..engine import TenderReviewEngine
 from ..enhancement import run_review_enhancement_with_watchdog
 from ..llm import QwenReviewEnhancer
 from ..models import ReviewMode
-from ..outputs import build_output_evaluation_summary
+from ..report_engine import build_output_evaluation_summary
 
 
 @dataclass(slots=True)

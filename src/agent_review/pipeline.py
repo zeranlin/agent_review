@@ -24,8 +24,19 @@ from .consistency import (
     check_consistency,
     collect_relative_strengths,
 )
-from .extractors import classify_extracted_clauses, extract_clauses, extract_clauses_from_units
-from .extractors import extract_legal_facts_from_units
+from .parser_engine import (
+    NullParserSemanticAssistant,
+    build_file_info,
+    build_document_profile,
+    build_scope_statement,
+    detect_file_type,
+    enrich_parse_result_structure,
+    extract_clauses,
+    extract_clauses_from_units,
+    extract_legal_facts_from_units,
+    locate_sections,
+)
+from .parser_engine.extractors import classify_extracted_clauses
 from .legal_basis import annotate_consistency_checks, annotate_findings, annotate_review_points, annotate_risk_hits
 from .merge import (
     build_specialist_tables,
@@ -65,20 +76,11 @@ from .models import (
 from .ontology import SemanticZoneType, ZONE_PRIMARY_REVIEW_TYPES
 from .parsed_tender_document import build_parsed_tender_document
 from .quality import derive_conclusion_by_evidence
-from .rules import build_recommendations, execute_rule_registry
+from .compliance_engine import build_recommendations, execute_rule_registry
 from .review_point_catalog import resolve_review_point_definition
 from .review_point_contract_registry import get_review_point_contract
 from .rule_definitions import list_rules_for_point
 from .rule_runtime import build_review_point_instances, generate_rule_hits
-from .structure import (
-    NullParserSemanticAssistant,
-    build_file_info,
-    build_document_profile,
-    build_scope_statement,
-    detect_file_type,
-    enrich_parse_result_structure,
-    locate_sections,
-)
 
 
 @dataclass(slots=True)

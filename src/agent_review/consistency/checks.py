@@ -12,7 +12,7 @@ from ..models import (
     Severity,
     SourceDocument,
 )
-from ..structure import detect_file_type
+from ..parser_engine import detect_file_type
 
 
 def check_consistency(

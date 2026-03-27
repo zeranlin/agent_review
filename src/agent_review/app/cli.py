@@ -8,14 +8,14 @@ from ..enhancement import build_enhancement_trace, run_review_enhancement_with_w
 from ..engine import TenderReviewEngine
 from ..llm import QwenReviewEnhancer
 from ..models import ReviewMode
-from ..outputs import write_review_artifacts
-from ..structure import QwenParserSemanticAssistant
-from ..reporting import (
+from ..parser_engine import QwenParserSemanticAssistant
+from ..report_engine import (
     render_formal_review_opinion,
     render_json,
     render_markdown,
     render_opinion_letter,
     render_reviewer_report,
+    write_review_artifacts,
 )
 
 

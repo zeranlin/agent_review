@@ -1,28 +1,3 @@
-"""文档结构层。"""
+"""兼容层：导向 ParserEngine.structure。"""
 
-from .document_structure import (
-    build_file_info,
-    build_scope_statement,
-    detect_file_type,
-    enrich_parse_result_structure,
-    locate_sections,
-)
-from .document_profile import build_document_profile
-from .effect_tagger import tag_effects
-from .parser_semantic_assist import NullParserSemanticAssistant, QwenParserSemanticAssistant
-from .tree_builder import build_document_tree
-from .zone_classifier import classify_semantic_zones
-
-__all__ = [
-    "build_file_info",
-    "build_scope_statement",
-    "detect_file_type",
-    "enrich_parse_result_structure",
-    "locate_sections",
-    "build_document_profile",
-    "tag_effects",
-    "NullParserSemanticAssistant",
-    "QwenParserSemanticAssistant",
-    "build_document_tree",
-    "classify_semantic_zones",
-]
+from ..parser_engine.structure import *  # noqa: F401,F403

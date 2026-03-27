@@ -1,5 +1,3 @@
-"""输出层。"""
+"""兼容层：导向 ReportEngine.outputs。"""
 
-from .artifacts import ArtifactBundle, build_output_evaluation_summary, write_review_artifacts
-
-__all__ = ["ArtifactBundle", "build_output_evaluation_summary", "write_review_artifacts"]
+from ..report_engine.outputs import *  # noqa: F401,F403

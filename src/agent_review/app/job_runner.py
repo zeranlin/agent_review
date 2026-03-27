@@ -6,8 +6,7 @@ from ..engine import TenderReviewEngine
 from ..header_info import resolve_header_info
 from ..llm import QwenReviewEnhancer
 from ..models import ReviewMode, ReviewReport, TaskStatus
-from ..outputs import write_review_artifacts
-from ..reporting import render_reviewer_report
+from ..report_engine import render_reviewer_report, write_review_artifacts
 
 
 REQUIRED_LLM_TASKS = (

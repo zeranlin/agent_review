@@ -5,7 +5,7 @@ from pathlib import Path
 from .checklist import DEFAULT_DIMENSIONS
 from .llm import NullReviewEnhancer
 from .models import ReviewDimension, ReviewMode, ReviewReport
-from .parsers import load_document, load_documents, normalize_text
+from .parser_engine import load_document, load_documents, normalize_text
 from .pipeline import ReviewPipeline, build_parse_result_for_text
 
 

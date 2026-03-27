@@ -1,17 +1,18 @@
 """ComplianceEngine 入口包。"""
 
-from ..adjudication_core import (
+from .adjudication_core import (
     build_applicability_checks,
     build_formal_adjudication,
     build_review_quality_gates,
     get_authority_binding,
     list_bindings_for_point,
 )
-from ..compliance import (
+from .compliance import (
     resolve_embedded_issue_authority,
     run_agent_compliance_review_from_parsed_tender_document,
     run_embedded_compliance_review,
 )
+from .rules import build_recommendations, execute_rule_registry
 from ..fact_collectors import collect_task_facts
 from ..review_point_contract_registry import get_review_point_contract
 from ..rule_runtime import build_review_point_instances, generate_rule_hits
@@ -37,4 +38,6 @@ __all__ = [
     "run_embedded_compliance_review",
     "run_agent_compliance_review_from_parsed_tender_document",
     "get_review_point_contract",
+    "build_recommendations",
+    "execute_rule_registry",
 ]

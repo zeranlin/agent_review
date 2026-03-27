@@ -1,7 +1,7 @@
 """Tender compliance review harness."""
 
 from .engine import TenderReviewEngine
-from .compliance.bridge import run_agent_compliance_review_from_parsed_tender_document
+from .compliance_engine import run_agent_compliance_review_from_parsed_tender_document
 from .models import ParseResult, ParsedTenderDocument, ReviewMode, ReviewReport
 from .parser_engine import build_parsed_tender_document
 from .report_engine import render_reviewer_report

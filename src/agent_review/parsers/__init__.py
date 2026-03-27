@@ -1,5 +1,3 @@
-"""输入与解析层。"""
+"""兼容层：导向 ParserEngine.parsers。"""
 
-from .document_loader import load_document, load_documents, normalize_text
-
-__all__ = ["load_document", "load_documents", "normalize_text"]
+from ..parser_engine.parsers import *  # noqa: F401,F403
