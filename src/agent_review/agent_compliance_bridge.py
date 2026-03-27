@@ -2,31 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
-from pathlib import Path
-import sys
 
+from .embedded_compliance_engine import (
+    EmbeddedClause,
+    EmbeddedComplianceRunResult,
+    EmbeddedNormalizedDocument,
+    EmbeddedPageSpan,
+    EmbeddedLLMConfig,
+    build_page_map,
+    detect_embedded_llm_config,
+    detect_embedded_parser_mode,
+    run_embedded_compliance_review,
+)
 from .models import ParsedTenderDocument
-
-
-def _ensure_agent_compliance_importable() -> None:
-    repo_parent = Path(__file__).resolve().parents[3]
-    compliance_src = repo_parent / "agent_compliance" / "src"
-    compliance_src_str = str(compliance_src)
-    if compliance_src.exists() and compliance_src_str not in sys.path:
-        sys.path.insert(0, compliance_src_str)
-
-
-_ensure_agent_compliance_importable()
-
-from agent_compliance.agents.compliance_review.pipeline import ComplianceReviewRunResult  # type: ignore  # noqa: E402
-from agent_compliance.agents.compliance_review.pipelines.llm_enhance import enhance_review_result  # type: ignore  # noqa: E402
-from agent_compliance.agents.compliance_review.pipelines.llm_review import apply_llm_review_tasks  # type: ignore  # noqa: E402
-from agent_compliance.agents.compliance_review.pipelines.render import write_review_outputs  # type: ignore  # noqa: E402
-from agent_compliance.agents.compliance_review.pipelines.review import build_review_result  # type: ignore  # noqa: E402
-from agent_compliance.agents.compliance_review.pipelines.rule_scan import run_rule_scan  # type: ignore  # noqa: E402
-from agent_compliance.core.config import LLMConfig, detect_llm_config, detect_tender_parser_mode  # type: ignore  # noqa: E402
-from agent_compliance.core.parsers.pagination import build_page_map  # type: ignore  # noqa: E402
-from agent_compliance.core.schemas import Clause, NormalizedDocument  # type: ignore  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -45,12 +33,12 @@ class AgentComplianceBridgeArtifacts:
 
 def build_agent_compliance_normalized_document(
     parsed_tender_document: ParsedTenderDocument,
-) -> tuple[NormalizedDocument, AgentComplianceBridgeArtifacts]:
+) -> tuple[EmbeddedNormalizedDocument, AgentComplianceBridgeArtifacts]:
     text = parsed_tender_document.normalized_text or ""
     file_hash = sha256(text.encode("utf-8")).hexdigest()
     page_map = build_page_map(text)
     clauses, clause_source = _build_clauses(parsed_tender_document, page_map=page_map)
-    normalized = NormalizedDocument(
+    normalized = EmbeddedNormalizedDocument(
         source_path=parsed_tender_document.source_path,
         document_name=parsed_tender_document.document_name,
         file_hash=file_hash,
@@ -69,51 +57,34 @@ def build_agent_compliance_normalized_document(
 def run_agent_compliance_review_from_parsed_tender_document(
     parsed_tender_document: ParsedTenderDocument,
     *,
-    llm_config: LLMConfig | None = None,
+    llm_config: EmbeddedLLMConfig | None = None,
     parser_mode: str | None = None,
     output_stem: str | None = None,
     write_outputs: bool = False,
-) -> ComplianceReviewRunResult:
+) -> EmbeddedComplianceRunResult:
+    del output_stem
+    del write_outputs
     normalized, bridge_artifacts = build_agent_compliance_normalized_document(parsed_tender_document)
-    resolved_llm_config = llm_config or detect_llm_config()
-    resolved_parser_mode = parser_mode or detect_tender_parser_mode(default="assist")
-    hits = run_rule_scan(normalized)
-    review = build_review_result(normalized, hits, parser_mode=resolved_parser_mode)
-    review = enhance_review_result(review, resolved_llm_config)
-    artifact_stem = output_stem or normalized.file_hash[:12]
-    review, llm_artifacts = apply_llm_review_tasks(
+    resolved_llm_config = llm_config or detect_embedded_llm_config()
+    resolved_parser_mode = parser_mode or detect_embedded_parser_mode(default="assist")
+    result = run_embedded_compliance_review(
         normalized,
-        review,
-        resolved_llm_config,
-        output_stem=artifact_stem,
-    )
-    llm_artifacts.llm_node_summary = {
-        **(llm_artifacts.llm_node_summary or {}),
-        "bridge": bridge_artifacts.to_dict(),
-    }
-    json_path = None
-    markdown_path = None
-    if write_outputs:
-        json_path, markdown_path = write_review_outputs(review, artifact_stem)
-    return ComplianceReviewRunResult(
-        normalized=normalized,
-        review=review,
-        llm_artifacts=llm_artifacts,
-        cache_enabled=False,
-        cache_used=False,
-        cache_key=f"parsed-bridge:{normalized.file_hash}:{resolved_parser_mode}",
-        parser_mode=resolved_parser_mode,
         llm_config=resolved_llm_config,
-        json_path=json_path,
-        markdown_path=markdown_path,
+        parser_mode=resolved_parser_mode,
     )
+    result.llm_artifacts.llm_node_summary = {
+        **(result.llm_artifacts.llm_node_summary or {}),
+        "bridge": bridge_artifacts.to_dict(),
+        "engine": "embedded_compliance_engine_v1",
+    }
+    return result
 
 
 def _build_clauses(
     parsed_tender_document: ParsedTenderDocument,
     *,
-    page_map,
-) -> tuple[list[Clause], str]:
+    page_map: list[EmbeddedPageSpan],
+) -> tuple[list[EmbeddedClause], str]:
     if parsed_tender_document.clause_units:
         clauses = [_clause_from_unit(unit) for unit in parsed_tender_document.clause_units]
         return clauses, "clause_units"
@@ -124,7 +95,7 @@ def _build_clauses(
             continue
         line_no = _line_no_from_hint(node.anchor.line_hint) or node.anchor.paragraph_no or index
         clauses.append(
-            Clause(
+            EmbeddedClause(
                 clause_id=f"node-{index:04d}",
                 text=text,
                 line_start=line_no,
@@ -139,9 +110,9 @@ def _build_clauses(
     return clauses, "document_nodes"
 
 
-def _clause_from_unit(unit) -> Clause:
+def _clause_from_unit(unit) -> EmbeddedClause:
     line_no = _line_no_from_hint(unit.anchor.line_hint) or unit.anchor.paragraph_no or unit.anchor.block_no or 1
-    return Clause(
+    return EmbeddedClause(
         clause_id=unit.unit_id,
         text=unit.text,
         line_start=line_no,
@@ -182,7 +153,7 @@ def _page_hint_from_anchor(anchor) -> str | None:
     return None
 
 
-def _page_hint_for_line(line_no: int, page_map) -> str | None:
+def _page_hint_for_line(line_no: int, page_map: list[EmbeddedPageSpan]) -> str | None:
     for item in page_map:
         if item.line_start <= line_no <= item.line_end:
             return f"第{item.page_number}页"
