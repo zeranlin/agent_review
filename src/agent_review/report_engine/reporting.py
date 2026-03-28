@@ -879,7 +879,7 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
         if point is None:
             continue
         if point.catalog_id == "RP-QUAL-003":
-            base_records = _collect_reviewer_quote_records(report.parse_result.text or "", point, adjudication, point.title)
+            base_records = _collect_hidden_qualification_gate_records(report.parse_result.text or "", point, adjudication)
             split_targets = _split_hidden_qualification_gate_targets(base_records)
             if split_targets:
                 for group_key, title, dimension, severity, records in split_targets:
@@ -970,6 +970,19 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
         )
     entries.sort(key=_reviewer_issue_sort_key)
     return entries
+
+
+def _collect_hidden_qualification_gate_records(report_text: str, point, adjudication) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    primary = (adjudication.primary_quote or "").strip()
+    if primary:
+        records.append({"location": (adjudication.section_hint or "").strip(), "quote": primary})
+    for item in [*point.evidence_bundle.direct_evidence, *point.evidence_bundle.supporting_evidence]:
+        quote = clause_window_from_anchor(report_text, item.section_hint) or (item.quote or "").strip()
+        if not quote or len(quote) < 6:
+            continue
+        records.append({"location": (item.section_hint or "").strip(), "quote": quote})
+    return _dedupe_quote_records(records)[:10]
 
 
 def _split_hidden_qualification_gate_targets(
