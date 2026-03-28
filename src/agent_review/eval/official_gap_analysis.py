@@ -17,6 +17,10 @@ ANCHOR_PATTERN = re.compile(r"埋点原文[:：]\s*(.+?)(?:埋点页码[:：]|$)
 
 
 TITLE_SYNONYM_GROUPS: dict[str, tuple[str, ...]] = build_title_synonym_groups()
+GENERIC_REPORT_TITLES = {
+    "资格条件可能缺乏履约必要性或带有歧视性门槛",
+    "依法设定价格分值",
+}
 
 
 def load_official_review_baseline(path: str | Path) -> OfficialReviewBaseline:
@@ -217,6 +221,13 @@ def _extract_page_hint(raw: str) -> str:
 
 
 def _find_direct_match(item: OfficialReviewItem, report_titles: list[str]) -> str:
+    profile = OFFICIAL_RULE_BY_NAME.get(item.rule_name)
+    if profile:
+        preferred_titles = [title for title in profile.report_titles if title not in GENERIC_REPORT_TITLES]
+        for expected_title in preferred_titles:
+            for title in report_titles:
+                if expected_title and (expected_title in title or title in expected_title):
+                    return title
     rule_name = item.rule_name
     for title in report_titles:
         if rule_name and (rule_name in title or title in rule_name):
@@ -231,6 +242,11 @@ def _find_direct_match(item: OfficialReviewItem, report_titles: list[str]) -> st
 def _find_partial_match(item: OfficialReviewItem, report_titles: list[str]) -> str:
     profile = OFFICIAL_RULE_BY_NAME.get(item.rule_name)
     if profile:
+        generic_titles = [title for title in profile.report_titles if title in GENERIC_REPORT_TITLES]
+        for expected_title in generic_titles:
+            for title in report_titles:
+                if expected_title and (expected_title in title or title in expected_title):
+                    return title
         for title in report_titles:
             if any(candidate and (candidate in title or title in candidate) for candidate in profile.report_titles):
                 return title

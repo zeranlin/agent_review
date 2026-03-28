@@ -164,6 +164,104 @@ def test_analyze_official_vs_report_treats_hidden_qualification_gate_subclusters
     assert analysis.missed_count == 0
 
 
+def test_analyze_official_vs_report_treats_generic_hidden_qualification_title_as_partial(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "official_hidden_gates_generic.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["埋点原文及页码", "审查点", "审查场景", "审查规则", "审查类别"])
+    sheet.append(
+        [
+            "埋点原文：投标人须成立满5年以上。埋点页码：21",
+            "不得将供应商规模条件、股权结构、年限设置为资格条件",
+            "资格公平性",
+            "不得将成立年限的隐性限制证书设置为资格条件",
+            "一、资格公平性",
+        ]
+    )
+    workbook.save(workbook_path)
+
+    report_path = tmp_path / "reviewer_report.md"
+    report_path.write_text(
+        "\n".join(
+            [
+                "**招标文件合规审查意见书**",
+                "**1. 资格条件可能缺乏履约必要性或带有歧视性门槛**",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    analysis = analyze_official_vs_report(workbook_path, report_path)
+
+    assert analysis.matched_count == 0
+    assert analysis.partial_match_count == 1
+    assert analysis.partial_match_items[0].matched_report_title == "资格条件可能缺乏履约必要性或带有歧视性门槛"
+
+
+def test_analyze_official_vs_report_treats_all_hidden_qualification_subclusters_as_direct_matches(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "official_hidden_gates_all.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["埋点原文及页码", "审查点", "审查场景", "审查规则", "审查类别"])
+    sheet.append(
+        [
+            "埋点原文：投标人须为全国科技型中小企业。埋点页码：19",
+            "不得将供应商规模条件、股权结构、年限设置为资格条件",
+            "资格公平性",
+            "不得将资产总额的隐性限制证书设置为资格条件",
+            "一、资格公平性",
+        ]
+    )
+    sheet.append(
+        [
+            "埋点原文：投标人须具备高新技术企业证书。埋点页码：20",
+            "不得将供应商规模条件、股权结构、年限设置为资格条件",
+            "资格公平性",
+            "不得将从业人员的隐性限制证书设置为资格条件",
+            "一、资格公平性",
+        ]
+    )
+    sheet.append(
+        [
+            "埋点原文：投标人须提供纳税信用A级证明。埋点页码：21",
+            "不得将供应商规模条件、股权结构、年限设置为资格条件",
+            "资格公平性",
+            "不得将纳税额的隐性限制证书设置为资格条件",
+            "一、资格公平性",
+        ]
+    )
+    sheet.append(
+        [
+            "埋点原文：投标人须成立满5年以上。埋点页码：22",
+            "不得将供应商规模条件、股权结构、年限设置为资格条件",
+            "资格公平性",
+            "不得将成立年限的隐性限制证书设置为资格条件",
+            "一、资格公平性",
+        ]
+    )
+    workbook.save(workbook_path)
+
+    report_path = tmp_path / "reviewer_report.md"
+    report_path.write_text(
+        "\n".join(
+            [
+                "**招标文件合规审查意见书**",
+                "**1. 不得将资产总额的隐性限制证书设置为资格条件**",
+                "**2. 不得将从业人员的隐性限制证书设置为资格条件**",
+                "**3. 不得将纳税额的隐性限制证书设置为资格条件**",
+                "**4. 不得将成立年限的隐性限制证书设置为资格条件**",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    analysis = analyze_official_vs_report(workbook_path, report_path)
+
+    assert analysis.matched_count == 4
+    assert analysis.partial_match_count == 0
+    assert analysis.missed_count == 0
+
+
 def test_render_official_gap_markdown_contains_sections(tmp_path: Path) -> None:
     workbook_path = tmp_path / "official.xlsx"
     workbook = Workbook()
@@ -235,7 +333,7 @@ def test_partial_match_does_not_fall_back_to_generic_scoring_title(tmp_path: Pat
     assert analysis.missed_count == 1
 
 
-def test_official_gap_analysis_maps_requirement_and_technical_bundle_into_partial_matches(tmp_path: Path) -> None:
+def test_official_gap_analysis_maps_requirement_and_technical_bundle_into_direct_matches(tmp_path: Path) -> None:
     workbook_path = tmp_path / "official_bundle.xlsx"
     workbook = Workbook()
     sheet = workbook.active
@@ -270,5 +368,6 @@ def test_official_gap_analysis_maps_requirement_and_technical_bundle_into_partia
 
     analysis = analyze_official_vs_report(workbook_path, report_path)
 
-    assert analysis.partial_match_count == 6
+    assert analysis.matched_count == 6
+    assert analysis.partial_match_count == 0
     assert analysis.missed_count == 0
