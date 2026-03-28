@@ -458,6 +458,14 @@ def build_formal_adjudication(
             parse_tables or [],
             extracted_clauses,
         )
+        if quote == "当前自动抽取未定位到可直接引用的原文。":
+            fallback_evidence = point.evidence_bundle.direct_evidence + point.evidence_bundle.supporting_evidence
+            for evidence in fallback_evidence:
+                fallback_quote = (evidence.quote or "").strip()
+                if fallback_quote and evidence_supports_title(point.title, fallback_quote):
+                    section_hint = evidence.section_hint or section_hint
+                    quote = fallback_quote
+                    break
         family_key = _formal_family_key(point.title)
         noise_like_quote = _formal_quote_is_noise_like(quote, family_key)
         roles = _resolve_review_point_roles(point, extracted_clauses, quote)
@@ -542,6 +550,14 @@ def build_formal_adjudication(
         if point.title in {
             "履约保证金转质量保证金或长期无息占压",
             "第三方检测费用无论结果均由中标人承担",
+        } and has_direct and strong_anchor and quote and evidence_supports_title(point.title, quote):
+            evidence_sufficient = True
+        if point.title in {
+            "注册资本被设为评分因素",
+            "营业收入被设为评分因素",
+            "净利润或利润被设为评分因素",
+            "股权结构被设为评分因素",
+            "经营年限被设为评分因素",
         } and has_direct and strong_anchor and quote and evidence_supports_title(point.title, quote):
             evidence_sufficient = True
 
@@ -988,7 +1004,9 @@ def _resolve_review_point_evidence(
         section_hint = clause_candidate.source_anchor or "未明确定位"
         qualification_cluster = _build_qualification_gate_cluster(point.title, matched_clauses, report_text)
         if qualification_cluster and not _formal_quote_is_noise_like(qualification_cluster, family_key):
-            return section_hint, _sanitize_formal_quote(point.title, qualification_cluster)
+            sanitized_cluster = _sanitize_formal_quote(point.title, qualification_cluster)
+            if sanitized_cluster != "当前自动抽取未定位到可直接引用的原文。":
+                return section_hint, sanitized_cluster
         line_quote = clause_window_from_anchor(report_text, section_hint)
         content_quote = clause_candidate.content or ""
         if content_quote and evidence_supports_title(point.title, content_quote) and (
@@ -1001,7 +1019,9 @@ def _resolve_review_point_evidence(
         else:
             clause_quote = line_quote or content_quote
         if clause_quote and not _formal_quote_is_noise_like(clause_quote, family_key):
-            return section_hint, _sanitize_formal_quote(point.title, clause_quote)
+            sanitized_clause_quote = _sanitize_formal_quote(point.title, clause_quote)
+            if sanitized_clause_quote != "当前自动抽取未定位到可直接引用的原文。":
+                return section_hint, sanitized_clause_quote
 
     table_quote = ""
     if family_key in {"scoring", "score_weight"}:
@@ -1127,6 +1147,17 @@ def _rank_evidence_for_formal(title: str, evidence: list[Evidence], report_text:
             if any(token in text for token in ["利润率", "软件企业认定证书", "ITSS", "财务报告", "信用评价"]):
                 title_score += 4
             if any(token in text for token in ["评分", "详细评审", "履约能力", "分"]):
+                title_score += 2
+        elif title in {
+            "注册资本被设为评分因素",
+            "营业收入被设为评分因素",
+            "净利润或利润被设为评分因素",
+            "股权结构被设为评分因素",
+            "经营年限被设为评分因素",
+        }:
+            if any(token in text for token in ["注册资本", "营业收入", "净利润", "利润", "利润率", "股东", "股权结构", "资本背景", "经营年限", "从业经验"]):
+                title_score += 4
+            if any(token in text for token in ["评分", "得分", "分值", "详细评审", "履约能力", "分"]):
                 title_score += 2
         elif title in {"专门面向中小企业却仍保留价格扣除", "专门面向中小企业却保留价格扣除模板"}:
             if "专门面向中小企业" in text:
@@ -1625,6 +1656,8 @@ def _sanitize_formal_quote(title: str, quote: str) -> str:
         "履约保证金转质量保证金或长期无息占压",
         "第三方检测费用无论结果均由中标人承担",
     } and quote and evidence_supports_title(title, quote):
+        return quote
+    if family_key in {"scoring", "score_weight"} and quote and evidence_supports_title(title, quote):
         return quote
     if quote and not _formal_quote_is_noise_like(quote, family_key):
         return quote

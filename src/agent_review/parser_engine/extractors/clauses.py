@@ -303,7 +303,7 @@ def _infer_unit_field_name(unit: ClauseUnit, *, effective_zone: SemanticZoneType
             return "评分项明细"
         if any(token in text for token in ["检测报告", "认证证书", "资质证书", "管理体系认证", "软件企业认定证书", "ITSS"]):
             return "行业相关性存疑评分项"
-        if any(token in text for token in ["财务", "利润率", "营业收入", "注册资本", "资产规模"]):
+        if any(token in text for token in ["财务", "利润率", "营业收入", "净利润", "利润", "注册资本", "资产规模"]):
             return "财务指标加分"
         if any(token in text for token in ["项目负责人", "人员配置", "社保", "学历", "职称", "业绩"]):
             return "人员评分要求"
@@ -1130,6 +1130,19 @@ def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
                 "检测报告",
                 "财务",
                 "利润率",
+                "营业收入",
+                "净利润",
+                "利润",
+                "注册资本",
+                "股东",
+                "股权结构",
+                "资本背景",
+                "国有投资主体",
+                "产业资本",
+                "成立满",
+                "成立年限",
+                "经营年限",
+                "从业经验",
                 "项目负责人",
                 "业绩",
                 "信用评价",
@@ -1142,6 +1155,8 @@ def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
         if "项目负责人" in line or "项目经理" in line or "项目主管" in line:
             score += 3
         if any(token in line for token in ["资质证书", "管理体系认证", "认证证书", "检测报告", "信用评价"]):
+            score += 2
+        if any(token in line for token in ["营业收入", "净利润", "利润", "注册资本", "股东", "股权结构", "资本背景", "成立满", "经营年限", "从业经验"]):
             score += 2
         if "实施方案" in line or "项目整体" in line or "售后服务方案" in line:
             score += 1
@@ -1158,6 +1173,12 @@ def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
             line_tags.append("检测报告评分项")
         if "财务" in line or "利润率" in line:
             line_tags.append("财务指标评分项")
+        if any(token in line for token in ["营业收入", "净利润", "利润", "注册资本"]):
+            line_tags.append("财务指标评分项")
+        if any(token in line for token in ["股东", "股权结构", "资本背景", "国有投资主体", "产业资本"]):
+            line_tags.append("股权结构评分项")
+        if any(token in line for token in ["成立满", "成立年限", "经营年限", "从业经验"]):
+            line_tags.append("经营历史评分项")
         if "项目负责人" in line or "业绩" in line:
             line_tags.append("业绩人员评分项")
         if "信用评价" in line or "信用分" in line or "信用等级" in line:
@@ -2046,7 +2067,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("评分条款", "业绩加分", _simple_keyword_extractor(["业绩加分", "业绩"])),
     ("评分条款", "方案评分", _simple_keyword_extractor(["方案评分", "实施方案"])),
     ("评分条款", "售后加分", _simple_keyword_extractor(["售后"])),
-    ("评分条款", "财务指标加分", _simple_keyword_extractor(["财务指标", "利润率", "营业收入", "注册资本", "资产规模"])),
+    ("评分条款", "财务指标加分", _simple_keyword_extractor(["财务指标", "利润率", "营业收入", "净利润", "利润", "注册资本", "资产规模"])),
     ("评分条款", "人员评分要求", _simple_keyword_extractor(["项目负责人", "人员配置", "社保", "学历", "职称"])),
     ("评分条款", "样品分", _simple_keyword_extractor(["样品分"])),
     ("评分条款", "评分项明细", _scoring_item_details_extractor),

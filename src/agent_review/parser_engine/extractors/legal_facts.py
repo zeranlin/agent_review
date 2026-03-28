@@ -149,7 +149,7 @@ def _fallback_heading_context(text: str) -> tuple[SemanticZoneType | None, Claus
     compact = re.sub(r"\s+", "", text)
     if any(token in compact for token in ["资格要求", "申请人的资格要求", "投标人资格要求", "特定资格要求", "一般资格要求"]):
         return SemanticZoneType.qualification, ClauseSemanticType.qualification_condition
-    if any(token in compact for token in ["评分标准", "评标信息", "评审要求", "评分项"]):
+    if any(token in compact for token in ["评分标准", "评标信息", "评审要求", "评分项", "详细评审", "详细评标", "评审细则", "评审因素"]):
         return SemanticZoneType.scoring, ClauseSemanticType.scoring_rule
     if any(token in compact for token in ["合同条款", "履约担保", "付款方式", "验收", "违约责任"]):
         return SemanticZoneType.contract, ClauseSemanticType.acceptance_term
@@ -182,8 +182,52 @@ def _fallback_fact_candidate(
             else ClauseSemanticType.technical_requirement
         )
         return zone_type, clause_semantic_type, "evidence_source_requirement"
-    if current_zone == SemanticZoneType.scoring and any(token in compact for token in ["得分", "评分", "最高得", "加分", "扣分"]):
-        if any(token in compact for token in ["证书", "认证", "检测报告", "ITSS", "营业收入", "利润率", "资产规模", "信用评价", "业绩", "方案"]):
+    if (
+        current_zone == SemanticZoneType.scoring
+        or (
+            _looks_like_scoring_factor(text)
+            and any(
+                token in compact
+                for token in [
+                    "营业收入",
+                    "净利润",
+                    "利润率",
+                    "注册资本",
+                    "股东",
+                    "资本背景",
+                    "成立满",
+                    "经营年限",
+                    "从业经验",
+                    "资产规模",
+                ]
+            )
+        )
+    ) and (
+        any(token in compact for token in ["得分", "评分", "最高得", "加分", "扣分"])
+        or re.search(r"(?:得|加)\d+(?:\.\d+)?分", compact)
+    ):
+        if any(
+            token in compact
+            for token in [
+                "证书",
+                "认证",
+                "检测报告",
+                "ITSS",
+                "营业收入",
+                "净利润",
+                "利润率",
+                "注册资本",
+                "股东",
+                "资本背景",
+                "成立满",
+                "经营年限",
+                "从业经验",
+                "资产规模",
+                "信用评价",
+                "业绩",
+                "方案",
+            ]
+        ):
             return SemanticZoneType.scoring, ClauseSemanticType.scoring_factor, "scoring_factor"
     if current_zone == SemanticZoneType.technical and _looks_like_technical_parameter_clause(compact):
         return SemanticZoneType.technical, ClauseSemanticType.technical_requirement, "technical_parameter"
@@ -645,11 +689,29 @@ def _looks_like_policy_statement(text: str) -> bool:
 
 def _looks_like_scoring_factor(text: str) -> bool:
     compact = re.sub(r"\s+", "", text)
-    if not any(token in compact for token in ["得分", "评分", "最高得", "加分", "扣分", "分值"]) and not re.search(r"得\d+(?:\.\d+)?分", compact):
+    if not any(token in compact for token in ["得分", "评分", "最高得", "加分", "扣分", "分值"]) and not re.search(r"(?:得|加)\d+(?:\.\d+)?分", compact):
         return False
     return any(
         token in compact
-        for token in ["证书", "认证", "检测报告", "ITSS", "营业收入", "利润率", "资产规模", "信用评价", "业绩", "方案"]
+        for token in [
+            "证书",
+            "认证",
+            "检测报告",
+            "ITSS",
+            "营业收入",
+            "净利润",
+            "利润率",
+            "注册资本",
+            "股东",
+            "资本背景",
+            "成立满",
+            "经营年限",
+            "从业经验",
+            "资产规模",
+            "信用评价",
+            "业绩",
+            "方案",
+        ]
     )
 
 
@@ -762,6 +824,12 @@ def _augment_constraint_value_from_text(
         scoring_item_type = _infer_scoring_item_type(compact)
         if scoring_item_type:
             value.setdefault("scoring_item_type", scoring_item_type)
+        metric_name = _infer_scoring_metric_name(compact)
+        if metric_name:
+            value.setdefault("metric_name", metric_name)
+        metric_category = _infer_scoring_metric_category(compact, metric_name, scoring_item_type)
+        if metric_category:
+            value.setdefault("metric_category", metric_category)
         scoring_mode = _infer_scoring_mode(compact)
         if scoring_mode:
             value.setdefault("scoring_mode", scoring_mode)
@@ -953,8 +1021,12 @@ def _infer_scoring_item_type(compact: str) -> str:
         return "certificate"
     if "检测报告" in compact:
         return "report"
-    if any(token in compact for token in ["财务", "营业收入", "利润率", "资产规模"]):
+    if any(token in compact for token in ["财务", "营业收入", "净利润", "利润率", "注册资本", "资产规模"]):
         return "financial"
+    if any(token in compact for token in ["股东", "股权结构", "资本背景", "国有投资主体", "产业资本"]):
+        return "ownership"
+    if any(token in compact for token in ["成立满", "成立年限", "经营年限", "从业经验"]):
+        return "history"
     if any(token in compact for token in ["项目负责人", "人员配置", "学历", "职称", "社保"]):
         return "personnel"
     if any(token in compact for token in ["业绩", "同类项目"]):
@@ -966,10 +1038,52 @@ def _infer_scoring_item_type(compact: str) -> str:
     return ""
 
 
+def _infer_scoring_metric_name(compact: str) -> str:
+    metric_tokens = [
+        ("注册资本", "registered_capital"),
+        ("营业收入", "revenue"),
+        ("净利润", "net_profit"),
+        ("利润率", "profit_margin"),
+        ("利润", "profit"),
+        ("股东", "shareholding"),
+        ("股权结构", "shareholding"),
+        ("资本背景", "shareholding"),
+        ("国有投资主体", "shareholding"),
+        ("产业资本", "shareholding"),
+        ("成立年限", "establishment_age"),
+        ("成立满", "establishment_age"),
+        ("成立时间满", "establishment_age"),
+        ("经营年限", "operating_age"),
+        ("从业经验", "operating_age"),
+    ]
+    for token, metric_name in metric_tokens:
+        if token in compact:
+            return metric_name
+    return ""
+
+
+def _infer_scoring_metric_category(compact: str, metric_name: str, scoring_item_type: str) -> str:
+    if metric_name in {"registered_capital", "revenue"}:
+        return "enterprise_scale"
+    if metric_name in {"net_profit", "profit", "profit_margin"}:
+        return "operating_result"
+    if metric_name == "shareholding":
+        return "ownership_structure"
+    if metric_name in {"establishment_age", "operating_age"}:
+        return "supplier_history"
+    if scoring_item_type == "financial":
+        return "financial_metric"
+    if scoring_item_type == "ownership":
+        return "ownership_structure"
+    if scoring_item_type == "history":
+        return "supplier_history"
+    return ""
+
+
 def _infer_scoring_mode(compact: str) -> str:
     if any(token in compact for token in ["扣分", "每缺项扣", "每处缺陷扣"]):
         return "deduction"
-    if any(token in compact for token in ["得分", "得", "最高得", "加分"]):
+    if any(token in compact for token in ["得分", "得", "最高得", "加分"]) or re.search(r"(?:得|加)\d+(?:\.\d+)?分", compact):
         return "additive"
     return ""
 

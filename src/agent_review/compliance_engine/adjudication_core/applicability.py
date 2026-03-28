@@ -754,6 +754,71 @@ def _certificate_weight_scoring_evaluator(clause_mapping: dict[str, list[Extract
     return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到行业相关性存疑评分项或财务指标评分。"]
 
 
+def _specific_scoring_metric_evaluator(
+    clause_mapping: dict[str, list[ExtractedClause]],
+    *,
+    labels: list[str],
+    field_names: list[str],
+    display_name: str,
+) -> tuple[ApplicabilityStatus, list[str]]:
+    clauses = _clauses_for_fields(clause_mapping, field_names)
+    if not clauses:
+        return ApplicabilityStatus.insufficient, [f"结构化字段不足：尚未抽取到{display_name}相关评分条款。"]
+    for clause in clauses:
+        text = clause.content or clause.normalized_value
+        if any(token in text for token in labels) and (
+            any(token in text for token in ["得分", "评分", "分值", "加分", "最高得"])
+            or re.search(r"(?:得|加)\d+(?:\.\d+)?分", text)
+        ):
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别{display_name}评分条款={text}"]
+    return ApplicabilityStatus.unsatisfied, [f"已抽取评分条款，但尚未形成{display_name}与分值的明确关系。"]
+
+
+def _registered_capital_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["注册资本"],
+        field_names=["财务指标加分", "评分项明细"],
+        display_name="注册资本",
+    )
+
+
+def _revenue_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["营业收入"],
+        field_names=["财务指标加分", "评分项明细"],
+        display_name="营业收入",
+    )
+
+
+def _profit_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["净利润", "利润", "利润率"],
+        field_names=["财务指标加分", "评分项明细", "行业相关性存疑评分项"],
+        display_name="净利润或利润",
+    )
+
+
+def _shareholding_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["股东", "股权结构", "资本背景", "国有投资主体", "产业资本"],
+        field_names=["评分项明细"],
+        display_name="股权结构",
+    )
+
+
+def _operating_age_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["经营年限", "从业经验"],
+        field_names=["评分项明细", "行业相关性存疑评分项"],
+        display_name="经营年限",
+    )
+
+
 def _rigid_patent_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     patent_value = _first_normalized_or_content(clause_mapping, "是否要求专利")
     project_subject = _first_value(clause_mapping, "采购标的") or _first_value(clause_mapping, "项目属性")
@@ -1346,6 +1411,11 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SCORE-011", "存在评分项明细"): _credit_evaluation_scoring_evaluator,
     ("RP-SCORE-012", "存在信用评价评分信号"): _credit_transparency_evaluator,
     ("RP-SCORE-012", "已说明信用修复或异议机制"): _credit_relief_presence_evaluator,
+    ("RP-SCORE-019", "评分中出现注册资本门槛"): _registered_capital_scoring_evaluator,
+    ("RP-SCORE-020", "评分中出现营业收入门槛"): _revenue_scoring_evaluator,
+    ("RP-SCORE-021", "评分中出现利润类门槛"): _profit_scoring_evaluator,
+    ("RP-SCORE-022", "评分中出现股权结构或资本背景门槛"): _shareholding_scoring_evaluator,
+    ("RP-SCORE-023", "评分中出现经营年限或从业经验门槛"): _operating_age_scoring_evaluator,
     ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,

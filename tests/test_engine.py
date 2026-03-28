@@ -25,6 +25,7 @@ from agent_review.models import (
     Evidence,
     EvidenceBundle,
     FileType,
+    Finding,
     FindingType,
     FormalAdjudication,
     FormalDisposition,
@@ -44,7 +45,7 @@ from agent_review.outputs import write_review_artifacts
 from agent_review.parsers import load_document, load_documents
 from agent_review.parsers.ocr import run_ocr
 from agent_review.parsers.vision_ocr import VisionOcrResult
-from agent_review.quality import clause_window_from_anchor, evidence_supports_title
+from agent_review.quality import clause_window_from_anchor, evidence_supports_title, resolve_formal_evidence
 from agent_review.rules.risk_rules import match_risk_rules
 from agent_review.reporting import (
     render_formal_review_opinion,
@@ -2019,6 +2020,80 @@ def test_reviewer_report_keeps_industry_mismatch_when_specific_scoring_points_ex
 
     assert "资产总额被设为评分因素" in reviewer
     assert "行业错配评分项被纳入评审" in reviewer
+
+
+def test_legal_fact_extracts_five_high_frequency_scoring_metric_slots() -> None:
+    text = """
+    评分项：
+    1. 投标人的注册资本200万以上加20分。
+    2. 投标人近两年年均营业收入不低于100万元，得20分。
+    3. 投标人近两年年均净利润不低于50万元，得20分。
+    4. 对股东为中央企业或省级以上国有投资主体的，得20分。
+    5. 投标人成立满5年，具备5年以上相关行业从业经验得20分。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    facts = report.parse_result.legal_fact_candidates
+    scoring_facts = [item for item in facts if item.fact_type == "scoring_factor"]
+
+    metric_names = {item.constraint_value.get("metric_name") for item in scoring_facts}
+    metric_categories = {item.constraint_value.get("metric_category") for item in scoring_facts}
+
+    assert "registered_capital" in metric_names
+    assert "revenue" in metric_names
+    assert "net_profit" in metric_names
+    assert "shareholding" in metric_names
+    assert "establishment_age" in metric_names or "operating_age" in metric_names
+    assert "enterprise_scale" in metric_categories
+    assert "operating_result" in metric_categories
+    assert "ownership_structure" in metric_categories
+    assert "supplier_history" in metric_categories
+
+
+def test_reviewer_report_renders_five_high_frequency_scoring_factor_clusters() -> None:
+    text = """
+    详细评审：
+    1. 投标人的注册资本200万以上加20分。
+    2. 投标人近两年年均营业收入不低于100万元，得20分。
+    3. 投标人近两年年均净利润不低于50万元，得20分。
+    4. 对股东为中央企业或省级以上国有投资主体的，得20分；股东为知名民营产业资本的，得10分。
+    5. 投标人成立满5年（以营业执照为准），具备5年以上相关行业从业经验得20分。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "注册资本被设为评分因素" in reviewer
+    assert "营业收入被设为评分因素" in reviewer
+    assert "净利润或利润被设为评分因素" in reviewer
+    assert "股权结构被设为评分因素" in reviewer
+    assert "经营年限被设为评分因素" in reviewer
+
+
+def test_resolve_formal_evidence_prefers_quote_matching_title() -> None:
+    report_text = """
+    项目编号：BACG2025000066
+    （4）考察投标人的资本背景与稳定性：对股东为中央企业或省级以上国有投资主体的，得20分。
+    （5）投标人成立满5年（以营业执照为准），具备5年以上相关行业从业经验得20分。
+    """
+    finding = Finding(
+        title="经营年限被设为评分因素",
+        finding_type=FindingType.confirmed_issue,
+        severity=Severity.high,
+        dimension="评分不规范风险",
+        rationale="demo",
+        evidence=[
+            Evidence(quote="项目编号：BACG2025000066", section_hint="line:2"),
+            Evidence(
+                quote="（5）投标人成立满5年（以营业执照为准），具备5年以上相关行业从业经验得20分。",
+                section_hint="line:4",
+            ),
+        ],
+    )
+
+    section_hint, quote = resolve_formal_evidence(report_text, finding)
+
+    assert section_hint == "line:4"
+    assert "成立满5年" in quote
+    assert evidence_supports_title(finding.title, quote)
 
 
 def test_certificate_score_weight_point_uses_total_score() -> None:

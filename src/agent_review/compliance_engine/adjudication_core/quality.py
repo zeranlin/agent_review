@@ -107,6 +107,20 @@ def resolve_formal_evidence(report_text: str, finding: Finding) -> tuple[str, st
     if not finding.evidence:
         return section_hint, "当前自动抽取未定位到可直接引用的原文。"
 
+    best_hint = ""
+    best_quote = ""
+    for evidence in finding.evidence:
+        evidence_hint = evidence.section_hint or section_hint
+        line_quote = clause_window_from_anchor(report_text, evidence.section_hint)
+        if line_quote and evidence_supports_title(finding.title, line_quote):
+            return evidence_hint, line_quote
+        raw_evidence_quote = (evidence.quote or "").strip()
+        if raw_evidence_quote and evidence_supports_title(finding.title, raw_evidence_quote):
+            best_hint = evidence_hint
+            best_quote = raw_evidence_quote
+    if best_quote:
+        return best_hint, best_quote
+
     primary_hint = finding.evidence[0].section_hint if finding.evidence else ""
     line_quote = clause_window_from_anchor(report_text, primary_hint)
     if raw_quote and " / " in raw_quote:
@@ -192,6 +206,11 @@ def evidence_supports_title(title: str, quote: str) -> bool:
         "证明材料来源可能被限定为特定机构或特定出具口径": [["检测中心", "检测机构", "实验室", "税务部门"], ["出具", "提供", "检测报告", "证明"]],
         "资格条件与政策适用口径可能自相矛盾": [["非专门面向中小企业", "专门面向中小企业", "科技型中小企业"]],
         "评分因素可能与采购标的和履约能力关联不足": [["人力资源测评师", "非金属矿采矿许可证", "资产总额", "成立时间满", "从业人员", "纳税额", "营业收入"]],
+        "注册资本被设为评分因素": [["注册资本"], ["得分", "得", "评分", "分值", "满分", "分"]],
+        "营业收入被设为评分因素": [["营业收入"], ["得分", "得", "评分", "分值", "满分", "分"]],
+        "净利润或利润被设为评分因素": [["净利润", "利润", "利润率"], ["得分", "得", "评分", "分值", "满分", "分"]],
+        "股权结构被设为评分因素": [["股东", "股权结构", "资本背景", "国有投资主体", "产业资本"], ["得分", "得", "评分", "分值", "满分", "分"]],
+        "经营年限被设为评分因素": [["经营年限", "从业经验"], ["得分", "得", "评分", "分值", "满分", "分"]],
         "资产总额被设为评分因素": [["资产总额"], ["得分", "得", "评分", "分值", "满分", "分"]],
         "从业人员被设为评分因素": [["从业人员"], ["得分", "得", "评分", "分值", "满分", "分"]],
         "纳税额被设为评分因素": [["纳税额"], ["得分", "得", "评分", "分值", "满分", "分"]],
@@ -300,6 +319,26 @@ def evidence_supports_title(title: str, quote: str) -> bool:
     ):
         return False
     if title == "评分因素可能与采购标的和履约能力关联不足" and any(token in quote for token in WARNING_BACKGROUND_TOKENS):
+        return False
+    if title == "注册资本被设为评分因素" and all(
+        token not in quote for token in ["注册资本", "得分", "得", "评分", "分值", "满分", "分"]
+    ):
+        return False
+    if title == "营业收入被设为评分因素" and all(
+        token not in quote for token in ["营业收入", "得分", "得", "评分", "分值", "满分", "分"]
+    ):
+        return False
+    if title == "净利润或利润被设为评分因素" and all(
+        token not in quote for token in ["净利润", "利润", "利润率", "得分", "得", "评分", "分值", "满分", "分"]
+    ):
+        return False
+    if title == "股权结构被设为评分因素" and all(
+        token not in quote for token in ["股东", "股权结构", "资本背景", "国有投资主体", "产业资本", "得分", "得", "评分", "分值", "满分", "分"]
+    ):
+        return False
+    if title == "经营年限被设为评分因素" and all(
+        token not in quote for token in ["经营年限", "从业经验", "得分", "得", "评分", "分值", "满分", "分"]
+    ):
         return False
     if title == "资产总额被设为评分因素" and all(
         token not in quote for token in ["资产总额", "得分", "得", "评分", "分值", "满分", "分"]

@@ -862,6 +862,11 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
         "RP-SCORE-016",
         "RP-SCORE-017",
         "RP-SCORE-018",
+        "RP-SCORE-019",
+        "RP-SCORE-020",
+        "RP-SCORE-021",
+        "RP-SCORE-022",
+        "RP-SCORE-023",
     }
     grouped_entries: dict[str, dict[str, object]] = {}
     for adjudication in report.formal_adjudication:
@@ -975,6 +980,26 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
         (
             {"RP-SCORE-017"},
             ("age_scoring_factor", "成立年限被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-019"},
+            ("registered_capital_scoring_factor", "注册资本被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-020"},
+            ("revenue_scoring_factor", "营业收入被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-021"},
+            ("profit_scoring_factor", "净利润或利润被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-022"},
+            ("shareholding_scoring_factor", "股权结构被设为评分因素", "评分因素关联性审查", "高风险"),
+        ),
+        (
+            {"RP-SCORE-023"},
+            ("operating_age_scoring_factor", "经营年限被设为评分因素", "评分因素关联性审查", "高风险"),
         ),
         (
             {"RP-SCORE-018"},
@@ -1194,6 +1219,46 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             limit=3,
             strict=True,
         )
+    if title == "注册资本被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["注册资本"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
+    if title == "营业收入被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["营业收入"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
+    if title == "净利润或利润被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["净利润", "利润", "利润率"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
+    if title == "股权结构被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["股东", "股权结构", "资本背景", "国有投资主体", "产业资本"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
+    if title == "经营年限被设为评分因素":
+        return _select_group_quote_records(
+            quote_records,
+            ["经营年限", "从业经验"],
+            ["得分", "评分", "分值"],
+            limit=3,
+            strict=True,
+        )
     if title == "综合评分法价格分未采用低价优先法":
         return _select_group_quote_records(
             quote_records,
@@ -1379,6 +1444,21 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
         "成立年限被设为评分因素": [
             r"(成立时间满|成立年限|成立满)[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
         ],
+        "注册资本被设为评分因素": [
+            r"注册资本[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
+        "营业收入被设为评分因素": [
+            r"营业收入[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
+        "净利润或利润被设为评分因素": [
+            r"(净利润|利润率|利润)[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
+        "股权结构被设为评分因素": [
+            r"(股东|股权结构|资本背景|国有投资主体|产业资本)[^。；\n]{0,140}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
+        "经营年限被设为评分因素": [
+            r"(经营年限|从业经验)[^。；\n]{0,120}(得分|评分|分值)[^。；\n]{0,80}",
+        ],
         "综合评分法价格分未采用低价优先法": [
             r"价格分计算方法[^。；\n]{0,180}",
             r"(中间价优先法|平均值作为评标基准价|去掉最高价和最低价)[^。；\n]{0,180}",
@@ -1528,6 +1608,11 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
         "staff_scoring_factor": "评分直接以供应商从业人员数量作为加分条件，容易把企业规模条件错当作项目履约能力。",
         "tax_scoring_factor": "评分直接以纳税额作为加分条件，属于以经营结果替代项目履约能力评价的高风险做法。",
         "age_scoring_factor": "评分直接以供应商成立年限作为加分条件，容易对新设企业形成不当限制。",
+        "registered_capital_scoring_factor": "评分直接以供应商注册资本作为加分条件，属于以企业规模替代项目履约能力的高风险做法。",
+        "revenue_scoring_factor": "评分直接以供应商营业收入作为加分条件，属于以企业规模替代项目履约能力的高风险做法。",
+        "profit_scoring_factor": "评分直接以净利润、利润或利润率作为加分条件，属于以经营结果替代项目履约能力的高风险做法。",
+        "shareholding_scoring_factor": "评分直接以股权结构、资本背景或投资主体性质作为加分条件，容易形成偏好性评分和不当竞争限制。",
+        "operating_age_scoring_factor": "评分直接以经营年限或相关行业从业经验作为供应商加分条件，容易对新进入者形成不当限制。",
         "price_method_mismatch": "综合评分法中的价格分采用中间价优先法或均值法，偏离低价优先的法定评审口径，容易影响价格评审公平性。",
         "scoring_quant": "方案评分以主观分档和“无缺陷得满分”等规则为核心，量化和客观性不足，评委裁量空间较大。",
         "contract_template": "合同条款中出现“项目成果、移作他用、泄露成果”等表述，更符合咨询、设计或信息化项目，和当前项目行业场景明显不匹配。",
@@ -1633,6 +1718,11 @@ def _reviewer_quote_supports_title(title: str, quote: str) -> bool:
     partial_checks = {
         "项目属性与采购内容、合同类型不一致": ["项目所属分类", "项目属性", "货物", "人工管护", "清林整地", "抚育", "运水", "合同类型", "承揽合同"],
         "评分项与采购标的不相关": ["利润率", "软件企业认定证书", "ITSS", "财务报告", "信用评价"],
+        "注册资本被设为评分因素": ["注册资本", "得分", "评分", "分值"],
+        "营业收入被设为评分因素": ["营业收入", "得分", "评分", "分值"],
+        "净利润或利润被设为评分因素": ["净利润", "利润", "利润率", "得分", "评分", "分值"],
+        "股权结构被设为评分因素": ["股东", "股权结构", "资本背景", "国有投资主体", "产业资本", "得分", "评分", "分值"],
+        "经营年限被设为评分因素": ["经营年限", "从业经验", "得分", "评分", "分值"],
         "行业错配评分项被纳入评审": ["人力资源测评师", "非金属矿采矿许可证", "采矿许可证", "评分", "得分", "分值"],
         "方案评分主观性过强，量化不足": ["无缺陷", "缺陷", "扣2.5分", "完全满足且优于", "不完全满足"],
         "合同条款存在明显模板错配": ["项目成果", "研究成果", "技术文档", "移作他用", "泄露本项目成果"],
