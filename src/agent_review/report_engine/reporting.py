@@ -978,11 +978,30 @@ def _collect_hidden_qualification_gate_records(report_text: str, point, adjudica
     if primary:
         records.append({"location": (adjudication.section_hint or "").strip(), "quote": primary})
     for item in [*point.evidence_bundle.direct_evidence, *point.evidence_bundle.supporting_evidence]:
-        quote = clause_window_from_anchor(report_text, item.section_hint) or (item.quote or "").strip()
+        quote = _prefer_report_quote(
+            clause_window_from_anchor(report_text, item.section_hint),
+            item.quote,
+        )
         if not quote or len(quote) < 6:
             continue
         records.append({"location": (item.section_hint or "").strip(), "quote": quote})
     return _dedupe_quote_records(records)[:10]
+
+
+def _prefer_report_quote(anchor_quote: str | None, item_quote: str | None) -> str:
+    anchor = (anchor_quote or "").strip()
+    item = (item_quote or "").strip()
+    if not anchor:
+        return item
+    if not item:
+        return anchor
+
+    report_tokens = ("成立满", "成立年限", "设立满", "注册满", "营业执照", "高新技术企业", "纳税信用A级", "科技型中小企业")
+    if len(item) >= len(anchor) + 12:
+        return item
+    if any(token in item and token not in anchor for token in report_tokens):
+        return item
+    return anchor
 
 
 def _split_hidden_qualification_gate_targets(

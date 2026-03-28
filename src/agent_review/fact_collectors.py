@@ -827,10 +827,13 @@ def _assemble_qualification_gate_evidence(
     qualification_gate_clauses = _sort_candidate_clauses(
         [
             clause
-            for clause in _collect_by_fields_in_order(extracted_clauses, ["资格门槛明细", "资格条件明细", "一般资格要求"])
+            for clause in _collect_by_fields_in_order(
+                extracted_clauses,
+                ["资格门槛明细", "资格条件明细", "一般资格要求", "证明来源要求"],
+            )
             if clause.field_name == "资格门槛明细"
             or (
-                clause.field_name in {"资格条件明细", "一般资格要求"}
+                clause.field_name in {"资格条件明细", "一般资格要求", "证明来源要求"}
                 and any(
                     item.value in {
                         "entity_identity",
