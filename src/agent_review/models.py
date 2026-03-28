@@ -133,6 +133,85 @@ class LegalBasis:
 
 
 @dataclass(slots=True)
+class OfficialReviewItem:
+    row_index: int
+    anchor_text: str
+    page_hint: str
+    review_point: str
+    scenario: str
+    rule_name: str
+    category: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class OfficialReviewBaseline:
+    source_path: str
+    sheet_name: str
+    items: list[OfficialReviewItem] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_path": self.source_path,
+            "sheet_name": self.sheet_name,
+            "item_count": len(self.items),
+            "items": [item.to_dict() for item in self.items],
+        }
+
+
+@dataclass(slots=True)
+class OfficialGapItem:
+    row_index: int
+    anchor_text: str
+    page_hint: str
+    review_point: str
+    rule_name: str
+    category: str
+    matched_report_title: str = ""
+    gap_stage: str = ""
+    gap_type: str = ""
+    root_cause: str = ""
+    recommendation: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class OfficialGapAnalysis:
+    source_xlsx_path: str
+    source_report_path: str
+    official_item_count: int
+    matched_count: int
+    partial_match_count: int
+    missed_count: int
+    matched_items: list[OfficialGapItem] = field(default_factory=list)
+    partial_match_items: list[OfficialGapItem] = field(default_factory=list)
+    missed_items: list[OfficialGapItem] = field(default_factory=list)
+    false_positive_titles: list[str] = field(default_factory=list)
+    llm_status: dict[str, object] = field(default_factory=dict)
+    root_cause_counts: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_xlsx_path": self.source_xlsx_path,
+            "source_report_path": self.source_report_path,
+            "official_item_count": self.official_item_count,
+            "matched_count": self.matched_count,
+            "partial_match_count": self.partial_match_count,
+            "missed_count": self.missed_count,
+            "matched_items": [item.to_dict() for item in self.matched_items],
+            "partial_match_items": [item.to_dict() for item in self.partial_match_items],
+            "missed_items": [item.to_dict() for item in self.missed_items],
+            "false_positive_titles": self.false_positive_titles,
+            "llm_status": self.llm_status,
+            "root_cause_counts": self.root_cause_counts,
+        }
+
+
+@dataclass(slots=True)
 class ReviewPointCondition:
     name: str
     clause_fields: list[str] = field(default_factory=list)
