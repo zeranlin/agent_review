@@ -15,6 +15,74 @@ from ..models import FindingType, QualityGateStatus, ReviewMode, ReviewReport
 INDUSTRY_MISMATCH_SCORING_TOKENS = ("人力资源测评师", "非金属矿采矿许可证", "采矿许可证")
 
 
+REVIEWER_PARENT_TITLE_SUPPRESSION_RULES = [
+    {
+        "parent": "履约保证金转质量保证金或长期无息占压",
+        "children_any": ["明确说明保证金缴纳方式", "不得违规设置质量保证金"],
+    },
+    {
+        "parent": "投标阶段证书或检测报告负担过重",
+        "children_any": [
+            "不得将准入类、行政许可类资格职业证书设置为评分项",
+            "不得缺失“超出检测机构能力范围”处理的相关说明",
+            "证明材料来源可能被限定为特定机构或特定出具口径",
+            "体系认证证书不得要求特定认证范围",
+            "特定资质或证书要求超必要限度",
+        ],
+    },
+    {
+        "parent": "行业错配评分项被纳入评审",
+        "children_any": ["不得将准入类、行政许可类资格职业证书设置为评分项"],
+    },
+    {
+        "parent": "资格条件与政策适用口径可能自相矛盾",
+        "children_any": [
+            "不得将资产总额的隐性限制证书设置为资格条件",
+            "不得将从业人员的隐性限制证书设置为资格条件",
+            "不得将纳税额的隐性限制证书设置为资格条件",
+            "不得将成立年限的隐性限制证书设置为资格条件",
+            "资格条件可能缺乏履约必要性或带有歧视性门槛",
+        ],
+    },
+    {
+        "parent": "资格条件可能缺乏履约必要性或带有歧视性门槛",
+        "children_any": [
+            "不得将资产总额的隐性限制证书设置为资格条件",
+            "不得将从业人员的隐性限制证书设置为资格条件",
+            "不得将纳税额的隐性限制证书设置为资格条件",
+            "不得将成立年限的隐性限制证书设置为资格条件",
+            "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复",
+            "特定资质或证书要求超必要限度",
+            "不得限定供应商组织形式",
+        ],
+    },
+]
+
+
+REVIEWER_OVERLAP_TITLE_SUPPRESSION_RULES = [
+    {
+        "parent": "资格条件与评分因素重复设门槛",
+        "children_any": [
+            "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复",
+            "不得将资产总额的隐性限制证书设置为资格条件",
+            "不得将从业人员的隐性限制证书设置为资格条件",
+            "不得将纳税额的隐性限制证书设置为资格条件",
+            "不得将成立年限的隐性限制证书设置为资格条件",
+            "资产总额被设为评分因素",
+            "从业人员被设为评分因素",
+            "纳税额被设为评分因素",
+            "成立年限被设为评分因素",
+            "注册资本被设为评分因素",
+            "营业收入被设为评分因素",
+            "净利润或利润被设为评分因素",
+            "股权结构被设为评分因素",
+            "经营年限被设为评分因素",
+        ],
+        "retain_if_quote_contains_any": ["资格", "申请人的资格要求", "须具备", "须为", "须提供"],
+    },
+]
+
+
 def render_json(report: ReviewReport) -> str:
     return json.dumps(report.to_dict(), ensure_ascii=False, indent=2)
 
@@ -1014,50 +1082,40 @@ def _prune_reviewer_entries(entries: list[dict[str, object]]) -> list[dict[str, 
     for entry in entries:
         title = str(entry.get("问题标题", "")).strip()
         quote_text = " ".join(str(item) for item in entry.get("原文摘录", []))
-        if title == "履约保证金转质量保证金或长期无息占压" and {
-            "明确说明保证金缴纳方式",
-            "不得违规设置质量保证金",
-        }.intersection(title_set):
+        if _should_suppress_parent_reviewer_title(title, title_set):
             continue
-        if title == "投标阶段证书或检测报告负担过重" and (
-            "不得将准入类、行政许可类资格职业证书设置为评分项" in title_set
-            or "不得缺失“超出检测机构能力范围”处理的相关说明" in title_set
-            or "证明材料来源可能被限定为特定机构或特定出具口径" in title_set
-        ):
+        if _should_suppress_overlap_reviewer_title(title, quote_text, title_set):
             continue
-        if title == "行业错配评分项被纳入评审" and "不得将准入类、行政许可类资格职业证书设置为评分项" in title_set:
-            continue
-        if title == "资格条件与政策适用口径可能自相矛盾" and any(
-            specific in title_set
-            for specific in [
-                "不得将资产总额的隐性限制证书设置为资格条件",
-                "不得将从业人员的隐性限制证书设置为资格条件",
-                "不得将纳税额的隐性限制证书设置为资格条件",
-                "不得将成立年限的隐性限制证书设置为资格条件",
-            ]
-        ):
-            continue
-        if title == "资格条件与评分因素重复设门槛":
-            has_specific_overlap = any(
-                specific in title_set
-                for specific in [
-                    "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复",
-                    "不得将资产总额的隐性限制证书设置为资格条件",
-                    "不得将从业人员的隐性限制证书设置为资格条件",
-                    "不得将纳税额的隐性限制证书设置为资格条件",
-                    "不得将成立年限的隐性限制证书设置为资格条件",
-                    "资产总额被设为评分因素",
-                    "从业人员被设为评分因素",
-                    "纳税额被设为评分因素",
-                    "成立年限被设为评分因素",
-                ]
-            )
-            if has_specific_overlap and not any(
-                token in quote_text for token in ["资格", "申请人的资格要求", "须具备", "须为", "须提供"]
-            ):
-                continue
         pruned.append(entry)
     return pruned
+
+
+def _should_suppress_parent_reviewer_title(title: str, title_set: set[str]) -> bool:
+    for rule in REVIEWER_PARENT_TITLE_SUPPRESSION_RULES:
+        if title != str(rule.get("parent", "")).strip():
+            continue
+        children_any = set(rule.get("children_any", []))
+        if children_any.intersection(title_set):
+            return True
+    return False
+
+
+def _should_suppress_overlap_reviewer_title(
+    title: str,
+    quote_text: str,
+    title_set: set[str],
+) -> bool:
+    for rule in REVIEWER_OVERLAP_TITLE_SUPPRESSION_RULES:
+        if title != str(rule.get("parent", "")).strip():
+            continue
+        children_any = set(rule.get("children_any", []))
+        if not children_any.intersection(title_set):
+            return False
+        retain_tokens = tuple(rule.get("retain_if_quote_contains_any", []))
+        if retain_tokens and any(token in quote_text for token in retain_tokens):
+            return False
+        return True
+    return False
 
 
 def _collect_hidden_qualification_gate_records(report_text: str, point, adjudication) -> list[dict[str, str]]:
