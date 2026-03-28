@@ -11,6 +11,7 @@ from agent_review.eval.official_gap_analysis import (
     parse_reviewer_report_titles,
     render_official_gap_markdown,
 )
+from agent_review.official_rule_registry import OFFICIAL_RULE_BY_NAME, OFFICIAL_RULE_PROFILES, build_title_synonym_groups
 
 
 def test_load_official_review_baseline_reads_xlsx_rows(tmp_path: Path) -> None:
@@ -144,3 +145,47 @@ def test_render_official_gap_markdown_contains_sections(tmp_path: Path) -> None:
     assert "# 官方结果对比分析" in markdown
     assert "## 漏检" in markdown
     assert "合理设置合同履行期限" in markdown
+
+
+def test_official_rule_registry_contains_19_rules() -> None:
+    assert len(OFFICIAL_RULE_PROFILES) == 19
+    assert OFFICIAL_RULE_BY_NAME["不得将供应商的资产总额设定为评审因素"].authority_binding_ids == ["AUTH-RP-SCORE-014-001"]
+
+
+def test_official_title_synonym_groups_cover_price_method_rule() -> None:
+    groups = build_title_synonym_groups()
+    assert "综合评分法价格分未采用低价优先法" in groups["采用综合评分法评标的，价格分（必须）采用低价优先法"]
+    assert "依法设定价格分值" in groups["采用综合评分法评标的，价格分（必须）采用低价优先法"]
+
+
+def test_partial_match_does_not_fall_back_to_generic_scoring_title(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "official.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["埋点原文及页码", "审查点", "审查场景", "审查规则", "审查类别"])
+    sheet.append(
+        [
+            "埋点原文：投标人的资产总额达到5000万元以上的，得5分。埋点页码：12",
+            "依法设定评审因素",
+            "评审规则合规性",
+            "不得将供应商的资产总额设定为评审因素",
+            "三、评审规则合规性",
+        ]
+    )
+    workbook.save(workbook_path)
+
+    report_path = tmp_path / "reviewer_report.md"
+    report_path.write_text(
+        "\n".join(
+            [
+                "**招标文件合规审查意见书**",
+                "**1. 净利润或利润被设为评分因素**",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    analysis = analyze_official_vs_report(workbook_path, report_path)
+
+    assert analysis.partial_match_count == 0
+    assert analysis.missed_count == 1

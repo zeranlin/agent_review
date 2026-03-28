@@ -8,6 +8,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from ..models import OfficialGapAnalysis, OfficialGapItem, OfficialReviewBaseline, OfficialReviewItem
+from ..official_rule_registry import OFFICIAL_RULE_BY_NAME, build_title_synonym_groups
 
 
 REPORT_TITLE_PATTERN = re.compile(r"^\*\*\d+\.\s+(.+?)\*\*$", re.MULTILINE)
@@ -15,23 +16,7 @@ PAGE_HINT_PATTERN = re.compile(r"页码[:：]\s*([0-9Nn]+)")
 ANCHOR_PATTERN = re.compile(r"埋点原文[:：]\s*(.+?)(?:埋点页码[:：]|$)", re.DOTALL)
 
 
-TITLE_SYNONYM_GROUPS: dict[str, tuple[str, ...]] = {
-    "不得非法限定供应商所有制形式、组织形式、注册地或所在地": ("组织形式", "个体工商户", "供应商组织形式"),
-    "不得将营业收入的隐性限制证书设置为资格条件": ("科技型中小企业", "资格条件可能缺乏履约必要性", "资格条件与政策适用口径可能自相矛盾"),
-    "不得将注册资本的隐性限制证书设置为资格条件": ("保安服务认证证书", "特定资质或证书要求超必要限度", "资格条件可能缺乏履约必要性"),
-    "不得将供应商的注册资本设定为评审因素": ("注册资本",),
-    "不得将供应商的营业收入设定为评审因素": ("营业收入",),
-    "不得将供应商的利润设定为评审因素": ("净利润", "利润",),
-    "不得将供应商的股权结构设定为评审因素": ("股权结构", "资本背景",),
-    "不得将供应商的经营年限设定为评审因素": ("成立年限", "经营年限",),
-    "体系认证证书不得要求特定认证范围": ("认证范围",),
-    "不得将准入类、行政许可类资格职业证书设置为评分项": ("特种设备安全管理和作业人员证书", "准入类", "行政许可类",),
-    "依法设定价格分值": ("依法设定价格分值", "价格权重", "价格分", "综合评分法价格分"),
-    "采用综合评分法，服务项目的价格分值占总分值的比重（权重)不得低于10%": ("价格权重", "价格分", "综合评分法价格分",),
-    "合理设置合同履行期限": ("合理设置合同履行期限", "履行期限", "服务期限", "建设周期", "36个月"),
-    "服务合同履行期限不得超过36个月": ("履行期限", "服务期限", "建设周期", "36个月"),
-    "采购人应当在收到发票后N个工作日内完成资金支付/采购人应当在收到发票后N个工作日或Y日内完成资金支付": ("收到发票后", "资金支付", "付款时限"),
-}
+TITLE_SYNONYM_GROUPS: dict[str, tuple[str, ...]] = build_title_synonym_groups()
 
 
 def load_official_review_baseline(path: str | Path) -> OfficialReviewBaseline:
@@ -244,6 +229,16 @@ def _find_direct_match(item: OfficialReviewItem, report_titles: list[str]) -> st
 
 
 def _find_partial_match(item: OfficialReviewItem, report_titles: list[str]) -> str:
+    profile = OFFICIAL_RULE_BY_NAME.get(item.rule_name)
+    if profile:
+        for title in report_titles:
+            if any(candidate and (candidate in title or title in candidate) for candidate in profile.report_titles):
+                return title
+        for title in report_titles:
+            hits = sum(1 for token in profile.matching_terms if token and token in title)
+            if hits >= 2:
+                return title
+        return ""
     candidates = TITLE_SYNONYM_GROUPS.get(item.rule_name) or TITLE_SYNONYM_GROUPS.get(item.review_point) or ()
     for title in report_titles:
         if any(token in title for token in candidates):

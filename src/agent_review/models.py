@@ -162,6 +162,22 @@ class OfficialReviewBaseline:
 
 
 @dataclass(slots=True)
+class OfficialRuleProfile:
+    official_rule_id: str
+    official_review_point: str
+    official_rule_name: str
+    priority: str
+    target_data_slots: list[str] = field(default_factory=list)
+    evidence_patterns: list[str] = field(default_factory=list)
+    authority_binding_ids: list[str] = field(default_factory=list)
+    report_titles: list[str] = field(default_factory=list)
+    matching_terms: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class OfficialGapItem:
     row_index: int
     anchor_text: str
