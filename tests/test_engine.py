@@ -398,6 +398,32 @@ def test_legal_fact_extraction_builds_structured_technical_parameter_slots() -> 
     assert interval_rule.constraint_value["has_basis_explanation"] is True
 
 
+def test_legal_fact_extraction_builds_structured_scoring_metric_slots() -> None:
+    text = """
+    评分标准：
+    投标人资产总额达到5000万元以上的，得5分；达到1亿元以上得8分。
+    投标人从业人员超过50人的，得2分；超过100人的，得5分。
+    投标人近三年年均纳税额达到200万元以上的，得5分。
+    投标人成立时间满5年的得3分，满10年的得5分。
+    """
+    facts = extract_legal_facts_from_units([], document_id="scoring-metric-fallback.txt", raw_text=text)
+    scoring_facts = [item for item in facts if item.fact_type == "scoring_factor"]
+
+    asset = next(item for item in scoring_facts if "资产总额" in item.object_text)
+    staff = next(item for item in scoring_facts if "从业人员" in item.object_text)
+    tax = next(item for item in scoring_facts if "纳税额" in item.object_text)
+    age = next(item for item in scoring_facts if "成立时间满" in item.object_text)
+
+    assert asset.constraint_value["metric_name"] == "asset_total"
+    assert asset.constraint_value["metric_category"] == "enterprise_scale"
+    assert staff.constraint_value["metric_name"] == "employee_count"
+    assert staff.constraint_value["metric_category"] == "enterprise_scale"
+    assert tax.constraint_value["metric_name"] == "tax_amount"
+    assert tax.constraint_value["metric_category"] == "operating_result"
+    assert age.constraint_value["metric_name"] == "establishment_age"
+    assert age.constraint_value["metric_category"] == "supplier_history"
+
+
 def test_qualification_performance_dup_rule_no_longer_triggers_on_bare_scoring_text() -> None:
     text = """
     评分标准：

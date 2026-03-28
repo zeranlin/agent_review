@@ -114,3 +114,29 @@ def test_function_requirement_rows_do_not_trigger_assessment_payment_control_ris
     adjudication = formal_map["考核条款可能控制付款或履约评价"]
 
     assert adjudication.included_in_formal is False
+
+
+def test_p1_bundle_rules_enter_formal_and_report_with_refined_quotes() -> None:
+    text = """
+    资格要求：投标人须具备深圳市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。
+    评分标准：同类项目业绩每增加1个加2分，最高6分。
+    验收条款：验收时产生的第三方检测费用由中标人承担，无论检测结果是否合格。
+    技术要求：产品须符合GB/T 99999-2024《医疗机器人通用技术规范》要求；产品响应时间：100ms。设备重量≤500kg(不允许正偏离)。设备重量允许±10%偏差。系统应具有良好的操作体验，界面友好美观。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="p1_bundle.txt")
+    formal_titles = {item.title for item in report.formal_adjudication if item.included_in_formal}
+    reviewer = render_reviewer_report(report)
+
+    assert "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复" in formal_titles
+    assert "第三方检测费用无论结果均由中标人承担" in formal_titles
+    assert "疑似使用不存在的技术标准" in formal_titles
+    assert "技术参数区间说明不足" in formal_titles
+    assert "同一技术参数区间说明冲突" in formal_titles
+    assert "技术要求存在主观描述" in formal_titles
+
+    assert "深圳市医疗器械行业同类项目业绩不少于2个" in reviewer
+    assert "第三方检测费用由中标人承担，无论检测结果是否合格" in reviewer
+    assert "GB/T 99999-2024《医疗机器人通用技术规范》要求" in reviewer
+    assert "响应时间：100ms" in reviewer or "设备重量≤500kg(不允许正偏离)" in reviewer
+    assert "良好的操作体验，界面友好美观" in reviewer
+    assert "第三方检测费用由中标人承担，无论检测结果是否合格。技术要求" not in reviewer

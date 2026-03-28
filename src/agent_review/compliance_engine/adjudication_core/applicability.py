@@ -835,6 +835,42 @@ def _registered_capital_scoring_evaluator(clause_mapping: dict[str, list[Extract
     )
 
 
+def _asset_total_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["资产总额"],
+        field_names=["财务指标加分", "评分项明细"],
+        display_name="资产总额",
+    )
+
+
+def _employee_count_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["从业人员"],
+        field_names=["人员评分要求", "评分项明细"],
+        display_name="从业人员",
+    )
+
+
+def _tax_amount_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["纳税额"],
+        field_names=["财务指标加分", "评分项明细"],
+        display_name="纳税额",
+    )
+
+
+def _establishment_age_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    return _specific_scoring_metric_evaluator(
+        clause_mapping,
+        labels=["成立时间满", "成立年限", "成立满"],
+        field_names=["评分项明细", "行业相关性存疑评分项", "资格门槛明细"],
+        display_name="成立年限",
+    )
+
+
 def _revenue_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     return _specific_scoring_metric_evaluator(
         clause_mapping,
@@ -1596,6 +1632,10 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SCORE-011", "存在评分项明细"): _credit_evaluation_scoring_evaluator,
     ("RP-SCORE-012", "存在信用评价评分信号"): _credit_transparency_evaluator,
     ("RP-SCORE-012", "已说明信用修复或异议机制"): _credit_relief_presence_evaluator,
+    ("RP-SCORE-014", "评分中出现资产总额门槛"): _asset_total_scoring_evaluator,
+    ("RP-SCORE-015", "评分中出现从业人员数量门槛"): _employee_count_scoring_evaluator,
+    ("RP-SCORE-016", "评分中出现纳税额门槛"): _tax_amount_scoring_evaluator,
+    ("RP-SCORE-017", "评分中出现成立年限门槛"): _establishment_age_scoring_evaluator,
     ("RP-SCORE-019", "评分中出现注册资本门槛"): _registered_capital_scoring_evaluator,
     ("RP-SCORE-020", "评分中出现营业收入门槛"): _revenue_scoring_evaluator,
     ("RP-SCORE-021", "评分中出现利润类门槛"): _profit_scoring_evaluator,

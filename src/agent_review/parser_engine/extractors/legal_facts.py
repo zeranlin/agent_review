@@ -189,12 +189,16 @@ def _fallback_fact_candidate(
             and any(
                 token in compact
                 for token in [
+                    "资产总额",
+                    "从业人员",
+                    "纳税额",
                     "营业收入",
                     "净利润",
                     "利润率",
                     "注册资本",
                     "股东",
                     "资本背景",
+                    "成立时间满",
                     "成立满",
                     "经营年限",
                     "从业经验",
@@ -213,12 +217,16 @@ def _fallback_fact_candidate(
                 "认证",
                 "检测报告",
                 "ITSS",
+                "资产总额",
+                "从业人员",
+                "纳税额",
                 "营业收入",
                 "净利润",
                 "利润率",
                 "注册资本",
                 "股东",
                 "资本背景",
+                "成立时间满",
                 "成立满",
                 "经营年限",
                 "从业经验",
@@ -708,12 +716,16 @@ def _looks_like_scoring_factor(text: str) -> bool:
             "认证",
             "检测报告",
             "ITSS",
+            "资产总额",
+            "从业人员",
+            "纳税额",
             "营业收入",
             "净利润",
             "利润率",
             "注册资本",
             "股东",
             "资本背景",
+            "成立时间满",
             "成立满",
             "经营年限",
             "从业经验",
@@ -1067,11 +1079,13 @@ def _infer_scoring_item_type(compact: str) -> str:
         return "certificate"
     if "检测报告" in compact:
         return "report"
-    if any(token in compact for token in ["财务", "营业收入", "净利润", "利润率", "注册资本", "资产规模"]):
+    if any(token in compact for token in ["财务", "营业收入", "净利润", "利润率", "注册资本", "资产规模", "资产总额", "纳税额"]):
         return "financial"
+    if "从业人员" in compact:
+        return "personnel"
     if any(token in compact for token in ["股东", "股权结构", "资本背景", "国有投资主体", "产业资本"]):
         return "ownership"
-    if any(token in compact for token in ["成立满", "成立年限", "经营年限", "从业经验"]):
+    if any(token in compact for token in ["成立时间满", "成立满", "成立年限", "经营年限", "从业经验"]):
         return "history"
     if any(token in compact for token in ["项目负责人", "人员配置", "学历", "职称", "社保"]):
         return "personnel"
@@ -1092,6 +1106,9 @@ def _infer_scoring_metric_name(compact: str) -> str:
     if any(token in compact for token in ["特种设备安全管理和作业人员证书", "作业人员证书", "行政许可", "许可证"]):
         return "administrative_license"
     metric_tokens = [
+        ("资产总额", "asset_total"),
+        ("从业人员", "employee_count"),
+        ("纳税额", "tax_amount"),
         ("注册资本", "registered_capital"),
         ("营业收入", "revenue"),
         ("净利润", "net_profit"),
@@ -1121,9 +1138,9 @@ def _infer_scoring_metric_category(compact: str, metric_name: str, scoring_item_
         return "certificate_scope"
     if metric_name == "administrative_license":
         return "administrative_license"
-    if metric_name in {"registered_capital", "revenue"}:
+    if metric_name in {"asset_total", "employee_count", "registered_capital", "revenue"}:
         return "enterprise_scale"
-    if metric_name in {"net_profit", "profit", "profit_margin"}:
+    if metric_name in {"tax_amount", "net_profit", "profit", "profit_margin"}:
         return "operating_result"
     if metric_name == "shareholding":
         return "ownership_structure"

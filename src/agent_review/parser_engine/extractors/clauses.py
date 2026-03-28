@@ -1315,6 +1315,9 @@ def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
                 "管理体系认证",
                 "检测报告",
                 "财务",
+                "资产总额",
+                "从业人员",
+                "纳税额",
                 "利润率",
                 "营业收入",
                 "净利润",
@@ -1325,6 +1328,7 @@ def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
                 "资本背景",
                 "国有投资主体",
                 "产业资本",
+                "成立时间满",
                 "成立满",
                 "成立年限",
                 "经营年限",
@@ -1342,7 +1346,7 @@ def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
             score += 3
         if any(token in line for token in ["资质证书", "管理体系认证", "认证证书", "检测报告", "信用评价"]):
             score += 2
-        if any(token in line for token in ["营业收入", "净利润", "利润", "注册资本", "股东", "股权结构", "资本背景", "成立满", "经营年限", "从业经验"]):
+        if any(token in line for token in ["资产总额", "从业人员", "纳税额", "营业收入", "净利润", "利润", "注册资本", "股东", "股权结构", "资本背景", "成立时间满", "成立满", "经营年限", "从业经验"]):
             score += 2
         if "实施方案" in line or "项目整体" in line or "售后服务方案" in line:
             score += 1
@@ -1359,11 +1363,13 @@ def _scoring_item_details_extractor(lines: list[str]) -> ExtractedClause | None:
             line_tags.append("检测报告评分项")
         if "财务" in line or "利润率" in line:
             line_tags.append("财务指标评分项")
-        if any(token in line for token in ["营业收入", "净利润", "利润", "注册资本"]):
+        if any(token in line for token in ["资产总额", "纳税额", "营业收入", "净利润", "利润", "注册资本"]):
             line_tags.append("财务指标评分项")
+        if "从业人员" in line:
+            line_tags.append("人员规模评分项")
         if any(token in line for token in ["股东", "股权结构", "资本背景", "国有投资主体", "产业资本"]):
             line_tags.append("股权结构评分项")
-        if any(token in line for token in ["成立满", "成立年限", "经营年限", "从业经验"]):
+        if any(token in line for token in ["成立时间满", "成立满", "成立年限", "经营年限", "从业经验"]):
             line_tags.append("经营历史评分项")
         if "项目负责人" in line or "业绩" in line:
             line_tags.append("业绩人员评分项")
