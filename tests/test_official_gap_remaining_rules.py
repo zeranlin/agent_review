@@ -135,7 +135,9 @@ def test_p1_bundle_rules_enter_formal_and_report_with_refined_quotes() -> None:
     assert "技术要求存在主观描述" in formal_titles
 
     assert "深圳市医疗器械行业同类项目业绩不少于2个" in reviewer
+    assert "资格业绩存在地域范围收窄" in reviewer
     assert "第三方检测费用由中标人承担，无论检测结果是否合格" in reviewer
+    assert "未按责任来源和检测结果区分费用分配" in reviewer
     assert "GB/T 99999-2024《医疗机器人通用技术规范》要求" in reviewer
     assert "响应时间：100ms" in reviewer or "设备重量≤500kg(不允许正偏离)" in reviewer
     assert "良好的操作体验，界面友好美观" in reviewer

@@ -189,3 +189,42 @@ def test_partial_match_does_not_fall_back_to_generic_scoring_title(tmp_path: Pat
 
     assert analysis.partial_match_count == 0
     assert analysis.missed_count == 1
+
+
+def test_official_gap_analysis_maps_requirement_and_technical_bundle_into_partial_matches(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "official_bundle.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["埋点原文及页码", "审查点", "审查场景", "审查规则", "审查类别"])
+    rows = [
+        ("埋点原文：深圳市医疗器械行业同类项目业绩不少于2个。埋点页码：11", "不得将特定行业、特定行政区划、特定金额的业绩、奖项作为资格条件", "资格公平性", "不得将特定行业、特定行政区划、特定金额的业绩作为资格条件", "一、资格公平性"),
+        ("埋点原文：验收时产生的第三方检测费用由中标人承担，无论检测结果是否合格。埋点页码：18", "不得要求中标人承担检测费用", "需求合规性", "不得将检测费用与检测结果合格性挂钩", "二、需求合规性"),
+        ("埋点原文：产品须符合GB/T 99999-2024。埋点页码：22", "检测报告/检测标准合规性", "需求合规性", "不得使用不存在的检测标准", "二、需求合规性"),
+        ("埋点原文：产品响应时间：100ms。埋点页码：23", "技术参数的区间设置合规性", "需求合规性", "不得缺失“技术参数区间说明”", "二、需求合规性"),
+        ("埋点原文：设备重量≤500kg(不允许正偏离)；设备重量允许±10%偏差。埋点页码：24", "技术参数的区间设置合规性", "需求合规性", "不得存在区间说明冲突", "二、需求合规性"),
+        ("埋点原文：系统应具有良好的操作体验，界面友好美观。埋点页码：25", "依法设定评审因素", "评审规则合规性", "不得使用主观描述来要求供应商所投产品", "三、评审规则合规性"),
+    ]
+    for row in rows:
+        sheet.append(list(row))
+    workbook.save(workbook_path)
+
+    report_path = tmp_path / "reviewer_report.md"
+    report_path.write_text(
+        "\n".join(
+            [
+                "**招标文件合规审查意见书**",
+                "**1. 资格业绩要求可能存在地域限定、行业口径过窄或与评分重复**",
+                "**2. 第三方检测费用无论结果均由中标人承担**",
+                "**3. 疑似使用不存在的技术标准**",
+                "**4. 技术参数区间说明不足**",
+                "**5. 同一技术参数区间说明冲突**",
+                "**6. 技术要求存在主观描述**",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    analysis = analyze_official_vs_report(workbook_path, report_path)
+
+    assert analysis.partial_match_count == 6
+    assert analysis.missed_count == 0

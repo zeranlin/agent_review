@@ -925,6 +925,7 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
             group_key,
             entry["问题标题"],
             list(entry["_risk_judgments"]),
+            quote_records,
         )
         entries.append(
             {
@@ -1706,7 +1707,13 @@ def _select_group_quote_records(
     return selected[:limit]
 
 
-def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: list[str]) -> str:
+def _rewrite_group_risk_judgment(
+    group_key: str,
+    title: str,
+    risk_judgments: list[str],
+    quote_records: list[dict[str, str]],
+) -> str:
+    merged_quote = "；".join(item.get("quote", "") for item in quote_records)
     templates = {
         "structure_mismatch": "文件将项目定性为货物，但采购内容中同时包含持续性作业服务，合同类型又偏向承揽或服务口径，项目属性、采购内容与合同类型之间存在明显错配风险。",
         "scoring_relevance": "评分中出现利润率、软件企业认定证书、ITSS 或财务报告等内容，与项目实际履约能力缺乏直接关联，存在限制竞争风险。",
@@ -1740,6 +1747,23 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
         "parameter_interval_conflict": "同一技术参数同时出现刚性限制和允许偏差两套口径，前后冲突会直接影响投标响应和评审判断。",
         "subjective_requirement": "技术要求采用体验、美观、友好等主观描述，缺少可量化、可核验的客观标准，容易形成争议或指向性要求。",
     }
+    if title == "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复":
+        fragments: list[str] = []
+        if any(token in merged_quote for token in ["深圳市", "广州市", "本地", "市", "省", "区", "县"]):
+            fragments.append("资格业绩存在地域范围收窄")
+        if any(token in merged_quote for token in ["行业", "医疗器械", "软件开发", "运维服务", "信息化"]):
+            fragments.append("行业口径可能过窄")
+        if any(token in merged_quote for token in ["不少于", "以上", "金额", "万元", "个"]):
+            fragments.append("业绩数量或金额门槛较硬")
+        if any(token in merged_quote for token in ["得分", "评分", "加分", "最高"]) and any(
+            token in merged_quote for token in ["资格要求", "须具备", "提供合同扫描件"]
+        ):
+            fragments.append("并与评分条款形成重复放大")
+        if fragments:
+            return "；".join(fragments) + "，容易超出履约所必需边界并形成隐性限制竞争。"
+        return "资格业绩要求可能通过地域、行业或数量口径收窄竞争范围，并与评分条款形成重复门槛，需重点核查其必要性。"
+    if title == "第三方检测费用无论结果均由中标人承担":
+        return "检测费用被设置为无论结果如何均由中标人承担，未按责任来源和检测结果区分费用分配，存在明显风险转嫁。"
     if group_key in templates:
         return templates[group_key]
     if risk_judgments:
