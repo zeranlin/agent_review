@@ -1014,7 +1014,7 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
         ),
         (
             {"RP-SCORE-026"},
-            ("service_price_weight_factor", "服务项目价格分值权重低于10%", "价格评分规则审查", "高风险"),
+            ("service_price_weight_factor", "依法设定价格分值", "价格评分规则审查", "高风险"),
         ),
         (
             {"RP-SCORE-018"},
@@ -1078,7 +1078,7 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
         ),
         (
             {"RP-CONTRACT-015"},
-            ("service_duration_limit", "服务合同履行期限不得超过36个月", "合同期限边界审查", "高风险"),
+            ("service_duration_limit", "合理设置合同履行期限", "合同期限边界审查", "高风险"),
         ),
         (
             {"RP-CONS-009", "RP-SME-005"},
@@ -1159,9 +1159,9 @@ def _canonical_reviewer_group_key(group_key: str, title: str) -> str:
         "不得限定供应商组织形式": "qualification_org_form",
         "体系认证证书不得要求特定认证范围": "certificate_scope_scoring_factor",
         "不得将准入类、行政许可类资格职业证书设置为评分项": "administrative_license_scoring_factor",
-        "服务项目价格分值权重低于10%": "service_price_weight_factor",
+        "依法设定价格分值": "service_price_weight_factor",
         "采购人应当在收到发票后N个工作日内完成资金支付/采购人应当在收到发票后N个工作日或Y日内完成资金支付": "invoice_payment_deadline",
-        "服务合同履行期限不得超过36个月": "service_duration_limit",
+        "合理设置合同履行期限": "service_duration_limit",
     }
     cluster_key = explicit_clusters.get(normalized_title)
     if cluster_key:
@@ -1309,7 +1309,7 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             limit=3,
             strict=True,
         )
-    if title == "服务项目价格分值权重低于10%":
+    if title == "依法设定价格分值":
         return _select_group_quote_records(
             quote_records,
             ["价格权重", "价格分值权重", "价格分权重"],
@@ -1429,7 +1429,7 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             limit=3,
             strict=True,
         )
-    if title == "服务合同履行期限不得超过36个月":
+    if title == "合理设置合同履行期限":
         return _select_group_quote_records(
             quote_records,
             ["合同履行期限", "服务期限", "服务期", "建设周期"],
@@ -1705,7 +1705,7 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
         "contract_template": "合同条款中出现“项目成果、移作他用、泄露成果”等表述，更符合咨询、设计或信息化项目，和当前项目行业场景明显不匹配。",
         "acceptance_flexible": "验收条款赋予采购人较大的单方裁量空间，缺乏固定、明确、可预期的验收标准，容易引发履约争议。",
         "invoice_payment_deadline": "付款条款约定采购人在收到发票后较长时间内才支付资金，需重点复核是否偏离政府采购支付时限要求。",
-        "service_duration_limit": "服务项目合同履行期限超过 36 个月时，需重点核查其是否具有明确规则依据和项目必要性。",
+        "service_duration_limit": "服务项目合同履行期限应明确、合理；存在空白占位、期限未明确或明显超过通常周期时，需重点核查其规则依据和项目必要性。",
         "amount_consistency": "预算金额、最高限价与面向中小企业采购金额之间存在异常对应关系，金额口径不清，文件严谨性不足。",
         "warranty_scope": "项目核心履约内容包含持续性作业或服务责任，但合同条款仍仅以货物质保表述概括，未能准确覆盖实际履约责任。",
         "team_stability": "团队稳定性要求将供应商内部人员构成或稳定性过度前置为采购要求，容易形成不必要的履约门槛。",
@@ -1814,7 +1814,7 @@ def _reviewer_quote_supports_title(title: str, quote: str) -> bool:
         "经营年限被设为评分因素": ["经营年限", "从业经验", "得分", "评分", "分值"],
         "体系认证证书不得要求特定认证范围": ["认证范围", "管理体系认证", "认证证书", "得分", "评分", "分值"],
         "不得将准入类、行政许可类资格职业证书设置为评分项": ["许可证", "行政许可", "作业人员证书", "特种设备安全管理和作业人员证书", "得分", "评分", "分值"],
-        "服务项目价格分值权重低于10%": ["价格权重", "价格分值权重", "%"],
+        "依法设定价格分值": ["价格权重", "价格分值权重", "%"],
         "行业错配评分项被纳入评审": ["人力资源测评师", "非金属矿采矿许可证", "采矿许可证", "评分", "得分", "分值"],
         "方案评分主观性过强，量化不足": ["无缺陷", "缺陷", "扣2.5分", "完全满足且优于", "不完全满足"],
         "合同条款存在明显模板错配": ["项目成果", "研究成果", "技术文档", "移作他用", "泄露本项目成果"],
@@ -1825,7 +1825,7 @@ def _reviewer_quote_supports_title(title: str, quote: str) -> bool:
         "人员更换限制较强": ["人员更换", "更换", "替换", "变更", "调整", "采购人同意", "采购人批准", "须经"],
         "不得限定供应商组织形式": ["个体工商户", "其他组织形式", "组织形式", "不得参与", "不接受", "不得投标", "不得参加"],
         "采购人应当在收到发票后N个工作日内完成资金支付/采购人应当在收到发票后N个工作日或Y日内完成资金支付": ["收到发票后", "支付", "付款", "工作日", "日内"],
-        "服务合同履行期限不得超过36个月": ["合同履行期限", "服务期限", "服务期", "建设周期", "个月"],
+        "合理设置合同履行期限": ["合同履行期限", "服务期限", "服务期", "建设周期", "个月"],
     }
     tokens = partial_checks.get(title)
     if tokens is not None:

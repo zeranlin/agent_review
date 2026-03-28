@@ -143,4 +143,4 @@ def test_render_official_gap_markdown_contains_sections(tmp_path: Path) -> None:
 
     assert "# 官方结果对比分析" in markdown
     assert "## 漏检" in markdown
-    assert "服务合同履行期限不得超过36个月" in markdown
+    assert "合理设置合同履行期限" in markdown

@@ -214,10 +214,10 @@ REVIEW_POINT_CONTRACTS: list[ReviewPointContract] = [
     ),
     ReviewPointContract(
         point_id="RP-CONTRACT-015",
-        title="服务合同履行期限不得超过36个月",
-        description="审查服务项目合同履行期限是否超过 36 个月。",
+        title="合理设置合同履行期限",
+        description="审查服务项目合同履行期限是否明确、合理，重点关注期限过长或空白占位未清理。",
         risk_family="contract",
-        legal_theme="服务期限边界",
+        legal_theme="服务期限明确性与合理性",
         applicable_procurement_kinds=["service", "mixed", "unknown"],
         target_zone_types=["administrative_info", "contract"],
         primary_review_types=["合同"],
@@ -434,7 +434,7 @@ REVIEW_POINT_CONTRACTS: list[ReviewPointContract] = [
     ),
     ReviewPointContract(
         point_id="RP-SCORE-026",
-        title="服务项目价格分值权重低于10%",
+        title="依法设定价格分值",
         description="审查服务项目综合评分中价格因素权重是否低于 10%。",
         risk_family="scoring",
         legal_theme="价格权重合理性",

@@ -558,6 +558,7 @@ def build_formal_adjudication(
             "净利润或利润被设为评分因素",
             "股权结构被设为评分因素",
             "经营年限被设为评分因素",
+            "依法设定价格分值",
         } and has_direct and strong_anchor and quote and evidence_supports_title(point.title, quote):
             evidence_sufficient = True
 
@@ -1411,13 +1412,13 @@ def _formal_family_key(title: str) -> str:
         return "qualification"
     if any(token in title for token in ["方案评分", "评分分档", "评分量化"]):
         return "scoring"
-    if any(token in title for token in ["证书", "检测报告", "财务指标"]):
+    if any(token in title for token in ["证书", "检测报告", "财务指标", "依法设定价格分值"]):
         return "score_weight"
     if any(token in title for token in ["中小企业", "价格扣除", "采购金额口径"]):
         return "policy"
     if any(token in title for token in ["项目属性", "合同类型", "持续性作业服务", "采购内容"]):
         return "structure"
-    if any(token in title for token in ["模板", "成果", "验收标准", "质保", "保修"]):
+    if any(token in title for token in ["模板", "成果", "验收标准", "质保", "保修", "合理设置合同履行期限"]):
         return "contract"
     if any(token in title for token in ["扣款", "解约", "违约责任", "付款", "满意度", "考核"]):
         return "contract"
@@ -1682,7 +1683,8 @@ def _formal_quote_is_noise_like(quote: str, family_key: str) -> bool:
     if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification", "contract", "policy"}:
         return True
     if family_key == "contract" and not any(
-        token in normalized for token in ["付款", "支付", "尾款", "验收", "考核", "满意度", "扣款", "违约", "解约", "解除合同", "质保", "保修"]
+        token in normalized
+        for token in ["付款", "支付", "尾款", "验收", "考核", "满意度", "扣款", "违约", "解约", "解除合同", "质保", "保修", "合同履行期限", "服务期限", "服务期", "建设周期"]
     ):
         return True
     if family_key == "qualification" and not any(
@@ -1787,13 +1789,13 @@ def _formal_family_key(title: str) -> str:
         return "qualification"
     if any(token in title for token in ["方案评分", "评分分档", "评分量化"]):
         return "scoring"
-    if any(token in title for token in ["证书", "检测报告", "财务指标"]):
+    if any(token in title for token in ["证书", "检测报告", "财务指标", "依法设定价格分值"]):
         return "score_weight"
     if any(token in title for token in ["中小企业", "价格扣除", "采购金额口径"]):
         return "policy"
     if any(token in title for token in ["项目属性", "合同类型", "持续性作业服务", "采购内容"]):
         return "structure"
-    if any(token in title for token in ["模板", "成果", "验收标准", "质保", "保修"]):
+    if any(token in title for token in ["模板", "成果", "验收标准", "质保", "保修", "合理设置合同履行期限"]):
         return "contract"
     if any(token in title for token in ["团队稳定", "人员更换", "采购人批准更换", "采购人审批录用", "容貌体形", "身高限制", "性别限制", "年龄限制"]):
         return "personnel"

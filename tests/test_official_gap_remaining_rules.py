@@ -50,13 +50,27 @@ def test_remaining_gap_rules_enter_formal_and_report() -> None:
     assert "不得限定供应商组织形式" in formal_titles
     assert "体系认证证书不得要求特定认证范围" in formal_titles
     assert "不得将准入类、行政许可类资格职业证书设置为评分项" in formal_titles
-    assert "服务项目价格分值权重低于10%" in formal_titles
+    assert "依法设定价格分值" in formal_titles
     assert "采购人应当在收到发票后N个工作日内完成资金支付/采购人应当在收到发票后N个工作日或Y日内完成资金支付" in formal_titles
-    assert "服务合同履行期限不得超过36个月" in formal_titles
+    assert "合理设置合同履行期限" in formal_titles
 
     assert "不得限定供应商组织形式" in reviewer
     assert "体系认证证书不得要求特定认证范围" in reviewer
     assert "不得将准入类、行政许可类资格职业证书设置为评分项" in reviewer
-    assert "服务项目价格分值权重低于10%" in reviewer
+    assert "依法设定价格分值" in reviewer
     assert "采购人应当在收到发票后N个工作日内完成资金支付/采购人应当在收到发票后N个工作日或Y日内完成资金支付" in reviewer
-    assert "服务合同履行期限不得超过36个月" in reviewer
+    assert "合理设置合同履行期限" in reviewer
+
+
+def test_contract_duration_placeholder_is_treated_as_term_clarity_risk() -> None:
+    text = """
+    项目属性：服务
+    合同条款：
+    合同履行期限：本项目建设周期为12个月，自合同签订之日起至终验止（即 年 月 日至 年 月 日）。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="service_term_placeholder.txt")
+    formal_map = {item.title: item for item in report.formal_adjudication}
+    adjudication = formal_map["合理设置合同履行期限"]
+
+    assert adjudication.legal_basis_applicable is True
+    assert adjudication.included_in_formal is True

@@ -778,6 +778,8 @@ def _normalize_unit_price_weight_field(
         text = _unit_text_context(unit)
         compact = re.sub(r"\s+", "", text)
         cells = _unit_cells(unit)
+        heading_context = str(unit.table_context.get("heading_context", "")).strip()
+        table_title = str(unit.table_context.get("title", "")).strip()
         if "价格" not in compact:
             continue
         value = ""
@@ -789,9 +791,16 @@ def _normalize_unit_price_weight_field(
                 value = match.group(1)
         if not value:
             continue
+        content = unit.text.strip() or " | ".join(cells)
+        context_bits = [item for item in [table_title, heading_context] if item]
+        context_prefix = " ".join(dict.fromkeys(context_bits))
+        if context_prefix and any(token in context_prefix for token in ["权重", "评分因素", "价格"]):
+            content = f"{context_prefix} 价格权重：{value}%"
+        elif len(cells) >= 2 and "价格" in "".join(cells):
+            content = f"价格权重：{value}%"
         return _clause_from_normalizer(
             unit,
-            content=unit.text.strip() or " | ".join(cells),
+            content=content,
             normalized_value=value,
             relation_tags=["价格权重", value],
             semantic_zone=SemanticZoneType.scoring,

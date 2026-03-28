@@ -567,7 +567,7 @@ CATALOG: list[ReviewPointDefinition] = [
     ),
     ReviewPointDefinition(
         catalog_id="RP-CONTRACT-015",
-        title="服务合同履行期限不得超过36个月",
+        title="合理设置合同履行期限",
         dimension="合同与履约风险",
         default_severity=Severity.high,
         scenario_tags=["contract", "service"],
@@ -575,7 +575,7 @@ CATALOG: list[ReviewPointDefinition] = [
             ReviewPointCondition("项目属性为服务", clause_fields=["项目属性"], signal_groups=[["服务"]]),
             ReviewPointCondition("存在服务期限月数", clause_fields=["服务期限月数", "合同履行期限"], signal_groups=[["个月"]]),
         ],
-        basis_hint="持续性服务项目合同期限应保持合理边界，超过常见政府采购服务合同周期时需要重点复核。",
+        basis_hint="采购文件应明确、合理设置服务合同履行期限；出现空白占位、期限未明确或明显超过通常周期时需要重点复核。",
     ),
     ReviewPointDefinition(
         catalog_id="RP-COMP-001",
@@ -1328,7 +1328,7 @@ CATALOG: list[ReviewPointDefinition] = [
     ),
     ReviewPointDefinition(
         catalog_id="RP-SCORE-026",
-        title="服务项目价格分值权重低于10%",
+        title="依法设定价格分值",
         dimension="B.评分不规范风险",
         default_severity=Severity.high,
         risk_family="scoring",

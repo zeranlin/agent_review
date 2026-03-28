@@ -902,6 +902,9 @@ def _service_duration_limit_evaluator(clause_mapping: dict[str, list[ExtractedCl
     if project_type and "服务" not in project_type:
         return ApplicabilityStatus.unsatisfied, [f"已识别项目属性={project_type}，当前不属于服务合同期限重点场景。"]
     for clause in clauses:
+        compact = re.sub(r"\s+", "", clause.content or "")
+        if _service_term_has_placeholder_risk(compact):
+            return ApplicabilityStatus.satisfied, ["结构化字段关系成立：服务期限条款存在空白占位、待定日期或模板残留，合同履行期限表述不够明确。"]
         months = _parse_duration_months(clause.normalized_value or clause.content)
         if months is None:
             continue
@@ -909,6 +912,24 @@ def _service_duration_limit_evaluator(clause_mapping: dict[str, list[ExtractedCl
             return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：服务合同履行期限={months}个月，超过 36 个月。"]
         return ApplicabilityStatus.unsatisfied, [f"已识别服务期限={months}个月，当前未超过 36 个月。"]
     return ApplicabilityStatus.unsatisfied, ["已抽取期限条款，但尚未解析出明确的月份数。"]
+
+
+def _service_term_has_placeholder_risk(compact: str) -> bool:
+    placeholder_tokens = [
+        "年月日至年月日",
+        "自合同签订之日起至终验止",
+        "自合同签订之日起至验收合格之日止",
+        "另行约定",
+        "待定",
+        "详见合同",
+        "N个月",
+        "X个月",
+    ]
+    if any(token in compact for token in placeholder_tokens):
+        return True
+    if re.search(r"即\d*年\d*月\d*日至\d*年\d*月\d*日", compact):
+        return True
+    return bool(re.search(r"即年?月?日至年?月?日", compact))
 
 
 def _rigid_patent_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
