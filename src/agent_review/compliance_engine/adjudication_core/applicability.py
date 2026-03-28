@@ -671,6 +671,58 @@ def _payment_assessment_link_evaluator(clause_mapping: dict[str, list[ExtractedC
     return ApplicabilityStatus.unsatisfied, [f"已抽取付款节点与考核条款，但尚未识别尾款/付款联动标签：付款标签={sorted(payment_tags)}，考核标签={sorted(assessment_tags)}。"]
 
 
+def _assessment_payment_control_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    payment_texts = [text for text in _texts_for_fields(clause_mapping, ["付款节点"]) if not _looks_like_background_assessment_text(text)]
+    assessment_texts = [text for text in _texts_for_fields(clause_mapping, ["考核条款"]) if not _looks_like_background_assessment_text(text)]
+    satisfaction_texts = [text for text in _texts_for_fields(clause_mapping, ["满意度条款"]) if not _looks_like_background_assessment_text(text)]
+
+    payment = payment_texts[0] if payment_texts else ""
+    assessment = assessment_texts[0] if assessment_texts else ""
+    satisfaction = satisfaction_texts[0] if satisfaction_texts else ""
+
+    if not assessment and not satisfaction:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到可用于合同控制判断的考核或满意度条款。"]
+
+    assessment_linked = _contains_any(assessment, ["付款", "支付", "尾款", "履约评价", "评价结果", "验收", "扣款", "违约金"]) if assessment else False
+    satisfaction_linked = _contains_any(satisfaction, ["付款", "支付", "尾款", "履约评价", "评价结果", "验收", "扣款", "违约金"]) if satisfaction else False
+    payment_linked = _contains_any(payment, ["考核", "满意度", "履约评价", "评价结果"]) if payment else False
+
+    if (assessment_linked or satisfaction_linked) and (payment or _contains_any(assessment or satisfaction, ["履约评价", "评价结果"])):
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：考核/满意度条款与付款或履约评价存在联动。付款={payment or '未识别'}，考核={assessment or '未识别'}，满意度={satisfaction or '未识别'}。"]
+    if payment and payment_linked and (assessment or satisfaction):
+        return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：付款条款已与考核/满意度联动。付款={payment}，考核={assessment or '未识别'}，满意度={satisfaction or '未识别'}。"]
+    return ApplicabilityStatus.unsatisfied, [f"已抽取考核/满意度或付款条款，但尚未形成控制付款或履约评价的明确联动：付款={payment or '未识别'}，考核={assessment or '未识别'}，满意度={satisfaction or '未识别'}。"]
+
+
+def _looks_like_background_assessment_text(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text or "")
+    if not compact:
+        return False
+    if any(token in compact for token in ["付款", "支付", "尾款", "履约评价", "评价结果", "验收", "扣款", "违约金"]):
+        return False
+    return any(
+        token in compact
+        for token in [
+            "市民满意度",
+            "幸福感",
+            "知识库运营机制",
+            "评价应用",
+            "绩效考核监测功能",
+            "用户培训",
+            "培训满意度",
+            "技术支持",
+            "售后服务",
+            "系统管理人员",
+            "系统操作人员",
+            "工作区",
+            "管理窗口",
+            "外呼",
+            "通话记录",
+            "录音存储",
+        ]
+    )
+
+
 def _contract_type_mismatch_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     project_type = _first_normalized_or_content(clause_mapping, "项目属性")
     contract_type = _first_normalized_or_content(clause_mapping, "合同类型")
@@ -1510,6 +1562,8 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SME-003", "声明函缺少制造商口径"): _goods_template_mismatch_evaluator,
     ("RP-SME-004", "文件涉及预留份额"): _equals_relation("是否为预留份额采购", "是", "文件涉及预留份额"),
     ("RP-SME-004", "已明确比例信息"): _exists_relation("分包比例", "已明确比例信息"),
+    ("RP-CONTRACT-002", "存在考核条款"): _assessment_payment_control_evaluator,
+    ("RP-CONTRACT-002", "存在付款或履约评价联动"): _assessment_payment_control_evaluator,
     ("RP-CONTRACT-005", "存在付款节点"): _contains_relation("付款节点", "存在", "存在付款节点"),
     ("RP-CONTRACT-005", "存在考核条款"): _payment_assessment_link_evaluator,
     ("RP-CONTRACT-008", "存在成果模板术语"): _contract_template_mismatch_evaluator,

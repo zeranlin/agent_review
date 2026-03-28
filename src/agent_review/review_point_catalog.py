@@ -424,7 +424,14 @@ CATALOG: list[ReviewPointDefinition] = [
         dimension="合同与履约风险",
         default_severity=Severity.high,
         scenario_tags=["contract"],
-        required_conditions=[ReviewPointCondition("存在考核条款", clause_fields=["考核条款"], signal_groups=[["考核"]])],
+        required_conditions=[
+            ReviewPointCondition("存在考核条款", clause_fields=["考核条款"], signal_groups=[["考核"]]),
+            ReviewPointCondition(
+                "存在付款或履约评价联动",
+                clause_fields=["考核条款", "付款节点", "满意度条款"],
+                signal_groups=[["付款", "支付", "尾款", "履约评价", "评价"]],
+            ),
+        ],
         basis_hint="考核条款应量化，避免主观控制付款或履约评价。",
     ),
     ReviewPointDefinition(

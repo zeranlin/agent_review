@@ -1274,9 +1274,33 @@ def _is_strong_contract_clause(clause: ExtractedClause) -> bool:
     text = clause.content or ""
     if not any(token in text for token in ["付款", "支付", "尾款", "验收", "考核", "满意度", "扣款", "扣罚", "违约", "解约", "解除合同"]):
         return False
+    if _looks_like_function_requirement_text(text):
+        return False
     if any(token in text for token in ["参数", "机械臂", "控制台", "器械", "光学视野", "监视器", "离合"]):
         return False
     return not _is_structurally_weak_clause(clause)
+
+
+def _looks_like_function_requirement_text(text: str) -> bool:
+    compact = "".join((text or "").split())
+    if not compact:
+        return False
+    return "支持" in compact and any(
+        token in compact
+        for token in [
+            "功能",
+            "模块",
+            "工作区",
+            "账号切换",
+            "外呼",
+            "通话记录",
+            "录音存储",
+            "管理窗口",
+            "工单",
+            "预评价",
+            "系统应支持",
+        ]
+    )
 
 
 def _collect_dynamic_enhancement_clauses_by_type(

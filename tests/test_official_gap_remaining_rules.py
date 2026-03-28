@@ -1,5 +1,6 @@
 from agent_review.engine import TenderReviewEngine
 from agent_review.parser_engine.extractors.clauses import extract_clauses
+from agent_review.quality import evidence_supports_title
 from agent_review.reporting import render_reviewer_report
 
 
@@ -74,3 +75,42 @@ def test_contract_duration_placeholder_is_treated_as_term_clarity_risk() -> None
 
     assert adjudication.legal_basis_applicable is True
     assert adjudication.included_in_formal is True
+
+
+def test_contract_linkage_title_rejects_function_requirement_quote() -> None:
+    quote = "支持审核人员外呼号码配置、工单外呼、未拨打电话原因审核、通话记录、录音存储等功能。"
+    assert evidence_supports_title("尾款支付与考核条款联动风险", quote) is False
+
+
+def test_function_requirement_rows_do_not_trigger_tail_payment_assessment_risk() -> None:
+    text = """
+    项目属性：服务
+    技术功能需求：
+    支持考核中心外呼模块、账号切换权限管理、通话记录、录音存储等功能。
+    系统应支持同时打开多个管理窗口以对不同任务进行并行的操作。
+    合同条款：
+    测试用例通过用户审核后，甲方支付首期款；终验后支付尾款。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="function_requirement_false_positive.txt")
+    formal_map = {item.title: item for item in report.formal_adjudication}
+    adjudication = formal_map["尾款支付与考核条款联动风险"]
+
+    assert adjudication.included_in_formal is False
+
+
+def test_function_requirement_rows_do_not_trigger_assessment_payment_control_risk() -> None:
+    text = """
+    项目属性：服务
+    项目背景：
+    提出要全面提升市民满意度，提高“一件事”办理质量，完善知识库运营机制，完善绩效考核监测功能。
+    技术功能需求：
+    支持考核中心外呼模块、账号切换权限管理、通话记录、录音存储等功能。
+    系统应支持同时打开多个管理窗口以对不同任务进行并行的操作。
+    合同条款：
+    付款方式：终验后支付尾款。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="assessment_payment_false_positive.txt")
+    formal_map = {item.title: item for item in report.formal_adjudication}
+    adjudication = formal_map["考核条款可能控制付款或履约评价"]
+
+    assert adjudication.included_in_formal is False

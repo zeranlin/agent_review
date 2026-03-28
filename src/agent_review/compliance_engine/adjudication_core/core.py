@@ -502,9 +502,10 @@ def build_formal_adjudication(
         legal_basis_applicable = bool(point.legal_basis or authority_bindings) and (
             applicability.applicable if applicability is not None else True
         )
-        if risk_hit_direct and point.legal_basis:
+        risk_hit_override_allowed = point.catalog_id not in {"RP-CONTRACT-005", "RP-CONTRACT-011"}
+        if risk_hit_direct and point.legal_basis and risk_hit_override_allowed:
             legal_basis_applicable = True
-        if risk_hit_direct and authority_bindings:
+        if risk_hit_direct and authority_bindings and risk_hit_override_allowed:
             legal_basis_applicable = True
         external_boundary = lookup_external_manual_review_boundary(
             catalog_id=point.catalog_id,

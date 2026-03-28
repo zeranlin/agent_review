@@ -178,6 +178,16 @@ def infer_role_from_text(text: str) -> ClauseRole:
 
 
 def evidence_supports_title(title: str, quote: str) -> bool:
+    if title == "考核条款可能控制付款或履约评价":
+        if _looks_like_function_requirement_quote(quote):
+            return False
+        required_groups = [["考核", "满意度"], ["付款", "支付", "尾款", "履约评价", "评价"]]
+        return all(any(token in quote for token in group) for group in required_groups)
+    if title in {"尾款支付与考核条款联动风险", "验收与付款/考核/满意度联动不当"}:
+        if _looks_like_function_requirement_quote(quote):
+            return False
+        required_groups = [["付款", "支付", "尾款"], ["考核", "满意度", "评价", "验收"]]
+        return all(any(token in quote for token in group) for group in required_groups)
     checks = {
         "性别限制": [["性别", "男性", "女性"]],
         "年龄限制": [["年龄", "岁以下", "岁以上"]],
@@ -393,6 +403,28 @@ def evidence_supports_title(title: str, quote: str) -> bool:
     ):
         return False
     return all(any(token in quote for token in group) for group in groups)
+
+
+def _looks_like_function_requirement_quote(quote: str) -> bool:
+    compact = "".join((quote or "").split())
+    if not compact:
+        return False
+    return "支持" in compact and any(
+        token in compact
+        for token in [
+            "功能",
+            "模块",
+            "工作区",
+            "账号切换",
+            "外呼",
+            "通话记录",
+            "录音存储",
+            "管理窗口",
+            "工单",
+            "预评价",
+            "系统应支持",
+        ]
+    )
 
 
 def line_text_from_anchor(text: str, anchor: str) -> str:

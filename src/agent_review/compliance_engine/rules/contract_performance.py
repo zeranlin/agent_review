@@ -61,15 +61,41 @@ def match_contract_performance_risks(text: str, clauses) -> list[RiskHit]:
             )
         )
 
-    if ("付款" in text or "支付" in text) and "考核" in text and "尾款" in text:
+    payment_clauses = [
+        clause
+        for clause in mapping.get("付款节点", [])
+        if not _looks_like_function_requirement(clause.content)
+    ]
+    assessment_clauses = [
+        clause
+        for clause in mapping.get("考核条款", [])
+        if not _looks_like_function_requirement(clause.content)
+    ]
+    linked_payment_clause = next(
+        (
+            clause
+            for clause in payment_clauses
+            if any(token in clause.content for token in ["尾款", "考核", "满意度", "评价"])
+        ),
+        None,
+    )
+    linked_assessment_clause = next(
+        (
+            clause
+            for clause in assessment_clauses
+            if any(token in clause.content for token in ["付款", "支付", "尾款", "满意度", "评价"])
+        ),
+        None,
+    )
+    if linked_payment_clause is not None and (assessment_clauses or linked_assessment_clause is not None):
         hits.append(
             RiskHit(
                 risk_group="合同与履约风险",
                 rule_name="尾款支付与考核条款联动风险",
                 severity=Severity.high,
-                matched_text="付款或支付 / 考核 / 尾款",
+                matched_text=linked_payment_clause.content,
                 rationale="文件同时出现付款、考核和尾款控制要素，需重点核查是否由采购人单方主观评价决定大额尾款。",
-                source_anchor=_anchor(mapping, "付款节点", "考核条款", "扣款条款"),
+                source_anchor=linked_payment_clause.source_anchor or _anchor(mapping, "付款节点", "考核条款", "扣款条款"),
             )
         )
 
@@ -106,3 +132,23 @@ def _anchor(mapping: dict[str, list], *keys: str) -> str:
         if items:
             return items[0].source_anchor
     return "keyword_match"
+
+
+def _looks_like_function_requirement(text: str) -> bool:
+    compact = "".join((text or "").split())
+    if not compact:
+        return False
+    feature_tokens = [
+        "支持",
+        "功能",
+        "模块",
+        "工作区",
+        "账号切换",
+        "外呼",
+        "通话记录",
+        "录音存储",
+        "管理窗口",
+        "工单",
+        "预评价",
+    ]
+    return "支持" in compact and any(token in compact for token in feature_tokens[1:])

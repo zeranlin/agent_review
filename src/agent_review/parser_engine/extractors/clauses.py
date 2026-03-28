@@ -2182,6 +2182,10 @@ def _assessment_extractor(lines: list[str]) -> ExtractedClause | None:
             continue
         window = _build_window_clause(lines, line_no, after=2)
         window_text = window.content
+        if _looks_like_non_contract_assessment_context(window_text):
+            continue
+        if not any(token in window_text for token in ["付款", "支付", "尾款", "履约评价", "评价结果", "验收", "扣款", "违约金", "满意度"]):
+            continue
         relation_tags = ["存在"]
         if any(token in window_text for token in ["付款", "支付", "尾款"]):
             relation_tags.append("关联付款")
@@ -2204,6 +2208,8 @@ def _satisfaction_extractor(lines: list[str]) -> ExtractedClause | None:
             continue
         window = _build_window_clause(lines, line_no, after=2)
         window_text = window.content
+        if _looks_like_non_contract_assessment_context(window_text):
+            continue
         tags = ["满意度条款"]
         if any(token in window_text for token in ["付款", "支付", "尾款"]):
             tags.append("关联付款")
@@ -2218,6 +2224,45 @@ def _satisfaction_extractor(lines: list[str]) -> ExtractedClause | None:
             relation_tags=tags,
         )
     return None
+
+
+def _looks_like_non_contract_assessment_context(text: str) -> bool:
+    compact = "".join((text or "").split())
+    if not compact:
+        return False
+    positive_tokens = ["付款", "支付", "尾款", "履约评价", "评价结果", "扣款", "违约金", "验收"]
+    if any(token in compact for token in positive_tokens):
+        return False
+    background_tokens = [
+        "功能",
+        "模块",
+        "系统类",
+        "系统应支持",
+        "工作区",
+        "账号切换",
+        "外呼",
+        "通话记录",
+        "录音存储",
+        "管理窗口",
+        "工单",
+        "知识库",
+        "典型案例库",
+        "监测功能",
+        "市民满意度",
+        "专题",
+        "专项数据分析",
+        "平台响应服务效率",
+        "得分",
+        "评分",
+        "培训满意度",
+        "市民满意度",
+        "幸福感",
+        "用户培训",
+        "技术支持",
+        "售后服务",
+        "评价应用",
+    ]
+    return any(token in compact for token in background_tokens)
 
 
 def _acceptance_extractor(lines: list[str]) -> ExtractedClause | None:
