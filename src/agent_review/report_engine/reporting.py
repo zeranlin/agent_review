@@ -878,6 +878,36 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
         point = point_index.get(adjudication.point_id)
         if point is None:
             continue
+        if point.catalog_id == "RP-QUAL-003":
+            base_records = _collect_reviewer_quote_records(report.parse_result.text or "", point, adjudication, point.title)
+            split_targets = _split_hidden_qualification_gate_targets(base_records)
+            if split_targets:
+                for group_key, title, dimension, severity, records in split_targets:
+                    entry = grouped_entries.setdefault(
+                        group_key,
+                        {
+                            "问题标题": title,
+                            "问题定性": severity,
+                            "审查类型": dimension,
+                            "_locations": [],
+                            "_quote_records": [],
+                            "_risk_judgments": [],
+                            "_basis": [],
+                        },
+                    )
+                    entry["问题定性"] = _stronger_reviewer_severity(entry["问题定性"], severity)
+                    for record in records:
+                        if record["location"] and record["location"] not in entry["_locations"]:
+                            entry["_locations"].append(record["location"])
+                        if record not in entry["_quote_records"]:
+                            entry["_quote_records"].append(record)
+                    risk_judgment = _reviewer_risk_judgment(point.rationale, adjudication.rationale)
+                    if risk_judgment not in entry["_risk_judgments"]:
+                        entry["_risk_judgments"].append(risk_judgment)
+                    for basis in _reviewer_legal_basis_lines(point):
+                        if basis not in entry["_basis"]:
+                            entry["_basis"].append(basis)
+                continue
         group_key, title, dimension, severity = _resolve_reviewer_issue_group(point, adjudication)
         if (
             point.catalog_id == "RP-SCORE-013"
@@ -940,6 +970,40 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
         )
     entries.sort(key=_reviewer_issue_sort_key)
     return entries
+
+
+def _split_hidden_qualification_gate_targets(
+    quote_records: list[dict[str, str]],
+) -> list[tuple[str, str, str, str, list[dict[str, str]]]]:
+    mapping = [
+        (
+            "qualification_asset_hidden_gate",
+            "不得将资产总额的隐性限制证书设置为资格条件",
+            ["科技型中小企业", "资产总额", "规模类型"],
+        ),
+        (
+            "qualification_staff_hidden_gate",
+            "不得将从业人员的隐性限制证书设置为资格条件",
+            ["高新技术企业", "从业人员", "规模类型"],
+        ),
+        (
+            "qualification_tax_hidden_gate",
+            "不得将纳税额的隐性限制证书设置为资格条件",
+            ["纳税信用A级", "税务部门", "纳税额"],
+        ),
+        (
+            "qualification_age_hidden_gate",
+            "不得将成立年限的隐性限制证书设置为资格条件",
+            ["成立满", "成立年限", "设立满", "注册满"],
+        ),
+    ]
+    results: list[tuple[str, str, str, str, list[dict[str, str]]]] = []
+    for group_key, title, tokens in mapping:
+        records = [item for item in quote_records if any(token in item["quote"] for token in tokens)]
+        if not records:
+            continue
+        results.append((group_key, title, "资格与公平竞争审查", "高风险", records[:2]))
+    return results
 
 
 def _include_in_reviewer_issue_entries(adjudication) -> bool:
@@ -1126,6 +1190,46 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
 
 
 def _resolve_reviewer_issue_group(point, adjudication) -> tuple[str, str, str, str]:
+    if point.catalog_id == "RP-QUAL-003":
+        evidence_text = " ".join(
+            filter(
+                None,
+                [
+                    adjudication.primary_quote,
+                    adjudication.section_hint,
+                    *(item.quote for item in point.evidence_bundle.direct_evidence),
+                    *(item.quote for item in point.evidence_bundle.supporting_evidence),
+                ],
+            )
+        )
+        if any(token in evidence_text for token in ["纳税信用", "税务部门"]):
+            return (
+                "qualification_tax_hidden_gate",
+                "不得将纳税额的隐性限制证书设置为资格条件",
+                "资格与公平竞争审查",
+                "高风险",
+            )
+        if any(token in evidence_text for token in ["成立满", "成立年限", "设立满", "注册满"]):
+            return (
+                "qualification_age_hidden_gate",
+                "不得将成立年限的隐性限制证书设置为资格条件",
+                "资格与公平竞争审查",
+                "高风险",
+            )
+        if "高新技术企业" in evidence_text:
+            return (
+                "qualification_staff_hidden_gate",
+                "不得将从业人员的隐性限制证书设置为资格条件",
+                "资格与公平竞争审查",
+                "高风险",
+            )
+        if any(token in evidence_text for token in ["科技型中小企业", "规模类型", "资产总额"]):
+            return (
+                "qualification_asset_hidden_gate",
+                "不得将资产总额的隐性限制证书设置为资格条件",
+                "资格与公平竞争审查",
+                "高风险",
+            )
     if point.catalog_id in {"RP-SCORE-005", "RP-SCORE-013"}:
         evidence_text = " ".join(
             filter(
@@ -1156,6 +1260,10 @@ def _canonical_reviewer_group_key(group_key: str, title: str) -> str:
         "履约保证金转质量保证金或长期无息占压": "contract_retention_money",
         "第三方检测费用无论结果均由中标人承担": "contract_third_party_test_cost",
         "以预算金额比例设最低报价门槛": "competition_min_quote_floor",
+        "不得将资产总额的隐性限制证书设置为资格条件": "qualification_asset_hidden_gate",
+        "不得将从业人员的隐性限制证书设置为资格条件": "qualification_staff_hidden_gate",
+        "不得将纳税额的隐性限制证书设置为资格条件": "qualification_tax_hidden_gate",
+        "不得将成立年限的隐性限制证书设置为资格条件": "qualification_age_hidden_gate",
         "资格条件与评分因素重复设门槛": "qualification_scoring_overlap",
         "不得限定供应商组织形式": "qualification_org_form",
         "体系认证证书不得要求特定认证范围": "certificate_scope_scoring_factor",
@@ -1324,6 +1432,38 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             quote_records,
             ["第三方检测费用", "检测费用"],
             ["中标人承担", "无论检测结果是否合格"],
+            limit=2,
+            strict=True,
+        )
+    if title == "不得将资产总额的隐性限制证书设置为资格条件":
+        return _select_group_quote_records(
+            quote_records,
+            ["科技型中小企业", "资产总额", "规模类型"],
+            ["投标人", "须为", "须具备", "提供"],
+            limit=2,
+            strict=True,
+        )
+    if title == "不得将从业人员的隐性限制证书设置为资格条件":
+        return _select_group_quote_records(
+            quote_records,
+            ["高新技术企业", "从业人员", "规模类型"],
+            ["投标人", "须具备", "证书"],
+            limit=2,
+            strict=True,
+        )
+    if title == "不得将纳税额的隐性限制证书设置为资格条件":
+        return _select_group_quote_records(
+            quote_records,
+            ["纳税信用A级", "税务部门", "纳税额"],
+            ["投标人", "须提供", "证明"],
+            limit=2,
+            strict=True,
+        )
+    if title == "不得将成立年限的隐性限制证书设置为资格条件":
+        return _select_group_quote_records(
+            quote_records,
+            ["成立满", "成立年限", "设立满", "注册满"],
+            ["投标人", "营业执照", "以上"],
             limit=2,
             strict=True,
         )
@@ -1734,6 +1874,10 @@ def _rewrite_group_risk_judgment(
         "price_method_mismatch": "综合评分法中的价格分采用中间价优先法或均值法，偏离低价优先的法定评审口径，容易影响价格评审公平性。",
         "scoring_quant": "方案评分以主观分档和“无缺陷得满分”等规则为核心，量化和客观性不足，评委裁量空间较大。",
         "qualification_org_form": "资格条件直接排斥个体工商户或其他组织形式，容易形成与履约能力无关的差别待遇。",
+        "qualification_asset_hidden_gate": "以科技型中小企业、规模类型等证书或身份口径替代直接履约能力判断，实质上可能对应供应商资产规模条件，容易形成隐性准入限制。",
+        "qualification_staff_hidden_gate": "以高新技术企业等证书口径替代直接履约能力判断，实质上可能对应供应商人员规模或研发人员结构要求，容易形成隐性准入限制。",
+        "qualification_tax_hidden_gate": "以纳税信用等级或税务部门证明替代直接履约能力判断，实质上可能把纳税额或纳税表现转化为资格门槛，容易形成隐性限制竞争。",
+        "qualification_age_hidden_gate": "以成立年限、设立年限或注册时间作为前置资格门槛，容易对新设企业形成不当限制。",
         "contract_template": "合同条款中出现“项目成果、移作他用、泄露成果”等表述，更符合咨询、设计或信息化项目，和当前项目行业场景明显不匹配。",
         "acceptance_flexible": "验收条款赋予采购人较大的单方裁量空间，缺乏固定、明确、可预期的验收标准，容易引发履约争议。",
         "invoice_payment_deadline": "付款条款约定采购人在收到发票后较长时间内才支付资金，需重点复核是否偏离政府采购支付时限要求。",
@@ -1873,6 +2017,10 @@ def _reviewer_quote_supports_title(title: str, quote: str) -> bool:
         "团队稳定性要求过强": ["团队稳定", "核心团队", "人员稳定", "团队成员", "保持稳定", "不得更换"],
         "人员更换限制较强": ["人员更换", "更换", "替换", "变更", "调整", "采购人同意", "采购人批准", "须经"],
         "不得限定供应商组织形式": ["个体工商户", "其他组织形式", "组织形式", "不得参与", "不接受", "不得投标", "不得参加"],
+        "不得将资产总额的隐性限制证书设置为资格条件": ["科技型中小企业", "资产总额", "规模类型", "投标人"],
+        "不得将从业人员的隐性限制证书设置为资格条件": ["高新技术企业", "从业人员", "规模类型", "投标人"],
+        "不得将纳税额的隐性限制证书设置为资格条件": ["纳税信用A级", "税务部门", "纳税额", "证明"],
+        "不得将成立年限的隐性限制证书设置为资格条件": ["成立满", "成立年限", "设立满", "注册满", "营业执照"],
         "采购人应当在收到发票后N个工作日内完成资金支付/采购人应当在收到发票后N个工作日或Y日内完成资金支付": ["收到发票后", "支付", "付款", "工作日", "日内"],
         "合理设置合同履行期限": ["合同履行期限", "服务期限", "服务期", "建设周期", "个月"],
     }

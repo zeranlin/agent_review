@@ -120,6 +120,50 @@ def test_analyze_official_vs_report_identifies_partial_and_missed_items(tmp_path
     assert "专利要求" in analysis.false_positive_titles
 
 
+def test_analyze_official_vs_report_treats_hidden_qualification_gate_subclusters_as_matches(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "official_hidden_gates.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["埋点原文及页码", "审查点", "审查场景", "审查规则", "审查类别"])
+    sheet.append(
+        [
+            "埋点原文：投标人须为全国科技型中小企业。埋点页码：19",
+            "不得将供应商规模条件、股权结构、年限设置为资格条件",
+            "资格公平性",
+            "不得将资产总额的隐性限制证书设置为资格条件",
+            "一、资格公平性",
+        ]
+    )
+    sheet.append(
+        [
+            "埋点原文：投标人须具备高新技术企业证书。埋点页码：20",
+            "不得将供应商规模条件、股权结构、年限设置为资格条件",
+            "资格公平性",
+            "不得将从业人员的隐性限制证书设置为资格条件",
+            "一、资格公平性",
+        ]
+    )
+    workbook.save(workbook_path)
+
+    report_path = tmp_path / "reviewer_report.md"
+    report_path.write_text(
+        "\n".join(
+            [
+                "**招标文件合规审查意见书**",
+                "**1. 不得将资产总额的隐性限制证书设置为资格条件**",
+                "**2. 不得将从业人员的隐性限制证书设置为资格条件**",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    analysis = analyze_official_vs_report(workbook_path, report_path)
+
+    assert analysis.matched_count == 2
+    assert analysis.partial_match_count == 0
+    assert analysis.missed_count == 0
+
+
 def test_render_official_gap_markdown_contains_sections(tmp_path: Path) -> None:
     workbook_path = tmp_path / "official.xlsx"
     workbook = Workbook()

@@ -12,7 +12,7 @@ OFFICIAL_RULE_PROFILES: list[OfficialRuleProfile] = [
         target_data_slots=["资格门槛明细", "资格条件明细", "特定资格要求", "证书材料适用阶段"],
         evidence_patterns=["科技型中小企业", "高新技术企业", "资产总额", "规模类型"],
         authority_binding_ids=["AUTH-RP-QUAL-003-001"],
-        report_titles=["资格条件可能缺乏履约必要性或带有歧视性门槛"],
+        report_titles=["不得将资产总额的隐性限制证书设置为资格条件", "资格条件可能缺乏履约必要性或带有歧视性门槛"],
         matching_terms=["隐性限制证书", "规模条件", "资产总额", "科技型中小企业", "高新技术企业"],
     ),
     OfficialRuleProfile(
@@ -23,7 +23,7 @@ OFFICIAL_RULE_PROFILES: list[OfficialRuleProfile] = [
         target_data_slots=["资格门槛明细", "资格条件明细", "特定资格要求", "证书材料适用阶段"],
         evidence_patterns=["科技型中小企业", "高新技术企业", "从业人员", "规模类型"],
         authority_binding_ids=["AUTH-RP-QUAL-003-001"],
-        report_titles=["资格条件可能缺乏履约必要性或带有歧视性门槛"],
+        report_titles=["不得将从业人员的隐性限制证书设置为资格条件", "资格条件可能缺乏履约必要性或带有歧视性门槛"],
         matching_terms=["隐性限制证书", "规模条件", "从业人员", "科技型中小企业", "高新技术企业"],
     ),
     OfficialRuleProfile(
@@ -34,7 +34,7 @@ OFFICIAL_RULE_PROFILES: list[OfficialRuleProfile] = [
         target_data_slots=["资格门槛明细", "资格条件明细", "特定资格要求", "证明来源要求"],
         evidence_patterns=["纳税信用A级", "税务部门出具", "纳税额", "纳税信用"],
         authority_binding_ids=["AUTH-RP-QUAL-003-001"],
-        report_titles=["资格条件可能缺乏履约必要性或带有歧视性门槛"],
+        report_titles=["不得将纳税额的隐性限制证书设置为资格条件", "资格条件可能缺乏履约必要性或带有歧视性门槛"],
         matching_terms=["隐性限制证书", "纳税额", "纳税信用A级", "税务部门"],
     ),
     OfficialRuleProfile(
@@ -45,7 +45,7 @@ OFFICIAL_RULE_PROFILES: list[OfficialRuleProfile] = [
         target_data_slots=["资格门槛明细", "资格条件明细", "特定资格要求"],
         evidence_patterns=["成立满", "设立满", "注册满", "成立年限"],
         authority_binding_ids=["AUTH-RP-QUAL-003-001"],
-        report_titles=["资格条件可能缺乏履约必要性或带有歧视性门槛"],
+        report_titles=["不得将成立年限的隐性限制证书设置为资格条件", "资格条件可能缺乏履约必要性或带有歧视性门槛"],
         matching_terms=["隐性限制证书", "成立年限", "成立满", "设立满"],
     ),
     OfficialRuleProfile(

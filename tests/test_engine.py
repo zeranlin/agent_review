@@ -326,6 +326,24 @@ def test_review_text_surfaces_qualification_gate_cluster_and_repeating_performan
     assert "广州市医疗器械行业同类项目业绩不少于2个" in formal_map["RP-QUAL-004"].primary_quote
 
 
+def test_reviewer_report_splits_hidden_qualification_gates_into_official_subclusters() -> None:
+    text = """
+    申请人的资格要求：
+    10.投标人须为全国科技型中小企业；
+    11.投标人须具备高新技术企业证书；
+    12.投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；
+    13.投标人须成立满5年以上，并提供营业执照复印件；
+    """
+    report = TenderReviewEngine().review_text(text, document_name="qualification_split_demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "不得将资产总额的隐性限制证书设置为资格条件" in reviewer
+    assert "不得将从业人员的隐性限制证书设置为资格条件" in reviewer
+    assert "不得将纳税额的隐性限制证书设置为资格条件" in reviewer
+    assert "不得将成立年限的隐性限制证书设置为资格条件" in reviewer
+    assert "资格条件可能缺乏履约必要性或带有歧视性门槛" not in reviewer
+
+
 def test_review_text_prefers_designated_institution_quote_for_evidence_source_restriction() -> None:
     text = """
     技术要求：
