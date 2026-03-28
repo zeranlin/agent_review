@@ -1980,6 +1980,47 @@ def test_bid_stage_material_burden_point_prefers_bid_submission_context() -> Non
     assert any("投标阶段" in item.detail for item in check.requirement_results)
 
 
+def test_reviewer_report_promotes_industry_mismatch_scoring_cluster() -> None:
+    text = """
+    详细评审：
+    1. 投标人具有人力资源测评师证书的，得3分。
+    2. 投标人具备非金属矿采矿许可证的，得5分。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "行业错配评分项被纳入评审" in reviewer
+    assert "人力资源测评师" in reviewer
+    assert "非金属矿采矿许可证" in reviewer
+    assert "评分项与采购标的不相关" not in reviewer
+
+
+def test_reviewer_report_filters_warning_background_for_bid_material_burden() -> None:
+    text = """
+    特别警示条款
+    以下内容不作为供应商资格性审查及符合性审查条件。
+    供应商不得存在以下所列禁止情形，包括提供虚假的检验检测报告或者认证证书材料。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "投标阶段证书或检测报告负担过重" not in reviewer
+
+
+def test_reviewer_report_keeps_industry_mismatch_when_specific_scoring_points_exist() -> None:
+    text = """
+    详细评审：
+    1. 投标人资产总额达到5000万元以上的，得5分。
+    2. 投标人具有人力资源测评师证书的，得3分。
+    3. 投标人具备非金属矿采矿许可证的，得5分。
+    """
+    report = TenderReviewEngine(review_mode=ReviewMode.fast).review_text(text, document_name="demo.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "资产总额被设为评分因素" in reviewer
+    assert "行业错配评分项被纳入评审" in reviewer
+
+
 def test_certificate_score_weight_point_uses_total_score() -> None:
     text = """
     预算金额：578600.00元

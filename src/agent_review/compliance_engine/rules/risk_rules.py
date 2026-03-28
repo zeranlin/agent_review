@@ -6,6 +6,20 @@ from typing import Iterable
 from ...models import Evidence, Finding, FindingType, Recommendation, RiskHit, Severity
 
 
+WARNING_BACKGROUND_TOKENS = (
+    "警示条款",
+    "特别警示条款",
+    "供应商参与投标禁止情形",
+    "违法行为风险知悉确认书",
+    "风险知悉确认书",
+    "不作为供应商资格性审查及符合性审查条件",
+    "不作为资格性审查及符合性审查条件",
+    "虚假的检验检测报告",
+    "不得存在以下所列禁止情形",
+    "处罚",
+)
+
+
 def match_risk_rules(text: str) -> list[RiskHit]:
     keyword_rules = [
         ("A.限制竞争风险", "指定品牌/原厂限制", Severity.high, ["指定品牌", "原厂授权", "原厂证明", "原厂服务", "原厂服务团队"], "存在指定品牌或原厂倾向，需核查是否构成排斥竞争。"),
@@ -29,6 +43,9 @@ def match_risk_rules(text: str) -> list[RiskHit]:
     lines = text.splitlines()
     for group, rule_name, severity, keywords, rationale in keyword_rules:
         for line_no, line in enumerate(lines, start=1):
+            prev_line = lines[line_no - 2] if line_no > 1 else ""
+            next_line = lines[line_no] if line_no < len(lines) else ""
+            context = " ".join(item for item in [prev_line, line, next_line] if item)
             if rule_name == "产地厂家商标限制":
                 if any(token in line for token in ["商标权", "知识产权", "声明函", "残疾人福利性单位", "注册商标", "不会产生", "侵权", "厂家出厂标准", "原厂正品", "原产地证明", "进口设备", "同品牌"]):
                     continue
@@ -44,6 +61,8 @@ def match_risk_rules(text: str) -> list[RiskHit]:
                     continue
             if rule_name == "投标阶段证书或检测报告负担过重":
                 if not any(token in line for token in ["投标文件", "评分", "评审", "提供", "提交", "具备"]):
+                    continue
+                if any(token in context for token in WARNING_BACKGROUND_TOKENS):
                     continue
             if rule_name == "证书类评分分值偏高":
                 if "分" not in line:

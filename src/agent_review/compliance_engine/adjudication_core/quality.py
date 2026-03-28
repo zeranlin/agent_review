@@ -5,6 +5,20 @@ import re
 from ...models import ClauseRole, ConclusionLevel, ExtractedClause, Finding, FindingType, Severity
 
 
+WARNING_BACKGROUND_TOKENS = (
+    "警示条款",
+    "特别警示条款",
+    "供应商参与投标禁止情形",
+    "违法行为风险知悉确认书",
+    "风险知悉确认书",
+    "不作为供应商资格性审查及符合性审查条件",
+    "不作为资格性审查及符合性审查条件",
+    "虚假的检验检测报告",
+    "不得存在以下所列禁止情形",
+    "处罚",
+)
+
+
 def derive_conclusion_by_evidence(
     findings: list[Finding],
     report_text: str,
@@ -231,6 +245,8 @@ def evidence_supports_title(title: str, quote: str) -> bool:
             return False
     if title == "投标阶段证书或检测报告负担过重" and all(token not in quote for token in ["检测报告", "认证证书", "管理体系认证", "证书检测报告负担特征"]):
         return False
+    if title == "投标阶段证书或检测报告负担过重" and any(token in quote for token in WARNING_BACKGROUND_TOKENS):
+        return False
     if title == "证书类评分分值偏高" and "证书类评分总分=" in quote:
         return True
     if title == "刚性门槛型专利要求" and "是否要求专利=刚性门槛" in quote:
@@ -282,6 +298,8 @@ def evidence_supports_title(title: str, quote: str) -> bool:
     if title == "评分因素可能与采购标的和履约能力关联不足" and all(
         token not in quote for token in ["人力资源测评师", "非金属矿采矿许可证", "资产总额", "成立时间满", "从业人员", "纳税额", "营业收入"]
     ):
+        return False
+    if title == "评分因素可能与采购标的和履约能力关联不足" and any(token in quote for token in WARNING_BACKGROUND_TOKENS):
         return False
     if title == "资产总额被设为评分因素" and all(
         token not in quote for token in ["资产总额", "得分", "得", "评分", "分值", "满分", "分"]

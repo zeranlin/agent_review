@@ -12,6 +12,9 @@ from ..quality import clause_window_from_anchor, evidence_supports_title
 from ..models import FindingType, QualityGateStatus, ReviewMode, ReviewReport
 
 
+INDUSTRY_MISMATCH_SCORING_TOKENS = ("人力资源测评师", "非金属矿采矿许可证", "采矿许可证")
+
+
 def render_json(report: ReviewReport) -> str:
     return json.dumps(report.to_dict(), ensure_ascii=False, indent=2)
 
@@ -867,9 +870,13 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
         point = point_index.get(adjudication.point_id)
         if point is None:
             continue
-        if point.catalog_id == "RP-SCORE-013" and included_catalog_ids.intersection(specific_scoring_catalogs):
+        group_key, title, dimension, severity = _resolve_reviewer_issue_group(point, adjudication)
+        if (
+            point.catalog_id == "RP-SCORE-013"
+            and group_key == "scoring_relevance"
+            and included_catalog_ids.intersection(specific_scoring_catalogs)
+        ):
             continue
-        group_key, title, dimension, severity = _reviewer_issue_group_definition(point)
         group_key = _canonical_reviewer_group_key(group_key, title)
         entry = grouped_entries.setdefault(
             group_key,
@@ -1065,6 +1072,29 @@ def _reviewer_issue_group_definition(point) -> tuple[str, str, str, str]:
     )
 
 
+def _resolve_reviewer_issue_group(point, adjudication) -> tuple[str, str, str, str]:
+    if point.catalog_id in {"RP-SCORE-005", "RP-SCORE-013"}:
+        evidence_text = " ".join(
+            filter(
+                None,
+                [
+                    adjudication.primary_quote,
+                    adjudication.section_hint,
+                    *(item.quote for item in point.evidence_bundle.direct_evidence),
+                    *(item.quote for item in point.evidence_bundle.supporting_evidence),
+                ],
+            )
+        )
+        if any(token in evidence_text for token in INDUSTRY_MISMATCH_SCORING_TOKENS):
+            return (
+                "industry_mismatch_scoring_factor",
+                "行业错配评分项被纳入评审",
+                "评分因素关联性审查",
+                "高风险",
+            )
+    return _reviewer_issue_group_definition(point)
+
+
 def _canonical_reviewer_group_key(group_key: str, title: str) -> str:
     if group_key and group_key != title and not group_key.startswith("RP-"):
         return group_key
@@ -1110,6 +1140,15 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
             ["软件企业认定证书"],
             ["ITSS"],
             ["财务报告"],
+            limit=4,
+            strict=True,
+        )
+    if title == "行业错配评分项被纳入评审":
+        return _select_group_quote_records(
+            quote_records,
+            ["人力资源测评师"],
+            ["非金属矿采矿许可证", "采矿许可证"],
+            ["评分", "得分", "分值", "详细评审"],
             limit=4,
             strict=True,
         )
@@ -1319,6 +1358,10 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
             r"投标人具有[^。；\n]{0,120}ITSS[^。；\n]{0,120}",
             r"财务报告[^。；\n]{0,120}",
         ],
+        "行业错配评分项被纳入评审": [
+            r"人力资源测评师[^。；;\n]{0,140}",
+            r"(非金属矿采矿许可证|采矿许可证)[^。；;\n]{0,140}",
+        ],
         "信用评价作为评分因素": [
             r"信用评价[^。；\n]{0,100}",
             r"信用分[^。；\n]{0,100}",
@@ -1479,6 +1522,7 @@ def _rewrite_group_risk_judgment(group_key: str, title: str, risk_judgments: lis
     templates = {
         "structure_mismatch": "文件将项目定性为货物，但采购内容中同时包含持续性作业服务，合同类型又偏向承揽或服务口径，项目属性、采购内容与合同类型之间存在明显错配风险。",
         "scoring_relevance": "评分中出现利润率、软件企业认定证书、ITSS 或财务报告等内容，与项目实际履约能力缺乏直接关联，存在限制竞争风险。",
+        "industry_mismatch_scoring_factor": "评分中纳入人力资源测评师、采矿许可证等与当前采购标的明显错配的资质或许可，和项目履约能力缺乏直接关联，容易形成不当限制竞争。",
         "credit_evaluation": "评分中出现信用评价、信用分或征信等内容，如作为评分因素，需复核其与项目履约能力的直接关联和分值是否适度。",
         "asset_scoring_factor": "评分直接以供应商资产总额作为加分条件，属于以企业规模替代项目履约能力的高风险做法。",
         "staff_scoring_factor": "评分直接以供应商从业人员数量作为加分条件，容易把企业规模条件错当作项目履约能力。",
@@ -1560,18 +1604,24 @@ def _collect_reviewer_locations(point, adjudication) -> list[str]:
 def _collect_reviewer_quote_records(report_text: str, point, adjudication, reviewer_title: str) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
     primary = (adjudication.primary_quote or "").strip()
-    if primary and "=" not in primary and _reviewer_quote_supports_title(reviewer_title, primary):
+    if primary and ("=" not in primary or reviewer_title == "行业错配评分项被纳入评审") and _reviewer_quote_supports_title(reviewer_title, primary):
         records.append({"location": (adjudication.section_hint or "").strip(), "quote": primary})
     for item in [*point.evidence_bundle.direct_evidence, *point.evidence_bundle.supporting_evidence]:
-        quote = (
-            clause_window_from_anchor(report_text, item.section_hint)
-            or (item.quote or "").strip()
-        )
+        if reviewer_title == "行业错配评分项被纳入评审" and "=" in (item.quote or ""):
+            quote = (item.quote or "").strip()
+        else:
+            quote = (
+                clause_window_from_anchor(report_text, item.section_hint)
+                or (item.quote or "").strip()
+            )
         if not quote:
             continue
         if len(quote) < 6:
             continue
-        if "=" in quote:
+        if "=" in quote and reviewer_title != "行业错配评分项被纳入评审":
+            continue
+        if reviewer_title == "行业错配评分项被纳入评审" and "=" in quote:
+            records.extend(_expand_structured_industry_mismatch_records((item.section_hint or "").strip(), quote))
             continue
         if not _reviewer_quote_supports_title(reviewer_title, quote):
             continue
@@ -1583,6 +1633,7 @@ def _reviewer_quote_supports_title(title: str, quote: str) -> bool:
     partial_checks = {
         "项目属性与采购内容、合同类型不一致": ["项目所属分类", "项目属性", "货物", "人工管护", "清林整地", "抚育", "运水", "合同类型", "承揽合同"],
         "评分项与采购标的不相关": ["利润率", "软件企业认定证书", "ITSS", "财务报告", "信用评价"],
+        "行业错配评分项被纳入评审": ["人力资源测评师", "非金属矿采矿许可证", "采矿许可证", "评分", "得分", "分值"],
         "方案评分主观性过强，量化不足": ["无缺陷", "缺陷", "扣2.5分", "完全满足且优于", "不完全满足"],
         "合同条款存在明显模板错配": ["项目成果", "研究成果", "技术文档", "移作他用", "泄露本项目成果"],
         "验收标准表述过于弹性": ["比较优胜", "优胜的原则", "确定该项的约定标准"],
@@ -1595,6 +1646,20 @@ def _reviewer_quote_supports_title(title: str, quote: str) -> bool:
     if tokens is not None:
         return any(token in quote for token in tokens)
     return evidence_supports_title(title, quote)
+
+
+def _expand_structured_industry_mismatch_records(location: str, quote: str) -> list[dict[str, str]]:
+    _, _, tail = quote.partition("=")
+    if not tail:
+        return []
+    records: list[dict[str, str]] = []
+    for chunk in re.split(r"[;；、,，]+", tail):
+        snippet = chunk.strip()
+        if not snippet:
+            continue
+        if any(token in snippet for token in INDUSTRY_MISMATCH_SCORING_TOKENS):
+            records.append({"location": location, "quote": snippet})
+    return records
 
 
 def _reviewer_risk_judgment(point_rationale: str, adjudication_rationale: str) -> str:

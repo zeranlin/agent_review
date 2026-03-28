@@ -46,6 +46,20 @@ from ...ontology import EffectTag
 from ...ontology import SemanticZoneType
 
 
+WARNING_BACKGROUND_TOKENS = (
+    "警示条款",
+    "特别警示条款",
+    "供应商参与投标禁止情形",
+    "违法行为风险知悉确认书",
+    "风险知悉确认书",
+    "不作为供应商资格性审查及符合性审查条件",
+    "不作为资格性审查及符合性审查条件",
+    "虚假的检验检测报告",
+    "不得存在以下所列禁止情形",
+    "处罚",
+)
+
+
 def build_review_points(
     findings: list[Finding],
     report_text: str,
@@ -1627,6 +1641,9 @@ def _formal_quote_is_noise_like(quote: str, family_key: str) -> bool:
         return True
     if _formal_quote_is_template_noise(normalized):
         return True
+    if any(token in normalized for token in WARNING_BACKGROUND_TOKENS):
+        if family_key in {"scoring", "score_weight", "qualification", "generic", "policy"}:
+            return True
     if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification", "contract", "policy"}:
         return True
     if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight", "qualification", "contract", "policy"}:
@@ -1699,6 +1716,8 @@ def _formal_noise_penalty(text: str, family_key: str) -> int:
         return 8
     if _formal_quote_is_legal_citation(normalized):
         penalty += 8
+    if any(token in normalized for token in WARNING_BACKGROUND_TOKENS):
+        penalty += 8 if family_key in {"scoring", "score_weight", "qualification", "generic", "policy"} else 4
     if _formal_quote_is_table_splice(normalized) and family_key not in {"scoring", "score_weight"}:
         penalty += 6
     if _formal_quote_is_list_splice(normalized) and family_key not in {"scoring", "score_weight"}:
