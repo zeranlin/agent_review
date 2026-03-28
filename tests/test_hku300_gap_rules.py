@@ -116,3 +116,36 @@ def test_hku300_second_batch_contract_and_material_rules_enter_reviewer_report()
     assert "采购文件同一采购包中货物合同履行期限不得存在差异" in reviewer
     assert "服务合同履行期限不得超过36个月" in reviewer
     assert "不得缺失“超出检测机构能力范围”处理的相关说明" in reviewer
+
+
+def test_hku300_reviewer_report_suppresses_parent_topics_when_specific_titles_exist() -> None:
+    text = """
+    本项目为非专门面向中小企业采购项目。
+    投标人须为全国科技型中小企业；
+    投标人须具备高新技术企业证书；
+    投标人须提供纳税信用A级证明（提供税务部门出具的证明扫描件）；
+    投标人须成立满5年以上，并提供营业执照复印件；
+    14.投标人须具备深圳市医疗器械行业同类项目业绩不少于2个（提供合同扫描件）。
+    1 | 供应商认证情况 | 3 | 专家打分 | （一）评分内容：
+    4.投标人具备人力资源测评师；
+    5.投标人具备非金属矿采矿许可证；
+    6.投标人须提供具有CMA标识的医疗器械检测报告，未提供的不得分。
+    1.投标人资产总额达到5000万元以上的，得5分；
+    2.投标人成立时间满5年的得3分；
+    3.投标人从业人员超过50人的，得2分；
+    4.投标人近三年年均纳税额达到200万元以上的，得5分。
+    46 | 履约担保 | ☑ 需要，合同金额的5%，须以银行转账方式缴纳。合同总价的5%作为质量保证金，质保期满后无息退还。
+    """
+    report = TenderReviewEngine().review_text(text, document_name="hku300_prune.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "明确说明保证金缴纳方式" in reviewer
+    assert "不得违规设置质量保证金" in reviewer
+    assert "不得将资产总额的隐性限制证书设置为资格条件" in reviewer
+    assert "不得将从业人员的隐性限制证书设置为资格条件" in reviewer
+    assert "不得将纳税额的隐性限制证书设置为资格条件" in reviewer
+    assert "不得将成立年限的隐性限制证书设置为资格条件" in reviewer
+
+    assert "履约保证金转质量保证金或长期无息占压" not in reviewer
+    assert "投标阶段证书或检测报告负担过重" not in reviewer
+    assert "资格条件与政策适用口径可能自相矛盾" not in reviewer

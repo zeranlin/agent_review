@@ -1003,8 +1003,61 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
                 "法律/政策依据": _dedupe_reviewer_basis_lines(entry["_basis"]) or ["当前结果未自动挂接明确法规依据"],
             }
         )
+    entries = _prune_reviewer_entries(entries)
     entries.sort(key=_reviewer_issue_sort_key)
     return entries
+
+
+def _prune_reviewer_entries(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+    title_set = {str(item.get("问题标题", "")).strip() for item in entries}
+    pruned: list[dict[str, object]] = []
+    for entry in entries:
+        title = str(entry.get("问题标题", "")).strip()
+        quote_text = " ".join(str(item) for item in entry.get("原文摘录", []))
+        if title == "履约保证金转质量保证金或长期无息占压" and {
+            "明确说明保证金缴纳方式",
+            "不得违规设置质量保证金",
+        }.intersection(title_set):
+            continue
+        if title == "投标阶段证书或检测报告负担过重" and (
+            "不得将准入类、行政许可类资格职业证书设置为评分项" in title_set
+            or "不得缺失“超出检测机构能力范围”处理的相关说明" in title_set
+            or "证明材料来源可能被限定为特定机构或特定出具口径" in title_set
+        ):
+            continue
+        if title == "行业错配评分项被纳入评审" and "不得将准入类、行政许可类资格职业证书设置为评分项" in title_set:
+            continue
+        if title == "资格条件与政策适用口径可能自相矛盾" and any(
+            specific in title_set
+            for specific in [
+                "不得将资产总额的隐性限制证书设置为资格条件",
+                "不得将从业人员的隐性限制证书设置为资格条件",
+                "不得将纳税额的隐性限制证书设置为资格条件",
+                "不得将成立年限的隐性限制证书设置为资格条件",
+            ]
+        ):
+            continue
+        if title == "资格条件与评分因素重复设门槛":
+            has_specific_overlap = any(
+                specific in title_set
+                for specific in [
+                    "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复",
+                    "不得将资产总额的隐性限制证书设置为资格条件",
+                    "不得将从业人员的隐性限制证书设置为资格条件",
+                    "不得将纳税额的隐性限制证书设置为资格条件",
+                    "不得将成立年限的隐性限制证书设置为资格条件",
+                    "资产总额被设为评分因素",
+                    "从业人员被设为评分因素",
+                    "纳税额被设为评分因素",
+                    "成立年限被设为评分因素",
+                ]
+            )
+            if has_specific_overlap and not any(
+                token in quote_text for token in ["资格", "申请人的资格要求", "须具备", "须为", "须提供"]
+            ):
+                continue
+        pruned.append(entry)
+    return pruned
 
 
 def _collect_hidden_qualification_gate_records(report_text: str, point, adjudication) -> list[dict[str, str]]:
@@ -2021,6 +2074,10 @@ def _rewrite_group_risk_judgment(
         return "资格业绩要求可能通过地域、行业或数量口径收窄竞争范围，并与评分条款形成重复门槛，需重点核查其必要性。"
     if title == "第三方检测费用无论结果均由中标人承担":
         return "检测费用被设置为无论结果如何均由中标人承担，未按责任来源和检测结果区分费用分配，存在明显风险转嫁。"
+    if title == "明确说明保证金缴纳方式":
+        return "保证金缴纳方式被限定为银行转账等单一形式，需重点核查是否排斥法定允许的其他担保提交方式。"
+    if title == "不得违规设置质量保证金":
+        return "履约担保条款进一步转化为质量保证金并约定质保期满后无息退还，需重点核查是否存在保证金性质异化和资金占压。"
     if group_key in templates:
         return templates[group_key]
     if risk_judgments:

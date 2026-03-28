@@ -245,7 +245,7 @@ def evidence_supports_title(title: str, quote: str) -> bool:
         "转包外包边界不清或核心任务转包风险": [["转包", "外包", "核心任务", "委托第三方"]],
         "信用评价规则透明性不足": [["信用评价", "信用分", "征信"]],
         "违约责任与程序保障失衡": [["违约责任", "解约", "解除合同"]],
-        "扣款机制可能过度依赖单方考核": [["扣款", "扣罚", "违约金"], ["考核", "满意度", "评价", "付款", "尾款"]],
+        "扣款机制可能过度依赖单方考核": [["扣款", "扣罚"], ["考核", "满意度", "评价", "付款", "尾款"]],
         "解约条件可能过宽": [["解约", "解除合同", "解除"], ["采购人", "单方", "可以", "有权"]],
         "货物服务属性冲突": [["货物"], ["服务", "实施", "运维", "承接"]],
         "货物项目混入大量服务履约内容": [["货物"], ["服务", "实施", "运维", "承接"]],
@@ -394,9 +394,18 @@ def evidence_supports_title(title: str, quote: str) -> bool:
         return False
     if title == "信用评价规则透明性不足" and any(token in quote for token in ["信用中国", "企业信用信息公示系统"]) and all(token not in quote for token in ["评分", "得分", "分"]):
         return False
-    if title == "扣款机制可能过度依赖单方考核" and all(
-        token not in quote for token in ["扣款", "扣罚", "考核", "满意度", "付款", "尾款"]
+    if title == "扣款机制可能过度依赖单方考核" and (
+        all(token not in quote for token in ["扣款", "扣罚"])
+        or all(token not in quote for token in ["考核", "满意度", "评价", "付款", "尾款"])
     ):
+        return False
+    if title == "扣款机制可能过度依赖单方考核" and all(
+        token not in quote for token in ["考核", "满意度", "评价", "尾款", "扣款", "扣罚"]
+    ) and "违约金" in quote:
+        return False
+    if title == "扣款机制可能过度依赖单方考核" and all(
+        token not in quote for token in ["考核", "满意度", "评价", "尾款"]
+    ) and "付款" in quote and "违约金" in quote:
         return False
     if title == "解约条件可能过宽" and all(
         token not in quote for token in ["解约", "解除合同", "解除", "采购人有权", "单方"]
