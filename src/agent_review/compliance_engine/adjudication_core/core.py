@@ -507,6 +507,8 @@ def build_formal_adjudication(
             legal_basis_applicable = True
         if risk_hit_direct and authority_bindings and risk_hit_override_allowed:
             legal_basis_applicable = True
+        if point.catalog_id in {"RP-CONTRACT-016", "RP-CONTRACT-017"} and authority_bindings and has_direct:
+            legal_basis_applicable = True
         external_boundary = lookup_external_manual_review_boundary(
             catalog_id=point.catalog_id,
             title=point.title,
@@ -561,6 +563,17 @@ def build_formal_adjudication(
             "经营年限被设为评分因素",
             "依法设定价格分值",
         } and has_direct and strong_anchor and quote and evidence_supports_title(point.title, quote):
+            evidence_sufficient = True
+        if (
+            point.catalog_id == "RP-CONTRACT-017"
+            and has_direct
+            and strong_anchor
+            and any(
+                any(token in (item.quote or "") for token in ["保修期", "免费保修期", "维保服务期限"])
+                and re.search(r"_*\d+_*\s*年|_*\d+_*\s*个月", item.quote or "")
+                for item in point.evidence_bundle.direct_evidence
+            )
+        ):
             evidence_sufficient = True
 
         applicability_summary = applicability.summary if applicability else "未进行适法性检查。"

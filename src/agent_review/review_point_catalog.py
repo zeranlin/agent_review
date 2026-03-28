@@ -597,6 +597,51 @@ CATALOG: list[ReviewPointDefinition] = [
         basis_hint="不宜以固定最低报价比例直接否决投标，应依法采用异常低价审查机制。",
     ),
     ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-016",
+        title="采购文件同一采购包中货物合同履行期限不得存在差异",
+        dimension="合同与履约风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract", "goods"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在同包不同交货期限",
+                clause_fields=["付款节点", "合同履行期限"],
+                signal_groups=[["交货期限", "交货期"], ["天"]],
+            ),
+        ],
+        basis_hint="同一采购包中的货物交付或履行期限应保持清晰一致，避免对履约边界和评审口径造成混乱。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-CONTRACT-017",
+        title="服务合同履行期限不得超过36个月",
+        dimension="合同与履约风险",
+        default_severity=Severity.high,
+        scenario_tags=["contract", "service"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在超长期服务期限",
+                clause_fields=["服务期限月数", "合同履行期限", "质保期"],
+                signal_groups=[["服务期限", "维保服务期限", "保修期"], ["个月", "年"]],
+            ),
+        ],
+        basis_hint="维保、保修等服务安排如明显超过通常履约周期，应提供充分必要性说明。",
+    ),
+    ReviewPointDefinition(
+        catalog_id="RP-EVID-002",
+        title="不得缺失“超出检测机构能力范围”处理的相关说明",
+        dimension="A.限制竞争风险",
+        default_severity=Severity.high,
+        scenario_tags=["qualification", "technical", "scoring"],
+        required_conditions=[
+            ReviewPointCondition(
+                "存在CMA检测报告要求且缺少替代路径说明",
+                clause_fields=["评分项明细", "证书检测报告负担特征", "是否要求检测报告"],
+                signal_groups=[["CMA标识"], ["检测报告"]],
+            ),
+        ],
+        basis_hint="要求提交特定检测报告时，应同步说明超出检测机构能力范围的替代处理路径，避免形成刚性排斥。",
+    ),
+    ReviewPointDefinition(
         catalog_id="RP-STRUCT-001",
         title="货物项目混入大量服务履约内容",
         dimension="项目结构风险",

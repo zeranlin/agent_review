@@ -92,3 +92,27 @@ def test_first_batch_new_rules_enter_formal_and_reviewer_report() -> None:
     assert "技术参数区间说明不足" in reviewer
     assert "同一技术参数区间说明冲突" in reviewer
     assert "技术要求存在主观描述" in reviewer
+
+
+def test_hku300_second_batch_contract_and_material_rules_enter_reviewer_report() -> None:
+    text = """
+    46 | 履约担保 | ☑ 需要，合同金额的5%，须以银行转账方式缴纳。合同总价的5%作为质量保证金，质保期满后无息退还。
+    评分标准：投标人须提供具有CMA标识的医疗器械检测报告。
+    交货要求：主机设备交货期限：签订合同后45天内交货；配套耗材交货期限：签订合同后90天内交货。
+    免费保修期：货物免费保修期5年，自最终验收合格之日起计算。
+    其他重要条款：投标报价不得低于预算金额的80%，低于此价格的投标将被视为无效投标。
+    """
+    hits = {item.rule_name for item in match_risk_rules(text)}
+    report = TenderReviewEngine().review_text(text, document_name="hku300_second_batch.txt")
+    reviewer = render_reviewer_report(report)
+
+    assert "采购文件同一采购包中货物合同履行期限不得存在差异" in hits
+    assert "服务合同履行期限不得超过36个月" in hits
+    assert "不得缺失“超出检测机构能力范围”处理的相关说明" in hits
+
+    assert "明确说明保证金缴纳方式" in reviewer
+    assert "不得违规设置质量保证金" in reviewer
+    assert "不得设定最低限价" in reviewer
+    assert "采购文件同一采购包中货物合同履行期限不得存在差异" in reviewer
+    assert "服务合同履行期限不得超过36个月" in reviewer
+    assert "不得缺失“超出检测机构能力范围”处理的相关说明" in reviewer

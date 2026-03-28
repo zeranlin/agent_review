@@ -908,6 +908,41 @@ def _build_reviewer_issue_entries(report: ReviewReport) -> list[dict[str, object
                         if basis not in entry["_basis"]:
                             entry["_basis"].append(basis)
                 continue
+        if point.catalog_id == "RP-CONTRACT-012":
+            base_records = _collect_reviewer_quote_records(
+                report.parse_result.text or "",
+                point,
+                adjudication,
+                point.title,
+            )
+            split_targets = _split_contract_guarantee_targets(base_records)
+            if split_targets:
+                for group_key, title, dimension, severity, records in split_targets:
+                    entry = grouped_entries.setdefault(
+                        group_key,
+                        {
+                            "问题标题": title,
+                            "问题定性": severity,
+                            "审查类型": dimension,
+                            "_locations": [],
+                            "_quote_records": [],
+                            "_risk_judgments": [],
+                            "_basis": [],
+                        },
+                    )
+                    entry["问题定性"] = _stronger_reviewer_severity(entry["问题定性"], severity)
+                    for record in records:
+                        if record["location"] and record["location"] not in entry["_locations"]:
+                            entry["_locations"].append(record["location"])
+                        if record not in entry["_quote_records"]:
+                            entry["_quote_records"].append(record)
+                    risk_judgment = _reviewer_risk_judgment(point.rationale, adjudication.rationale)
+                    if risk_judgment not in entry["_risk_judgments"]:
+                        entry["_risk_judgments"].append(risk_judgment)
+                    for basis in _reviewer_legal_basis_lines(point):
+                        if basis not in entry["_basis"]:
+                            entry["_basis"].append(basis)
+                continue
         group_key, title, dimension, severity = _resolve_reviewer_issue_group(point, adjudication)
         if (
             point.catalog_id == "RP-SCORE-013"
@@ -1035,6 +1070,30 @@ def _split_hidden_qualification_gate_targets(
         if not records:
             continue
         results.append((group_key, title, "资格与公平竞争审查", "高风险", records[:2]))
+    return results
+
+
+def _split_contract_guarantee_targets(
+    quote_records: list[dict[str, str]],
+) -> list[tuple[str, str, str, str, list[dict[str, str]]]]:
+    mapping = [
+        (
+            "contract_guarantee_payment_method",
+            "明确说明保证金缴纳方式",
+            ["履约担保", "银行转账"],
+        ),
+        (
+            "contract_quality_guarantee",
+            "不得违规设置质量保证金",
+            ["质量保证金", "合同总价", "无息退还"],
+        ),
+    ]
+    results: list[tuple[str, str, str, str, list[dict[str, str]]]] = []
+    for group_key, title, tokens in mapping:
+        records = [item for item in quote_records if all(token in item["quote"] for token in tokens)]
+        if not records:
+            continue
+        results.append((group_key, title, "合同与履约风险", "高风险", records[:2]))
     return results
 
 
@@ -1281,6 +1340,13 @@ def _resolve_reviewer_issue_group(point, adjudication) -> tuple[str, str, str, s
                 "评分因素关联性审查",
                 "高风险",
             )
+    if point.catalog_id == "RP-COMP-001":
+        return (
+            "competition_min_price_floor",
+            "不得设定最低限价",
+            "限制竞争风险审查",
+            "高风险",
+        )
     return _reviewer_issue_group_definition(point)
 
 
@@ -1290,8 +1356,14 @@ def _canonical_reviewer_group_key(group_key: str, title: str) -> str:
     normalized_title = re.sub(r"\s+", "", title or "")
     explicit_clusters = {
         "履约保证金转质量保证金或长期无息占压": "contract_retention_money",
+        "明确说明保证金缴纳方式": "contract_guarantee_payment_method",
+        "不得违规设置质量保证金": "contract_quality_guarantee",
         "第三方检测费用无论结果均由中标人承担": "contract_third_party_test_cost",
         "以预算金额比例设最低报价门槛": "competition_min_quote_floor",
+        "不得设定最低限价": "competition_min_price_floor",
+        "采购文件同一采购包中货物合同履行期限不得存在差异": "goods_package_delivery_inconsistency",
+        "服务合同履行期限不得超过36个月": "service_duration_over_36_months",
+        "不得缺失“超出检测机构能力范围”处理的相关说明": "cma_capacity_fallback_missing",
         "不得将资产总额的隐性限制证书设置为资格条件": "qualification_asset_hidden_gate",
         "不得将从业人员的隐性限制证书设置为资格条件": "qualification_staff_hidden_gate",
         "不得将纳税额的隐性限制证书设置为资格条件": "qualification_tax_hidden_gate",
@@ -1453,8 +1525,8 @@ def _rewrite_group_quote_records(title: str, quote_records: list[dict[str, str]]
     if title == "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复":
         return _select_group_quote_records(
             quote_records,
-            ["同类项目业绩", "类似项目业绩"],
             ["深圳市", "广州市", "市", "省", "行业", "医疗器械"],
+            ["同类项目业绩", "类似项目业绩"],
             ["不少于", "金额", "得分", "评分"],
             limit=3,
             strict=True,
@@ -1786,7 +1858,7 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
             r"(评分|得分)[^。；\n]{0,150}",
         ],
         "资格业绩要求可能存在地域限定、行业口径过窄或与评分重复": [
-            r"(深圳市|广州市|[省市行业]{1,6})[^。；\n]{0,150}(同类项目业绩|类似项目业绩)[^。；\n]{0,120}",
+            r"(?:投标人[^。；\n]{0,40})?(?:深圳市|广州市|[^。；\n]{0,20}行业)[^。；\n]{0,120}(同类项目业绩|类似项目业绩)[^。；\n]{0,120}",
             r"(同类项目业绩|类似项目业绩)[^。；\n]{0,120}(不少于|得分|评分)[^。；\n]{0,100}",
         ],
         "特定资质或证书要求超必要限度": [
@@ -1841,7 +1913,16 @@ def _refine_quote_records_for_title(title: str, quote_records: list[dict[str, st
                 refined.append({"location": record["location"], "quote": snippet})
         else:
             refined.append(record)
-    deduped = _dedupe_quote_records(refined)
+    prefer_shorter_titles = {
+        "技术参数区间说明不足",
+        "同一技术参数区间说明冲突",
+        "技术要求存在主观描述",
+        "疑似使用不存在的技术标准",
+    }
+    deduped = _dedupe_quote_records(
+        refined,
+        prefer_shorter_when_contained=title in prefer_shorter_titles,
+    )
     return deduped or quote_records
 
 
@@ -2211,7 +2292,10 @@ def _dedupe_quotes(quotes: list[str]) -> list[str]:
     return results
 
 
-def _dedupe_quote_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
+def _dedupe_quote_records(
+    records: list[dict[str, str]],
+    prefer_shorter_when_contained: bool = False,
+) -> list[dict[str, str]]:
     results: list[dict[str, str]] = []
     for item in records:
         quote = re.sub(r"\s+", " ", item.get("quote", "")).strip(" ；;")
@@ -2229,9 +2313,13 @@ def _dedupe_quote_records(records: list[dict[str, str]]) -> list[dict[str, str]]
                 break
             if quote in existing_quote:
                 duplicate_index = index
+                if prefer_shorter_when_contained and len(quote) < len(existing_quote):
+                    results[index] = {"location": location, "quote": quote}
                 break
             if existing_quote in quote:
                 duplicate_index = index
+                if prefer_shorter_when_contained:
+                    break
                 if len(quote) > len(existing_quote):
                     results[index] = {"location": location, "quote": quote}
                 break

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
-from ...models import Evidence, Finding, FindingType, Recommendation, RiskHit, Severity
+from ...models import Evidence, Finding, FindingType, LegalBasis, Recommendation, RiskHit, Severity
 
 
 WARNING_BACKGROUND_TOKENS = (
@@ -305,6 +305,86 @@ def match_risk_rules(text: str) -> list[RiskHit]:
                 )
             )
             break
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if compact.count("交货期限") + compact.count("交货期") < 2:
+            continue
+        day_values = re.findall(r"(\d+)\s*天", compact)
+        if len({value for value in day_values if value}) >= 2:
+            hits.append(
+                RiskHit(
+                    risk_group="合同与履约风险",
+                    rule_name="采购文件同一采购包中货物合同履行期限不得存在差异",
+                    severity=Severity.high,
+                    matched_text=line[:180],
+                    rationale="同一采购包内出现多个不同交货期限，容易导致履约边界和评审口径不一致。",
+                    legal_basis=[
+                        LegalBasis(
+                            source_name="《政府采购需求管理办法》",
+                            article_hint="需求管理一般要求",
+                            summary="采购文件应保证履约期限等关键交易条件清晰一致，不宜在同一采购包内设置相互冲突或差异过大的期限口径。",
+                        )
+                    ],
+                    source_anchor=f"line:{line_no}",
+                )
+            )
+            break
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if "检测报告" not in compact or "CMA标识" not in compact:
+            continue
+        context = "".join(lines[max(0, line_no - 2): min(len(lines), line_no + 2)])
+        if any(token in context for token in ["超出检测机构能力范围", "检测机构能力范围", "无法检测", "不具备检测能力"]):
+            continue
+        hits.append(
+            RiskHit(
+                risk_group="A.限制竞争风险",
+                rule_name="不得缺失“超出检测机构能力范围”处理的相关说明",
+                severity=Severity.high,
+                matched_text=line[:180],
+                rationale="要求提供带有 CMA 标识的检测报告，但未说明超出检测机构能力范围时的替代处理路径，容易形成刚性材料门槛。",
+                legal_basis=[
+                    LegalBasis(
+                        source_name="《政府采购需求管理办法》",
+                        article_hint="需求管理一般要求",
+                        summary="证明材料和检测报告要求应与采购需求直接相关，并对现实中无法直接取得的情形保留合理替代路径，不宜形成刚性排斥。",
+                    )
+                ],
+                source_anchor=f"line:{line_no}",
+            )
+        )
+        break
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if not any(token in compact for token in ["维保服务期限", "保修期", "免费保修期", "服务期限"]):
+            continue
+        months: int | None = None
+        month_match = re.search(r"(\d+)\s*个月", compact)
+        year_match = re.search(r"(\d+)\s*年", compact)
+        if month_match is not None:
+            months = int(month_match.group(1))
+        elif year_match is not None:
+            months = int(year_match.group(1)) * 12
+        if months is None or months <= 36:
+            continue
+        hits.append(
+            RiskHit(
+                risk_group="合同与履约风险",
+                rule_name="服务合同履行期限不得超过36个月",
+                severity=Severity.high,
+                matched_text=line[:180],
+                rationale="维保或保修服务期限超过 36 个月，需核查是否超出政府采购服务合同通常履约期限边界。",
+                legal_basis=[
+                    LegalBasis(
+                        source_name="《政府采购需求管理办法》",
+                        article_hint="需求管理一般要求",
+                        summary="服务合同履行期限应与项目必要性和采购周期相匹配，明显超过通常履约周期的，应当作出充分说明。",
+                    )
+                ],
+                source_anchor=f"line:{line_no}",
+            )
+        )
+        break
     certificate_score = 0.0
     for line in lines:
         if not any(token in line for token in ["资质证书", "管理体系认证情况", "认证证书"]):

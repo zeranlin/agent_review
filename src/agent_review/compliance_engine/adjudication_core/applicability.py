@@ -1002,6 +1002,56 @@ def _service_duration_limit_evaluator(clause_mapping: dict[str, list[ExtractedCl
     return ApplicabilityStatus.unsatisfied, ["已抽取期限条款，但尚未解析出明确的月份数。"]
 
 
+def _goods_package_delivery_term_conflict_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    clauses = _clauses_for_fields(clause_mapping, ["付款节点", "合同履行期限"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到交货期限条款。"]
+    for clause in clauses:
+        compact = re.sub(r"\s+", "", clause.content or "")
+        if compact.count("交货期限") + compact.count("交货期") < 2:
+            continue
+        day_values = re.findall(r"_*(\d+)_*\s*天", compact)
+        unique_days = sorted({value for value in day_values if value})
+        if len(unique_days) >= 2:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：同一条款内识别到不同交货期限={','.join(unique_days)}天。"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取交货条款，但尚未形成同包不同交货期限的明确冲突。"]
+
+
+def _extended_service_term_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    clauses = _clauses_for_fields(clause_mapping, ["服务期限月数", "合同履行期限", "质保期"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到维保、保修或服务期限条款。"]
+    for clause in clauses:
+        text = clause.content or ""
+        compact = re.sub(r"\s+", "", text)
+        if not any(token in compact for token in ["维保", "保修", "服务期限", "免费保修期", "质保期"]):
+            continue
+        months = _parse_duration_months(clause.normalized_value or text)
+        if months is None:
+            year_match = re.search(r"_*(\d+)_*\s*年", compact)
+            if year_match is not None:
+                months = int(year_match.group(1)) * 12
+        if months is None:
+            continue
+        if months > 36:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：维保/保修服务期限={months}个月，超过 36 个月。"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取维保或保修条款，但尚未形成超过36个月的明确服务期限。"]
+
+
+def _cma_capacity_fallback_missing_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    clauses = _clauses_for_fields(clause_mapping, ["评分项明细", "证书检测报告负担特征", "是否要求检测报告"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到CMA检测报告要求。"]
+    for clause in clauses:
+        compact = re.sub(r"\s+", "", clause.content or "")
+        if "CMA标识" not in compact or "检测报告" not in compact:
+            continue
+        if any(token in compact for token in ["超出检测机构能力范围", "检测机构能力范围", "不具备检测能力", "无法检测"]):
+            return ApplicabilityStatus.unsatisfied, ["已识别CMA检测报告要求，且条款已包含能力范围外处理说明。"]
+        return ApplicabilityStatus.satisfied, ["结构化字段关系成立：已识别CMA检测报告要求，但未发现能力范围外的替代处理说明。"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取检测报告条款，但尚未形成明确的CMA报告刚性要求。"]
+
+
 def _service_term_has_placeholder_risk(compact: str) -> bool:
     placeholder_tokens = [
         "年月日至年月日",
@@ -1612,6 +1662,9 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-CONTRACT-014", "存在收到发票后付款时限"): _invoice_payment_deadline_evaluator,
     ("RP-CONTRACT-015", "项目属性为服务"): _service_duration_limit_evaluator,
     ("RP-CONTRACT-015", "存在服务期限月数"): _service_duration_limit_evaluator,
+    ("RP-CONTRACT-016", "存在同包不同交货期限"): _goods_package_delivery_term_conflict_evaluator,
+    ("RP-CONTRACT-017", "存在超长期服务期限"): _extended_service_term_evaluator,
+    ("RP-EVID-002", "存在CMA检测报告要求且缺少替代路径说明"): _cma_capacity_fallback_missing_evaluator,
     ("RP-STRUCT-005", "存在项目属性"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-005", "存在声明函类型"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-007", "存在项目属性"): _contract_type_mismatch_evaluator,

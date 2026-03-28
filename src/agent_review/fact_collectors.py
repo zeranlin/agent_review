@@ -403,6 +403,33 @@ def _assemble_service_duration_limit_evidence(
     return _assemble_bundle_for_definition(definition, relevant)
 
 
+def _assemble_extended_service_term_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _dedupe_clauses(
+        [
+            *_collect_text_anchor_clauses(
+                extracted_clauses,
+                ["服务期限月数", "合同履行期限", "质保期"],
+                ["服务期限", "维保服务期限", "免费保修期", "质保期", "保修期", "个月", "年"],
+            ),
+            *[
+                clause
+                for clause in _collect_by_fields_in_order(
+                    extracted_clauses,
+                    ["服务期限月数", "合同履行期限", "质保期"],
+                )
+                if any(
+                    token in (clause.content or "")
+                    for token in ["服务期限", "维保服务期限", "免费保修期", "质保期", "保修期"]
+                )
+            ],
+        ]
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
 def _assemble_rigid_patent_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
@@ -1842,6 +1869,7 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-CONTRACT-011": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-014": _assemble_invoice_payment_deadline_evidence,
     "RP-CONTRACT-015": _assemble_service_duration_limit_evidence,
+    "RP-CONTRACT-017": _assemble_extended_service_term_evidence,
     "RP-PER-001": _assemble_personnel_boundary_evidence,
     "RP-PER-002": _assemble_personnel_boundary_evidence,
     "RP-PER-003": _assemble_personnel_boundary_evidence,
