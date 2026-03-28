@@ -819,6 +819,98 @@ def _operating_age_scoring_evaluator(clause_mapping: dict[str, list[ExtractedCla
     )
 
 
+def _organization_form_limit_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    clauses = _clauses_for_fields(clause_mapping, ["供应商组织形式限制", "资格门槛明细", "资格条件明细"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到组织形式限制条款。"]
+    for clause in clauses:
+        text = clause.content or clause.normalized_value
+        if any(token in text for token in ["个体工商户", "其他组织形式", "组织形式"]) and any(
+            token in text for token in ["不得参与", "不接受", "不得投标", "不得参加", "不允许"]
+        ):
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别组织形式限制条款={text}"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取资格条款，但尚未形成明确的组织形式排斥关系。"]
+
+
+def _certificate_scope_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    clauses = _clauses_for_fields(clause_mapping, ["体系认证范围要求", "评分项明细"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到体系认证范围评分条款。"]
+    for clause in clauses:
+        text = clause.content or clause.normalized_value
+        has_scoring_signal = any(token in text for token in ["得分", "评分", "分值", "最高得", "不计得分"]) or any(
+            token in clause.relation_tags for token in ["认证范围评分", "评分项明细", "scoring_factor"]
+        )
+        if "认证范围" in text and any(token in text for token in ["认证证书", "管理体系认证", "质量管理体系认证证书", "环境管理体系认证证书", "职业健康安全管理体系认证证书"]) and has_scoring_signal:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别体系认证范围评分条款={text}"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取评分条款，但尚未形成特定认证范围与分值的明确关系。"]
+
+
+def _administrative_license_scoring_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    clauses = _clauses_for_fields(clause_mapping, ["准入类证书评分项", "评分项明细"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到准入类证书评分条款。"]
+    for clause in clauses:
+        text = clause.content or clause.normalized_value
+        if any(token in text for token in ["许可证", "行政许可", "作业人员证书", "特种设备安全管理和作业人员证书"]) and any(
+            token in text for token in ["得分", "评分", "分值", "最高得", "得"]
+        ):
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别准入类证书评分条款={text}"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取评分条款，但尚未形成准入类证书与分值的明确关系。"]
+
+
+def _service_price_weight_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    project_type = _first_normalized_or_content(clause_mapping, "项目属性")
+    dedicated_clauses = _clauses_for_fields(clause_mapping, ["价格权重"])
+    clauses = dedicated_clauses or _clauses_for_fields(clause_mapping, ["评分项明细", "价格分"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到价格权重条款。"]
+    if project_type and "服务" not in project_type:
+        return ApplicabilityStatus.unsatisfied, [f"已识别项目属性={project_type}，当前不属于服务项目价格权重场景。"]
+    for clause in clauses:
+        raw_value = clause.normalized_value or clause.content
+        weight = _parse_percent(raw_value)
+        if weight is None:
+            weight = _parse_percent(clause.content or "")
+        if weight is None:
+            continue
+        if weight < 10:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：服务项目价格权重={weight}% ，低于 10%。"]
+        return ApplicabilityStatus.unsatisfied, [f"已识别价格权重={weight}% ，当前未低于 10%。"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取价格条款，但尚未解析出明确的价格权重百分比。"]
+
+
+def _invoice_payment_deadline_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    clauses = _clauses_for_fields(clause_mapping, ["付款时限", "付款节点"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到发票后付款时限条款。"]
+    for clause in clauses:
+        text = clause.content or ""
+        compact = re.sub(r"\s+", "", text)
+        days = _parse_days(clause.normalized_value or text)
+        if "收到发票后" in compact and days is not None:
+            unit = "工作日" if "工作日" in compact else "日"
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：已识别收到发票后 {days}{unit} 内支付条款。"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取付款条款，但尚未形成收到发票后具体日数的明确支付时限。"]
+
+
+def _service_duration_limit_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
+    project_type = _first_normalized_or_content(clause_mapping, "项目属性")
+    clauses = _clauses_for_fields(clause_mapping, ["服务期限月数", "合同履行期限"])
+    if not clauses:
+        return ApplicabilityStatus.insufficient, ["结构化字段不足：尚未抽取到服务期限条款。"]
+    if project_type and "服务" not in project_type:
+        return ApplicabilityStatus.unsatisfied, [f"已识别项目属性={project_type}，当前不属于服务合同期限重点场景。"]
+    for clause in clauses:
+        months = _parse_duration_months(clause.normalized_value or clause.content)
+        if months is None:
+            continue
+        if months > 36:
+            return ApplicabilityStatus.satisfied, [f"结构化字段关系成立：服务合同履行期限={months}个月，超过 36 个月。"]
+        return ApplicabilityStatus.unsatisfied, [f"已识别服务期限={months}个月，当前未超过 36 个月。"]
+    return ApplicabilityStatus.unsatisfied, ["已抽取期限条款，但尚未解析出明确的月份数。"]
+
+
 def _rigid_patent_requirement_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     patent_value = _first_normalized_or_content(clause_mapping, "是否要求专利")
     project_subject = _first_value(clause_mapping, "采购标的") or _first_value(clause_mapping, "项目属性")
@@ -1313,6 +1405,20 @@ def _parse_amount(value: str) -> float | None:
         return None
 
 
+def _parse_percent(value: str) -> float | None:
+    return _parse_amount(value)
+
+
+def _parse_duration_months(value: str) -> int | None:
+    parsed = _parse_amount(value)
+    return int(parsed) if parsed is not None else None
+
+
+def _parse_days(value: str) -> int | None:
+    parsed = _parse_amount(value)
+    return int(parsed) if parsed is not None else None
+
+
 def _amount_consistency_evaluator(clause_mapping: dict[str, list[ExtractedClause]]) -> tuple[ApplicabilityStatus, list[str]]:
     budget_raw = _first_value(clause_mapping, "预算金额")
     max_raw = _first_value(clause_mapping, "最高限价")
@@ -1373,6 +1479,7 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-QUAL-001", "存在评分放大因素"): _qualification_scoring_overlap_evaluator,
     ("RP-QUAL-002", "存在特定资格要求"): _excessive_certificate_requirement_evaluator,
     ("RP-QUAL-002", "存在资质证书或材料负担信号"): _excessive_certificate_requirement_evaluator,
+    ("RP-QUAL-005", "存在供应商组织形式限制"): _organization_form_limit_evaluator,
     ("RP-REQ-001", "存在技术或服务要求信号"): _technical_service_verifiability_evaluator,
     ("RP-SME-001", "项目专门面向中小企业"): _project_bound_policy_relation("是否专门面向中小企业", "是", "项目专门面向中小企业"),
     ("RP-SME-001", "文件仍保留价格扣除"): _project_bound_policy_relation("是否仍保留价格扣除条款", "是", "文件仍保留价格扣除"),
@@ -1391,6 +1498,9 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-CONTRACT-010", "存在货物保修表述"): _warranty_scope_mismatch_evaluator,
     ("RP-CONTRACT-011", "存在付款节点"): _acceptance_payment_linkage_evaluator,
     ("RP-CONTRACT-011", "存在验收或考核条款"): _acceptance_payment_linkage_evaluator,
+    ("RP-CONTRACT-014", "存在收到发票后付款时限"): _invoice_payment_deadline_evaluator,
+    ("RP-CONTRACT-015", "项目属性为服务"): _service_duration_limit_evaluator,
+    ("RP-CONTRACT-015", "存在服务期限月数"): _service_duration_limit_evaluator,
     ("RP-STRUCT-005", "存在项目属性"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-005", "存在声明函类型"): _project_statement_conflict_evaluator,
     ("RP-STRUCT-007", "存在项目属性"): _contract_type_mismatch_evaluator,
@@ -1416,6 +1526,10 @@ RELATION_EVALUATORS: dict[tuple[str, str], RelationEvaluator] = {
     ("RP-SCORE-021", "评分中出现利润类门槛"): _profit_scoring_evaluator,
     ("RP-SCORE-022", "评分中出现股权结构或资本背景门槛"): _shareholding_scoring_evaluator,
     ("RP-SCORE-023", "评分中出现经营年限或从业经验门槛"): _operating_age_scoring_evaluator,
+    ("RP-SCORE-024", "评分中出现体系认证范围要求"): _certificate_scope_scoring_evaluator,
+    ("RP-SCORE-025", "评分中出现准入类证书门槛"): _administrative_license_scoring_evaluator,
+    ("RP-SCORE-026", "项目属性为服务"): _service_price_weight_evaluator,
+    ("RP-SCORE-026", "存在价格权重条款"): _service_price_weight_evaluator,
     ("RP-CONS-009", "存在预算金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在面向中小企业采购金额"): _amount_consistency_evaluator,
     ("RP-CONS-009", "存在最高限价"): _amount_consistency_evaluator,

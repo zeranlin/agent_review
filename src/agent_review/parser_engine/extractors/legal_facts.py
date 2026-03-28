@@ -229,12 +229,20 @@ def _fallback_fact_candidate(
             ]
         ):
             return SemanticZoneType.scoring, ClauseSemanticType.scoring_factor, "scoring_factor"
+    if current_zone == SemanticZoneType.scoring and any(token in compact for token in ["价格权重", "价格分值权重", "价格分权重"]):
+        return SemanticZoneType.scoring, ClauseSemanticType.scoring_rule, "scoring_factor"
+    if current_zone == SemanticZoneType.qualification and any(token in compact for token in ["个体工商户", "其他组织形式", "组织形式"]) and any(
+        token in compact for token in ["不得参与投标", "不接受", "不得投标", "不得参加", "不允许"]
+    ):
+        return SemanticZoneType.qualification, ClauseSemanticType.qualification_condition, "qualification_requirement"
     if current_zone == SemanticZoneType.technical and _looks_like_technical_parameter_clause(compact):
         return SemanticZoneType.technical, ClauseSemanticType.technical_requirement, "technical_parameter"
     if "履约担保" in compact or "质量保证金" in compact or "履约保证金" in compact:
         return SemanticZoneType.contract, ClauseSemanticType.acceptance_term, "acceptance_term"
     if "第三方检测费用" in compact and "中标人承担" in compact:
         return SemanticZoneType.contract, ClauseSemanticType.acceptance_term, "acceptance_term"
+    if "收到发票后" in compact and any(token in compact for token in ["支付", "付款", "资金支付"]):
+        return SemanticZoneType.contract, ClauseSemanticType.payment_term, "payment_term"
     if "投标报价不得低于预算金额" in compact or ("预算金额" in compact and "无效投标" in compact):
         return SemanticZoneType.business, ClauseSemanticType.business_requirement, "delivery_requirement"
     if "专门面向中小企业采购的项目" in compact or "非专门面向中小企业采购的项目" in compact:
@@ -346,6 +354,8 @@ def _infer_fact_type(unit: ClauseUnit) -> str:
     if unit.clause_constraint.evidence_source:
         return "evidence_source_requirement"
     if _looks_like_scoring_factor(unit.text):
+        return "scoring_factor"
+    if unit.zone_type == SemanticZoneType.scoring and any(token in unit.text for token in ["价格权重", "价格分值权重", "价格分权重"]):
         return "scoring_factor"
     if _looks_like_policy_statement(unit.text):
         return "policy_statement" if _infer_project_binding(unit) else "policy_reference"
@@ -763,10 +773,18 @@ def _semantic_terms_from_text(
         tokens.append("证明材料")
     if any(token in compact for token in ["证书", "认证"]) and zone_type == SemanticZoneType.scoring:
         tokens.append("证书评分项")
+    if "认证范围" in compact and zone_type == SemanticZoneType.scoring:
+        tokens.append("认证范围要求")
+    if any(token in compact for token in ["许可证", "行政许可", "作业人员证书", "特种设备安全管理和作业人员证书"]) and zone_type == SemanticZoneType.scoring:
+        tokens.append("准入类证书评分")
     if any(token in compact for token in ["财务", "营业收入", "利润率", "资产规模"]) and zone_type == SemanticZoneType.scoring:
         tokens.append("财务指标评分项")
+    if any(token in compact for token in ["价格权重", "价格分值权重", "价格分权重"]):
+        tokens.append("价格权重")
     if any(token in compact for token in ["尾款", "验收合格后支付", "验收后支付"]):
         tokens.append("验收付款联动")
+    if "收到发票后" in compact:
+        tokens.append("发票后付款时限")
     if any(token in compact for token in ["考核", "满意度"]) and any(token in compact for token in ["付款", "支付", "尾款"]):
         tokens.append("考核付款联动")
     if any(token in compact for token in ["采购人确认", "采购人认为", "最终解释", "单方判断", "确定验收标准"]):
@@ -833,6 +851,9 @@ def _augment_constraint_value_from_text(
         scoring_mode = _infer_scoring_mode(compact)
         if scoring_mode:
             value.setdefault("scoring_mode", scoring_mode)
+        price_weight = _infer_price_weight(compact)
+        if price_weight is not None:
+            value.setdefault("price_weight", price_weight)
 
     if zone_type == SemanticZoneType.contract or clause_semantic_type in {
         ClauseSemanticType.payment_term,
@@ -870,6 +891,12 @@ def _augment_constraint_value_from_text(
         result_condition = _infer_result_condition(compact)
         if result_condition:
             value.setdefault("result_condition", result_condition)
+        payment_deadline_days = _infer_payment_deadline_days(compact)
+        if payment_deadline_days is not None:
+            value.setdefault("payment_deadline_days", payment_deadline_days)
+        payment_deadline_unit = _infer_payment_deadline_unit(compact)
+        if payment_deadline_unit:
+            value.setdefault("payment_deadline_unit", payment_deadline_unit)
 
     if zone_type == SemanticZoneType.business or clause_semantic_type == ClauseSemanticType.business_requirement or _looks_like_price_floor_clause(text):
         price_floor_ratio = _infer_price_floor_ratio(compact)
@@ -904,6 +931,19 @@ def _augment_constraint_value_from_text(
             value.setdefault("is_interval", _infer_parameter_is_interval(compact))
             value.setdefault("has_deviation_rule", _infer_has_deviation_rule(compact))
             value.setdefault("has_basis_explanation", _infer_has_basis_explanation(compact))
+    service_duration_months = _infer_service_duration_months(compact)
+    if service_duration_months is not None:
+        value.setdefault("service_duration_months", service_duration_months)
+    if any(token in compact for token in ["个体工商户", "其他组织形式", "组织形式"]) and any(
+        token in compact for token in ["不得参与投标", "不接受", "不得投标", "不得参加", "不允许"]
+    ):
+        value.setdefault("organization_form_limit", True)
+    if "认证范围" in compact:
+        value.setdefault("requires_cert_scope", True)
+    if any(token in compact for token in ["许可证", "行政许可", "作业人员证书", "特种设备安全管理和作业人员证书"]) and (
+        zone_type == SemanticZoneType.scoring or clause_semantic_type in {ClauseSemanticType.scoring_rule, ClauseSemanticType.scoring_factor}
+    ):
+        value.setdefault("administrative_license_scoring", True)
     return value
 
 
@@ -1017,6 +1057,12 @@ def _infer_evidence_kind(compact: str) -> str:
 
 
 def _infer_scoring_item_type(compact: str) -> str:
+    if any(token in compact for token in ["价格权重", "价格分值权重", "价格分权重"]):
+        return "price"
+    if "认证范围" in compact:
+        return "certificate"
+    if any(token in compact for token in ["特种设备安全管理和作业人员证书", "作业人员证书", "行政许可", "许可证"]):
+        return "administrative_license"
     if any(token in compact for token in ["证书", "认证证书", "管理体系认证", "ITSS"]):
         return "certificate"
     if "检测报告" in compact:
@@ -1039,6 +1085,12 @@ def _infer_scoring_item_type(compact: str) -> str:
 
 
 def _infer_scoring_metric_name(compact: str) -> str:
+    if any(token in compact for token in ["价格权重", "价格分值权重", "价格分权重"]):
+        return "price_weight"
+    if "认证范围" in compact:
+        return "certificate_scope"
+    if any(token in compact for token in ["特种设备安全管理和作业人员证书", "作业人员证书", "行政许可", "许可证"]):
+        return "administrative_license"
     metric_tokens = [
         ("注册资本", "registered_capital"),
         ("营业收入", "revenue"),
@@ -1063,6 +1115,12 @@ def _infer_scoring_metric_name(compact: str) -> str:
 
 
 def _infer_scoring_metric_category(compact: str, metric_name: str, scoring_item_type: str) -> str:
+    if metric_name == "price_weight":
+        return "price_weight"
+    if metric_name == "certificate_scope":
+        return "certificate_scope"
+    if metric_name == "administrative_license":
+        return "administrative_license"
     if metric_name in {"registered_capital", "revenue"}:
         return "enterprise_scale"
     if metric_name in {"net_profit", "profit", "profit_margin"}:
@@ -1086,6 +1144,16 @@ def _infer_scoring_mode(compact: str) -> str:
     if any(token in compact for token in ["得分", "得", "最高得", "加分"]) or re.search(r"(?:得|加)\d+(?:\.\d+)?分", compact):
         return "additive"
     return ""
+
+
+def _infer_price_weight(compact: str) -> float | None:
+    match = re.search(r"(?:价格(?:权重|分值权重)?|价格分值权重|价格分权重)[^0-9]{0,8}(\d+(?:\.\d+)?)%?", compact)
+    if match is None:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
 
 
 def _infer_contract_decision_mode(compact: str) -> str:
@@ -1144,6 +1212,23 @@ def _infer_payment_method(compact: str) -> str:
     return ""
 
 
+def _infer_payment_deadline_days(compact: str) -> int | None:
+    match = re.search(r"收到发票后(\d+)(?:个?工作日|日)内", compact)
+    if match is None:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _infer_payment_deadline_unit(compact: str) -> str:
+    match = re.search(r"收到发票后\d+(个?工作日|日)内", compact)
+    if match is None:
+        return ""
+    return "working_days" if "工作日" in match.group(1) else "days"
+
+
 def _infer_refund_policy(compact: str) -> str:
     if "无息退还" in compact:
         return "no_interest_return"
@@ -1162,6 +1247,18 @@ def _infer_result_condition(compact: str) -> str:
     if "无论检测结果是否合格" in compact or "无论结果是否合格" in compact:
         return "regardless_of_result"
     return ""
+
+
+def _infer_service_duration_months(compact: str) -> int | None:
+    if not any(token in compact for token in ["合同履行期限", "服务期限", "服务期", "履行期限", "建设周期"]):
+        return None
+    match = re.search(r"(\d+)个月", compact)
+    if match is None:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
 
 
 def _infer_price_floor_ratio(compact: str) -> float | None:

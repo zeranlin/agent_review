@@ -324,6 +324,85 @@ def _assemble_certificate_score_weight_evidence(
     return _assemble_bundle_for_definition(definition, relevant)
 
 
+def _assemble_certificate_scope_scoring_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _dedupe_clauses(
+        [
+            *_collect_text_anchor_clauses(
+                extracted_clauses,
+                ["体系认证范围要求", "评分项明细"],
+                ["认证范围", "认证证书", "管理体系认证", "得分", "评分", "不计得分"],
+            ),
+            *_collect_by_fields_in_order(extracted_clauses, ["体系认证范围要求", "评分项明细", "项目属性"]),
+        ]
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_service_price_weight_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    direct_clauses = _collect_by_fields_in_order(extracted_clauses, ["价格权重", "项目属性"])
+    supporting_clauses = _dedupe_clauses(
+        [
+            *_collect_text_anchor_clauses(
+                extracted_clauses,
+                ["价格分", "评分项明细"],
+                ["价格", "权重", "%", "服务"],
+            ),
+            *_collect_by_fields_in_order(extracted_clauses, ["价格分", "评分项明细"]),
+        ]
+    )
+    missing_fields = [
+        field_name
+        for field_name in ["项目属性", "价格权重"]
+        if not any(clause.field_name == field_name for clause in [*direct_clauses, *supporting_clauses])
+    ]
+    return _assemble_custom_bundle(
+        definition,
+        direct_clauses=direct_clauses,
+        supporting_clauses=supporting_clauses,
+        missing_fields=missing_fields,
+    )
+
+
+def _assemble_invoice_payment_deadline_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _dedupe_clauses(
+        [
+            *_collect_text_anchor_clauses(
+                extracted_clauses,
+                ["付款时限", "付款节点"],
+                ["收到发票后", "支付", "付款", "工作日", "日内"],
+            ),
+            *_collect_by_fields_in_order(extracted_clauses, ["付款时限", "付款节点"]),
+        ]
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
+def _assemble_service_duration_limit_evidence(
+    definition: ReviewPointDefinition,
+    extracted_clauses: list[ExtractedClause],
+) -> tuple[EvidenceBundle, ReviewPointStatus, str]:
+    relevant = _dedupe_clauses(
+        [
+            *_collect_text_anchor_clauses(
+                extracted_clauses,
+                ["服务期限月数", "合同履行期限", "项目属性"],
+                ["服务期限", "建设周期", "个月", "服务"],
+            ),
+            *_collect_by_fields_in_order(extracted_clauses, ["项目属性", "服务期限月数", "合同履行期限"]),
+        ]
+    )
+    return _assemble_bundle_for_definition(definition, relevant)
+
+
 def _assemble_rigid_patent_evidence(
     definition: ReviewPointDefinition,
     extracted_clauses: list[ExtractedClause],
@@ -1542,6 +1621,11 @@ def _to_evidence(clause: ExtractedClause) -> Evidence:
         "证书材料适用阶段",
         "检测报告适用阶段",
         "信用评价要求",
+        "项目属性",
+        "体系认证范围要求",
+        "价格权重",
+        "付款时限",
+        "服务期限月数",
         "付款节点",
         "验收标准",
         "违约责任",
@@ -1717,6 +1801,8 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-SCORE-009": _assemble_scoring_evidence,
     "RP-SCORE-010": _assemble_certificate_score_weight_evidence,
     "RP-SCORE-011": _assemble_credit_evaluation_scoring_evidence,
+    "RP-SCORE-024": _assemble_certificate_scope_scoring_evidence,
+    "RP-SCORE-026": _assemble_service_price_weight_evidence,
     "RP-SCORE-013": _assemble_scoring_relevance_evidence,
     "RP-CONTRACT-002": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-003": _assemble_contract_linkage_evidence,
@@ -1727,6 +1813,8 @@ TASK_EVIDENCE_ASSEMBLERS: dict[str, TaskEvidenceAssembler] = {
     "RP-CONTRACT-009": _assemble_contract_linkage_evidence,
     "RP-CONTRACT-010": _assemble_warranty_scope_mismatch_evidence,
     "RP-CONTRACT-011": _assemble_contract_linkage_evidence,
+    "RP-CONTRACT-014": _assemble_invoice_payment_deadline_evidence,
+    "RP-CONTRACT-015": _assemble_service_duration_limit_evidence,
     "RP-PER-001": _assemble_personnel_boundary_evidence,
     "RP-PER-002": _assemble_personnel_boundary_evidence,
     "RP-PER-003": _assemble_personnel_boundary_evidence,

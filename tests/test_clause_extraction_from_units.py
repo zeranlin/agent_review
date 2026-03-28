@@ -315,3 +315,61 @@ def test_text_extractors_capture_qualification_gate_and_scoring_mismatch_terms()
     assert "行业相关性存疑评分项" in clause_map
     assert "人力资源测评师" in clause_map["行业相关性存疑评分项"].content
     assert "非金属矿采矿许可证" in clause_map["行业相关性存疑评分项"].content
+
+
+def test_unit_normalizers_can_recover_project_type_cert_scope_and_invoice_payment_from_filtered_zones() -> None:
+    nodes = [
+        DocumentNode(node_id="root", node_type=NodeType.volume, title="ROOT", text="", path="ROOT"),
+        DocumentNode(
+            node_id="p-1",
+            node_type=NodeType.table_row,
+            title="项目类型： | 服务类",
+            text="项目类型： | 服务类",
+            path="ROOT > 评标信息 > 评分标准 > row:1",
+            parent_id="root",
+            anchor=SourceAnchor(table_no=1, row_no=1, line_hint="line:1"),
+            metadata={"row_index": 1, "is_header": False, "table_kind": ""},
+        ),
+        DocumentNode(
+            node_id="s-1",
+            node_type=NodeType.table_row,
+            title="投标人同时具有有效的质量管理体系认证证书（认证范围为：客户服务、园区保洁）的，得3分。",
+            text="投标人同时具有有效的质量管理体系认证证书（认证范围为：客户服务、园区保洁）的，得3分。",
+            path="ROOT > 评标信息 > 评分标准 > row:2",
+            parent_id="root",
+            anchor=SourceAnchor(table_no=1, row_no=2, line_hint="line:2"),
+            metadata={"row_index": 2, "is_header": False, "table_kind": ""},
+        ),
+        DocumentNode(
+            node_id="c-1",
+            node_type=NodeType.paragraph,
+            title="采购人应当自收到发票后20日内将资金支付到合同约定的中标供应商账户。",
+            text="采购人应当自收到发票后20日内将资金支付到合同约定的中标供应商账户。",
+            path="ROOT > 第三章 用户需求书 > 四、实质性条款 > 项目审核要求 > 采购人应当自收到发票后20日内将资金支付到合同约定的中标供应商账户。",
+            parent_id="root",
+            anchor=SourceAnchor(line_hint="line:3"),
+        ),
+    ]
+    zones = [
+        SemanticZone("root", SemanticZoneType.catalog_or_navigation, 1.0, ["root"]),
+        SemanticZone("p-1", SemanticZoneType.catalog_or_navigation, 0.8, ["table_header_like"]),
+        SemanticZone("s-1", SemanticZoneType.catalog_or_navigation, 0.76, ["scoring_table_header_like"]),
+        SemanticZone("c-1", SemanticZoneType.conformity_review, 0.88, ["review_procedure_noise_with_contract_tail"]),
+    ]
+    effects = [
+        EffectTagResult("root", [EffectTag.catalog], 1.0, ["root"]),
+        EffectTagResult("p-1", [EffectTag.binding], 0.72, ["binding"]),
+        EffectTagResult("s-1", [EffectTag.binding], 0.8, ["binding"]),
+        EffectTagResult("c-1", [EffectTag.binding], 0.86, ["binding"]),
+    ]
+
+    units = build_clause_units(nodes, zones, effects)
+    clauses = extract_clauses_from_units(units, field_names={"项目属性", "体系认证范围要求", "付款时限"})
+    clause_map = {item.field_name: item for item in clauses if item.field_name}
+
+    assert clause_map["项目属性"].normalized_value == "服务"
+    assert clause_map["项目属性"].semantic_zone == SemanticZoneType.administrative_info
+    assert clause_map["体系认证范围要求"].normalized_value == "存在"
+    assert clause_map["体系认证范围要求"].semantic_zone == SemanticZoneType.scoring
+    assert clause_map["付款时限"].normalized_value == "20"
+    assert clause_map["付款时限"].semantic_zone == SemanticZoneType.contract

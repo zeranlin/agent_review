@@ -53,9 +53,6 @@ def extract_clauses_from_units(
         for unit in clause_units
         if _unit_is_clause_candidate(unit, target_zones=target_zones)
     ]
-    if not filtered_units:
-        return []
-
     unit_clauses: list[ExtractedClause] = []
     for unit in filtered_units:
         if not unit.text.strip():
@@ -66,11 +63,11 @@ def extract_clauses_from_units(
         if field_names is not None and clause.field_name not in field_names:
             continue
         unit_clauses.append(clause)
-    normalized_clauses = _normalize_unit_fields(filtered_units, unit_clauses, field_names=field_names)
+    normalized_clauses = _normalize_unit_fields(clause_units, unit_clauses, field_names=field_names)
     covered_fields = {item.field_name for item in [*unit_clauses, *normalized_clauses] if item.field_name}
     fallback_fields = _fallback_field_names(field_names=field_names, covered_fields=covered_fields)
     fallback_clauses: list[ExtractedClause] = []
-    if fallback_fields:
+    if fallback_fields and filtered_units:
         synthetic_text = "\n".join(unit.text for unit in filtered_units if unit.text.strip())
         fallback_clauses = _extract_clauses_from_lines(synthetic_text.splitlines(), field_names=fallback_fields)
     return _merge_extracted_clauses([*unit_clauses, *normalized_clauses], fallback_clauses)
@@ -171,15 +168,15 @@ def _clause_from_unit(unit: ClauseUnit) -> ExtractedClause:
 
 def _infer_unit_category(unit: ClauseUnit, field_name: str, *, effective_zone: SemanticZoneType | None = None) -> str:
     zone_type = effective_zone or _effective_unit_zone_type(unit)
-    if field_name in {"项目名称", "项目编号", "采购人", "采购单位", "采购代理机构", "采购方式", "采购方式适用理由", "采购标的", "品目名称", "项目属性", "预算金额", "最高限价", "合同履行期限", "合同类型", "采购内容构成", "是否含持续性服务", "采购包数量", "采购包划分说明", "需求调查结论", "专家论证结论"}:
+    if field_name in {"项目名称", "项目编号", "采购人", "采购单位", "采购代理机构", "采购方式", "采购方式适用理由", "采购标的", "品目名称", "项目属性", "预算金额", "最高限价", "合同履行期限", "合同类型", "采购内容构成", "是否含持续性服务", "采购包数量", "采购包划分说明", "需求调查结论", "专家论证结论", "服务期限月数"}:
         return "项目基本信息"
-    if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "信用要求", "是否允许联合体", "是否允许分包"}:
+    if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "信用要求", "是否允许联合体", "是否允许分包", "供应商组织形式限制"}:
         return "资格条款"
     if field_name in {"样品要求", "现场演示要求", "是否指定品牌", "是否要求专利", "是否要求检测报告", "是否要求认证证书", "证书检测报告负担特征", "检测报告适用阶段", "证书材料适用阶段", "是否设置★实质性条款", "是否有限制产地厂家商标", "技术服务可验证性信号", "证明来源要求"}:
         return "技术条款"
-    if field_name in {"评分方法", "价格分", "技术分", "商务分", "证书加分", "业绩加分", "方案评分", "售后加分", "财务指标加分", "人员评分要求", "样品分", "评分项明细", "证书类评分总分", "信用评价要求", "信用修复条款", "异议救济条款", "行业相关性存疑评分项", "方案评分扣分模式"}:
+    if field_name in {"评分方法", "价格分", "技术分", "商务分", "证书加分", "业绩加分", "方案评分", "售后加分", "财务指标加分", "人员评分要求", "样品分", "评分项明细", "证书类评分总分", "信用评价要求", "信用修复条款", "异议救济条款", "行业相关性存疑评分项", "方案评分扣分模式", "体系认证范围要求", "准入类证书评分项", "价格权重"}:
         return "评分条款"
-    if field_name in {"付款节点", "验收标准", "争议解决方式", "违约责任", "质保期", "履约保证金", "考核条款", "满意度条款", "扣款条款", "解约条款", "整改条款", "申辩条款", "单方解释权", "合同成果模板术语", "合同模板残留", "验收弹性条款", "转包外包条款"}:
+    if field_name in {"付款节点", "付款时限", "验收标准", "争议解决方式", "违约责任", "质保期", "履约保证金", "考核条款", "满意度条款", "扣款条款", "解约条款", "整改条款", "申辩条款", "单方解释权", "合同成果模板术语", "合同模板残留", "验收弹性条款", "转包外包条款"}:
         return "合同条款"
     if field_name in {"性别限制", "年龄限制", "身高限制", "容貌体形要求", "学历职称要求", "采购人审批录用", "采购人批准更换", "团队稳定性要求", "人员更换限制", "采购人直接指挥"}:
         return "人员条款"
@@ -238,7 +235,7 @@ def _infer_unit_field_name(unit: ClauseUnit, *, effective_zone: SemanticZoneType
             return "采购标的"
         if "品目名称" in text:
             return "品目名称"
-        if "项目属性" in text:
+        if "项目属性" in text or ("项目类型" in text and any(token in text for token in ["货物类", "服务类", "工程类", "货物", "服务", "工程"])):
             return "项目属性"
         if "预算金额" in text:
             return "预算金额"
@@ -272,6 +269,10 @@ def _infer_unit_field_name(unit: ClauseUnit, *, effective_zone: SemanticZoneType
             ]
         ):
             return "资格门槛明细"
+        if any(token in text for token in ["个体工商户", "其他组织形式", "组织形式"]) and any(
+            token in text for token in ["不得参与", "不接受", "不得投标", "不得参加", "不允许"]
+        ):
+            return "供应商组织形式限制"
         if any(
             token in text
             for token in ["资质证书", "认证证书", "管理体系认证", "检测报告", "业绩要求", "项目负责人", "项目经理", "项目主管", "保安服务许可证", "职称证书", "信用评价", "信用等级"]
@@ -299,8 +300,20 @@ def _infer_unit_field_name(unit: ClauseUnit, *, effective_zone: SemanticZoneType
     if zone_type == SemanticZoneType.scoring:
         if any(token in text for token in ["评分方法", "综合评分", "评标办法"]):
             return "评分方法"
+        if any(token in text for token in ["价格权重", "价格分权重"]) or ("价格" in text and re.search(r"\b\d+(?:\.\d+)?\s*%\b", text)):
+            return "价格权重"
         if any(token in text for token in ["评分项", "评分标准"]):
             return "评分项明细"
+        if "认证范围" in text and any(
+            token in text
+            for token in ["质量管理体系认证证书", "环境管理体系认证证书", "职业健康安全管理体系认证证书", "管理体系认证", "认证证书"]
+        ):
+            return "体系认证范围要求"
+        if any(
+            token in text
+            for token in ["许可证", "行政许可", "作业人员证书", "特种设备安全管理和作业人员证书"]
+        ) and any(token in text for token in ["得分", "评分", "最高得", "得"]):
+            return "准入类证书评分项"
         if any(token in text for token in ["检测报告", "认证证书", "资质证书", "管理体系认证", "软件企业认定证书", "ITSS"]):
             return "行业相关性存疑评分项"
         if any(token in text for token in ["财务", "利润率", "营业收入", "净利润", "利润", "注册资本", "资产规模"]):
@@ -325,6 +338,8 @@ def _infer_unit_field_name(unit: ClauseUnit, *, effective_zone: SemanticZoneType
     if zone_type == SemanticZoneType.contract:
         if any(token in text for token in ["履约担保", "履约保证金", "质量保证金"]):
             return "履约保证金"
+        if "收到发票后" in text and any(token in text for token in ["支付", "付款", "资金支付"]):
+            return "付款时限"
         if any(token in text for token in ["付款", "支付", "尾款"]):
             return "付款节点"
         if "验收" in text:
@@ -429,9 +444,13 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str, *, effective
     zone_type = effective_zone or _effective_unit_zone_type(unit)
     conditional_context = unit.conditional_context or {}
     if field_name in {"项目属性"}:
-        for token in ["货物", "服务", "工程"]:
-            if token in text:
-                return token
+        value = _parse_project_type_text(text)
+        if value:
+            return value
+    if field_name == "服务期限月数":
+        match = re.search(r"(\d+)\s*个月", text)
+        if match:
+            return match.group(1)
     if field_name in {"采购方式"}:
         for token in ["公开招标", "竞争性磋商", "竞争性谈判", "单一来源", "询价", "框架协议"]:
             if token in text:
@@ -445,11 +464,34 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str, *, effective
             return "否"
         if any(token in text for token in ["是", "专门面向", "预留份额", "价格扣除", "进口产品", "允许分包"]):
             return "是"
-    if field_name in {"预算金额", "最高限价", "面向中小企业采购金额", "分包比例"}:
+    if field_name in {"预算金额", "最高限价", "面向中小企业采购金额", "分包比例", "价格权重"}:
         matches = re.findall(r"\d[\d,]*(?:\.\d+)?", text)
         if matches:
             value = max(matches, key=lambda token: (len(token.replace(",", "")), "." in token)).replace(",", "")
             return f"{value}%" if "比例" in field_name or "%" in text else value
+    if field_name == "付款时限":
+        match = re.search(r"收到发票后(\d+)(?:个?工作日|日)内", re.sub(r"\s+", "", text))
+        if match:
+            return match.group(1)
+    if field_name == "供应商组织形式限制":
+        matched_terms = [
+            token
+            for token in ["个体工商户", "其他组织形式", "组织形式"]
+            if token in text
+        ]
+        if matched_terms:
+            return ";".join(dict.fromkeys(matched_terms))
+    if field_name == "体系认证范围要求":
+        if "认证范围" in text:
+            return "存在"
+    if field_name == "准入类证书评分项":
+        matched_terms = [
+            token
+            for token in ["特种设备安全管理和作业人员证书", "作业人员证书", "行政许可", "许可证"]
+            if token in text
+        ]
+        if matched_terms:
+            return ";".join(dict.fromkeys(matched_terms))
     if field_name == "采购包数量":
         match = re.search(r"(\d+)", text)
         if match:
@@ -464,9 +506,9 @@ def _infer_unit_normalized_value(unit: ClauseUnit, field_name: str, *, effective
         ]
         if matched_terms:
             return ";".join(dict.fromkeys(matched_terms))
-    if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "评分项明细", "是否仍保留价格扣除条款", "是否专门面向中小企业", "是否为预留份额采购", "是否涉及进口产品", "证明来源要求"}:
+    if field_name in {"一般资格要求", "特定资格要求", "资格条件明细", "资格门槛明细", "评分项明细", "是否仍保留价格扣除条款", "是否专门面向中小企业", "是否为预留份额采购", "是否涉及进口产品", "证明来源要求", "供应商组织形式限制", "体系认证范围要求", "准入类证书评分项"}:
         return "存在"
-    if field_name in {"付款节点", "验收标准", "考核条款", "满意度条款", "扣款条款", "解约条款", "违约责任", "质保期", "履约保证金", "整改条款", "申辩条款", "单方解释权", "转包外包条款"}:
+    if field_name in {"付款节点", "付款时限", "验收标准", "考核条款", "满意度条款", "扣款条款", "解约条款", "违约责任", "质保期", "履约保证金", "整改条款", "申辩条款", "单方解释权", "转包外包条款"}:
         return "存在"
     if field_name == "评分项明细" and zone_type == SemanticZoneType.scoring:
         return "存在"
@@ -517,6 +559,26 @@ def _unit_text_context(unit: ClauseUnit) -> str:
     return " ".join(part for part in parts if part)
 
 
+def _unit_cells(unit: ClauseUnit) -> list[str]:
+    cells = unit.table_context.get("cells")
+    if not isinstance(cells, list):
+        return []
+    return [str(cell).strip() for cell in cells if str(cell).strip()]
+
+
+def _parse_project_type_text(text: str) -> str:
+    compact = re.sub(r"\s+", "", text)
+    if "信息工程类" in compact and "项目类型" not in compact and "项目属性" not in compact and "项目所属分类" not in compact:
+        return ""
+    match = re.search(r"(?:项目属性|项目类型|项目所属分类)[^一-龥A-Za-z0-9]{0,12}(货物|服务|工程)(?:类)?", compact)
+    if match:
+        return match.group(1)
+    for token in ["货物类", "服务类", "工程类"]:
+        if token in compact:
+            return token.replace("类", "")
+    return ""
+
+
 def _normalize_unit_fields(
     clause_units: list[ClauseUnit],
     direct_clauses: list[ExtractedClause],
@@ -557,6 +619,7 @@ def _clause_from_normalizer(
     normalized_value: str = "存在",
     relation_tags: list[str] | None = None,
     semantic_zone: SemanticZoneType | None = None,
+    effect_tags: list[EffectTag] | None = None,
 ) -> ExtractedClause:
     quote = (content or unit.text).strip()
     return ExtractedClause(
@@ -568,7 +631,7 @@ def _clause_from_normalizer(
         relation_tags=relation_tags or [],
         clause_role=classify_clause_role(quote),
         semantic_zone=semantic_zone or _effective_unit_zone_type(unit),
-        effect_tags=list(unit.effect_tags),
+        effect_tags=list(effect_tags) if effect_tags is not None else list(unit.effect_tags),
         adoption_status=AdoptionStatus.rule_based,
         legal_effect_type=unit.legal_effect_type,
         legal_principle_tags=list(unit.legal_principle_tags),
@@ -617,6 +680,124 @@ def _normalize_unit_scoring_mismatch_field(
         relation_tags=["行业相关性存疑评分项", *matched_terms],
         semantic_zone=SemanticZoneType.scoring,
     )
+
+
+def _normalize_unit_project_type_field(
+    clause_units: list[ClauseUnit],
+    direct_clauses: list[ExtractedClause],
+) -> ExtractedClause | None:
+    del direct_clauses
+    for unit in clause_units:
+        if EffectTag.template in unit.effect_tags or unit.zone_type == SemanticZoneType.template:
+            continue
+        cells = _unit_cells(unit)
+        row_label = str(unit.table_context.get("row_label", "")).strip()
+        title = str(unit.table_context.get("title", "")).strip()
+        if not any(token in f"{row_label} {title} {' '.join(cells)} {unit.text}" for token in ["项目属性", "项目类型", "项目所属分类"]):
+            continue
+        value = ""
+        if len(cells) >= 2 and any(token in cells[0] for token in ["项目属性", "项目类型", "项目所属分类"]):
+            value = _parse_project_type_text(" ".join(cells[:2]))
+        if not value:
+            value = _parse_project_type_text(_unit_text_context(unit))
+        if not value:
+            continue
+        return _clause_from_normalizer(
+            unit,
+            content=unit.text.strip() or " | ".join(cells),
+            normalized_value=value,
+            relation_tags=["项目属性", value, "字段归一"],
+            semantic_zone=SemanticZoneType.administrative_info,
+            effect_tags=[EffectTag.binding],
+        )
+    return None
+
+
+def _normalize_unit_cert_scope_scoring_field(
+    clause_units: list[ClauseUnit],
+    direct_clauses: list[ExtractedClause],
+) -> ExtractedClause | None:
+    del direct_clauses
+    cert_tokens = ["管理体系认证", "认证证书", "质量管理体系认证证书", "环境管理体系认证证书", "职业健康安全管理体系认证证书"]
+    scoring_tokens = ["评分", "得分", "分值", "评标", "评分标准"]
+    for unit in clause_units:
+        text = _unit_text_context(unit)
+        compact = re.sub(r"\s+", "", text)
+        if "认证范围" not in compact:
+            continue
+        if not any(token in compact for token in cert_tokens):
+            continue
+        effective_zone = _effective_unit_zone_type(unit)
+        heading_context = str(unit.table_context.get("heading_context", ""))
+        path = unit.path or ""
+        if effective_zone != SemanticZoneType.scoring and not any(
+            token in f"{heading_context} {path} {compact}" for token in scoring_tokens
+        ):
+            continue
+        return _clause_from_normalizer(
+            unit,
+            normalized_value="存在",
+            relation_tags=["体系认证范围要求", "认证范围评分"],
+            semantic_zone=SemanticZoneType.scoring,
+            effect_tags=[EffectTag.binding],
+        )
+    return None
+
+
+def _normalize_unit_payment_deadline_field(
+    clause_units: list[ClauseUnit],
+    direct_clauses: list[ExtractedClause],
+) -> ExtractedClause | None:
+    del direct_clauses
+    for unit in clause_units:
+        compact = re.sub(r"\s+", "", _unit_text_context(unit))
+        if "收到发票后" not in compact:
+            continue
+        match = re.search(r"收到发票后(\d+)(个?工作日|日)内", compact)
+        if match is None:
+            continue
+        tail = compact[match.start(): match.start() + 48]
+        if not any(token in tail for token in ["支付", "付款", "资金支付", "将资金支付"]):
+            continue
+        return _clause_from_normalizer(
+            unit,
+            normalized_value=match.group(1),
+            relation_tags=["付款时限", match.group(1), match.group(2), "发票后支付"],
+            semantic_zone=SemanticZoneType.contract,
+            effect_tags=[EffectTag.binding],
+        )
+    return None
+
+
+def _normalize_unit_price_weight_field(
+    clause_units: list[ClauseUnit],
+    direct_clauses: list[ExtractedClause],
+) -> ExtractedClause | None:
+    del direct_clauses
+    for unit in clause_units:
+        text = _unit_text_context(unit)
+        compact = re.sub(r"\s+", "", text)
+        cells = _unit_cells(unit)
+        if "价格" not in compact:
+            continue
+        value = ""
+        if len(cells) >= 3 and "价格" in cells[1]:
+            value = re.sub(r"[^\d.]", "", cells[2])
+        if not value:
+            match = re.search(r"(?:价格(?:权重|分值权重)?|价格分值权重)[^0-9]{0,8}(\d+(?:\.\d+)?)%?", compact)
+            if match is not None:
+                value = match.group(1)
+        if not value:
+            continue
+        return _clause_from_normalizer(
+            unit,
+            content=unit.text.strip() or " | ".join(cells),
+            normalized_value=value,
+            relation_tags=["价格权重", value],
+            semantic_zone=SemanticZoneType.scoring,
+            effect_tags=[EffectTag.binding],
+        )
+    return None
 
 
 def _merge_extracted_clauses(primary: list[ExtractedClause], fallback: list[ExtractedClause]) -> list[ExtractedClause]:
@@ -865,21 +1046,17 @@ def _brand_requirement_extractor(lines: list[str]) -> ExtractedClause | None:
 
 def _property_type_extractor(lines: list[str]) -> ExtractedClause | None:
     for line_no, line in enumerate(lines, start=1):
-        if not any(token in line for token in ["项目属性", "项目类型", "项目所属分类", "货物类", "工程类", "服务类"]):
+        compact = re.sub(r"\s+", "", line)
+        if not any(token in compact for token in ["项目属性", "项目类型", "项目所属分类", "货物类", "工程类", "服务类"]):
             continue
-        if (
-            "项目属性" not in line
-            and "项目类型" not in line
-            and "项目所属分类" not in line
-            and not any(token in line for token in ["货物类", "工程类", "服务类"])
-        ):
+        if "项目属性" not in compact and "项目类型" not in compact and "项目所属分类" not in compact:
             continue
         value = ""
-        if "货物" in line:
+        if "货物类" in compact or re.search(r"(?:项目属性|项目类型|项目所属分类)[^一-龥A-Za-z0-9]{0,12}货物", compact):
             value = "货物"
-        elif "服务" in line:
+        elif "服务类" in compact or re.search(r"(?:项目属性|项目类型|项目所属分类)[^一-龥A-Za-z0-9]{0,12}服务", compact):
             value = "服务"
-        elif "工程" in line:
+        elif "工程类" in compact or re.search(r"(?:项目属性|项目类型|项目所属分类)[^一-龥A-Za-z0-9]{0,12}工程", compact):
             value = "工程"
         if value:
             return _build_clause(line, line_no, normalized_value=value, relation_tags=[value])
@@ -1435,6 +1612,141 @@ def _qualification_gate_extractor(lines: list[str]) -> ExtractedClause | None:
         normalized_value="存在",
         relation_tags=["资格门槛明细"],
     )
+
+
+def _organization_form_limit_extractor(lines: list[str]) -> ExtractedClause | None:
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if not any(token in compact for token in ["个体工商户", "其他组织形式", "组织形式"]):
+            continue
+        if not any(token in compact for token in ["不得参与投标", "不接受", "不得投标", "不得参加", "不允许"]):
+            continue
+        anchors.append(line_no)
+        matched_lines.append(line[:180])
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:480],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["供应商组织形式限制"],
+    )
+
+
+def _cert_scope_scoring_extractor(lines: list[str]) -> ExtractedClause | None:
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if "认证范围" not in compact:
+            continue
+        if not any(
+            token in compact
+            for token in ["管理体系认证", "认证证书", "质量管理体系认证证书", "环境管理体系认证证书", "职业健康安全管理体系认证证书"]
+        ):
+            continue
+        anchors.append(line_no)
+        matched_lines.append(_build_window_clause(lines, line_no, after=1).content[:220])
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:480],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["体系认证范围要求", "认证范围评分"],
+    )
+
+
+def _administrative_license_scoring_extractor(lines: list[str]) -> ExtractedClause | None:
+    anchors: list[int] = []
+    matched_lines: list[str] = []
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if not any(
+            token in compact
+            for token in ["许可证", "行政许可", "作业人员证书", "特种设备安全管理和作业人员证书"]
+        ):
+            continue
+        if not any(token in compact for token in ["得分", "评分", "最高得", "得"]):
+            continue
+        anchors.append(line_no)
+        matched_lines.append(line[:180])
+    if not anchors:
+        return None
+    return ExtractedClause(
+        category="",
+        field_name="",
+        content="；".join(dict.fromkeys(matched_lines))[:480],
+        source_anchor=f"line:{anchors[0]}",
+        normalized_value="存在",
+        relation_tags=["准入类证书评分项"],
+    )
+
+
+def _price_weight_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if "价格" not in compact:
+            continue
+        match = re.search(r"(?:价格(?:权重|分值权重)?|价格分值权重)[^0-9]{0,8}(\d+(?:\.\d+)?)%?", compact)
+        if match is None:
+            continue
+        value = match.group(1)
+        return _build_window_clause(
+            lines,
+            line_no,
+            after=1,
+            normalized_value=f"{value}%" if "%" in compact else value,
+            relation_tags=["价格权重", value],
+        )
+    return None
+
+
+def _payment_deadline_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if "收到发票后" not in compact:
+            continue
+        if not any(token in compact for token in ["支付", "付款", "资金支付"]):
+            continue
+        match = re.search(r"收到发票后(\d+)(个?工作日|日)内", compact)
+        relation_tags = ["付款时限"]
+        normalized_value = ""
+        if match is not None:
+            normalized_value = match.group(1)
+            relation_tags.extend([match.group(1), match.group(2)])
+        return _build_window_clause(
+            lines,
+            line_no,
+            after=1,
+            normalized_value=normalized_value,
+            relation_tags=relation_tags,
+        )
+    return None
+
+
+def _service_duration_extractor(lines: list[str]) -> ExtractedClause | None:
+    for line_no, line in enumerate(lines, start=1):
+        compact = re.sub(r"\s+", "", line)
+        if not any(token in compact for token in ["合同履行期限", "服务期限", "服务期", "履行期限", "建设周期"]):
+            continue
+        match = re.search(r"(\d+)\s*个月", compact)
+        if match is None:
+            continue
+        return _build_window_clause(
+            lines,
+            line_no,
+            after=1,
+            normalized_value=match.group(1),
+            relation_tags=["服务期限月数", match.group(1)],
+        )
+    return None
 
 
 def _technical_service_verifiability_extractor(lines: list[str]) -> ExtractedClause | None:
@@ -2016,8 +2328,12 @@ def _build_clause(
 
 
 UNIT_FIELD_NORMALIZERS: list[tuple[str, str, UnitFieldNormalizer]] = [
+    ("项目基本信息", "项目属性", _normalize_unit_project_type_field),
     ("合同条款", "履约保证金", _normalize_unit_guarantee_field),
+    ("合同条款", "付款时限", _normalize_unit_payment_deadline_field),
+    ("评分条款", "价格权重", _normalize_unit_price_weight_field),
     ("评分条款", "行业相关性存疑评分项", _normalize_unit_scoring_mismatch_field),
+    ("评分条款", "体系认证范围要求", _normalize_unit_cert_scope_scoring_field),
 ]
 
 
@@ -2032,6 +2348,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("项目基本信息", "预算金额", _amount_extractor(["预算金额"])),
     ("项目基本信息", "最高限价", _amount_extractor(["最高限价"])),
     ("项目基本信息", "合同履行期限", _simple_keyword_extractor(["合同履行期限"])),
+    ("项目基本信息", "服务期限月数", _service_duration_extractor),
     ("项目基本信息", "合同类型", _contract_type_extractor),
     ("项目基本信息", "采购内容构成", _service_content_extractor),
     ("项目基本信息", "是否含持续性服务", _service_content_extractor),
@@ -2043,6 +2360,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("资格条款", "特定资格要求", _window_keyword_extractor(["特定资格要求", "资质要求"], after=12)),
     ("资格条款", "资格门槛明细", _qualification_gate_extractor),
     ("资格条款", "资格条件明细", _qualification_detail_extractor),
+    ("资格条款", "供应商组织形式限制", _organization_form_limit_extractor),
     ("资格条款", "信用要求", _simple_keyword_extractor(["信用要求"])),
     ("资格条款", "是否允许联合体", _allowance_extractor(["联合体"], ["不接受联合体", "不允许联合体"], ["允许联合体", "接受联合体"])),
     ("资格条款", "是否允许分包", _allowance_extractor(["分包"], ["不允许合同分包", "不得分包", "不允许分包"], ["允许分包", "可以分包"])),
@@ -2061,6 +2379,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("技术条款", "技术服务可验证性信号", _technical_service_verifiability_extractor),
     ("评分条款", "评分方法", _simple_keyword_extractor(["评分方法", "综合评分", "评标办法"])),
     ("评分条款", "价格分", _simple_keyword_extractor(["价格分"])),
+    ("评分条款", "价格权重", _price_weight_extractor),
     ("评分条款", "技术分", _simple_keyword_extractor(["技术分"])),
     ("评分条款", "商务分", _simple_keyword_extractor(["商务分"])),
     ("评分条款", "证书加分", _simple_keyword_extractor(["证书加分", "证书"])),
@@ -2071,6 +2390,8 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("评分条款", "人员评分要求", _simple_keyword_extractor(["项目负责人", "人员配置", "社保", "学历", "职称"])),
     ("评分条款", "样品分", _simple_keyword_extractor(["样品分"])),
     ("评分条款", "评分项明细", _scoring_item_details_extractor),
+    ("评分条款", "体系认证范围要求", _cert_scope_scoring_extractor),
+    ("评分条款", "准入类证书评分项", _administrative_license_scoring_extractor),
     ("评分条款", "证书类评分总分", _certificate_score_weight_extractor),
     ("评分条款", "信用评价要求", _credit_evaluation_scoring_extractor),
     ("评分条款", "信用修复条款", _credit_relief_extractor),
@@ -2078,6 +2399,7 @@ FIELD_EXTRACTORS: list[tuple[str, str, ClauseExtractor]] = [
     ("评分条款", "行业相关性存疑评分项", _industry_mismatch_scoring_extractor),
     ("评分条款", "方案评分扣分模式", _plan_scoring_quant_extractor),
     ("合同条款", "付款节点", _payment_extractor),
+    ("合同条款", "付款时限", _payment_deadline_extractor),
     ("合同条款", "验收标准", _acceptance_extractor),
     ("合同条款", "争议解决方式", _window_keyword_extractor(["争议解决"], after=2)),
     ("合同条款", "违约责任", _window_keyword_extractor(["违约责任"], after=3)),
