@@ -39,6 +39,37 @@ def test_load_official_review_baseline_reads_xlsx_rows(tmp_path: Path) -> None:
     assert baseline.items[0].page_hint == "19"
 
 
+def test_load_official_review_baseline_prefers_detail_sheet_and_header_mapping(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "official_multi_sheet.xlsx"
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "统计"
+    summary.append(["说明", "值"])
+    summary.append(["无关", "1"])
+
+    detail = workbook.create_sheet("埋点详情（优化结果验证）")
+    detail.append(["审查类别", "审查点", "审查场景", "审查规则", "优先级", "埋点文件", "埋点原文及页码"])
+    detail.append(
+        [
+            "一、资格公平性",
+            "不得非法限定供应商所有制形式、组织形式、注册地或所在地",
+            "不得限定供应商组织形式",
+            "不得限定供应商组织形式",
+            "P0",
+            "[demo].docx",
+            "埋点原文：个体工商户等其他组织形式不得参与投标。埋点页码：19",
+        ]
+    )
+    workbook.save(workbook_path)
+
+    baseline = load_official_review_baseline(workbook_path)
+
+    assert baseline.sheet_name == "埋点详情（优化结果验证）"
+    assert len(baseline.items) == 1
+    assert baseline.items[0].rule_name == "不得限定供应商组织形式"
+    assert baseline.items[0].anchor_text == "个体工商户等其他组织形式不得参与投标。"
+
+
 def test_parse_reviewer_report_titles_extracts_formal_titles(tmp_path: Path) -> None:
     report_path = tmp_path / "reviewer_report.md"
     report_path.write_text(

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+import zipfile
 from collections import Counter
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 from openpyxl import load_workbook
 
@@ -21,18 +23,45 @@ GENERIC_REPORT_TITLES = {
     "资格条件可能缺乏履约必要性或带有歧视性门槛",
     "依法设定价格分值",
 }
+DETAIL_SHEET_CANDIDATES = (
+    "埋点详情（优化结果验证）",
+    "埋点详情",
+)
+HEADER_ALIASES = {
+    "anchor_raw": ("埋点原文及页码",),
+    "review_point": ("审查点",),
+    "scenario": ("审查场景",),
+    "rule_name": ("审查规则",),
+    "category": ("审查类别",),
+}
+XML_NS = {
+    "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    "pkg": "http://schemas.openxmlformats.org/package/2006/relationships",
+}
 
 
 def load_official_review_baseline(path: str | Path) -> OfficialReviewBaseline:
     workbook_path = Path(path).expanduser().resolve()
-    workbook = load_workbook(workbook_path, data_only=True)
-    sheet = workbook[workbook.sheetnames[0]]
+    try:
+        workbook = load_workbook(workbook_path, data_only=True)
+        sheet = _select_openpyxl_sheet(workbook)
+        rows = [[("" if cell is None else str(cell).strip()) for cell in row] for row in sheet.iter_rows(values_only=True)]
+        sheet_name = sheet.title
+    except Exception:
+        sheet_name, rows = _load_xlsx_rows_without_styles(workbook_path)
+    header_map = _resolve_header_map(rows[0] if rows else [])
     items: list[OfficialReviewItem] = []
-    for row_index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-        row_values = [(str(cell).strip() if cell is not None else "") for cell in row[:5]]
-        if not any(row_values):
+    for row_index, row in enumerate(rows[1:], start=2):
+        if not any(row):
             continue
-        anchor_raw, review_point, scenario, rule_name, category = row_values
+        anchor_raw = _value_from_row(row, header_map, "anchor_raw")
+        review_point = _value_from_row(row, header_map, "review_point")
+        scenario = _value_from_row(row, header_map, "scenario")
+        rule_name = _value_from_row(row, header_map, "rule_name")
+        category = _value_from_row(row, header_map, "category")
+        if not any([anchor_raw, review_point, scenario, rule_name, category]):
+            continue
         anchor_text = _extract_anchor_text(anchor_raw)
         page_hint = _extract_page_hint(anchor_raw)
         items.append(
@@ -48,9 +77,127 @@ def load_official_review_baseline(path: str | Path) -> OfficialReviewBaseline:
         )
     return OfficialReviewBaseline(
         source_path=str(workbook_path),
-        sheet_name=sheet.title,
+        sheet_name=sheet_name,
         items=items,
     )
+
+
+def _select_openpyxl_sheet(workbook) -> object:
+    for candidate in DETAIL_SHEET_CANDIDATES:
+        if candidate in workbook.sheetnames:
+            return workbook[candidate]
+    return workbook[workbook.sheetnames[0]]
+
+
+def _resolve_header_map(header_row: list[str]) -> dict[str, int]:
+    normalized = [str(cell).strip() for cell in header_row]
+    mapping: dict[str, int] = {}
+    for field, aliases in HEADER_ALIASES.items():
+        for alias in aliases:
+            if alias in normalized:
+                mapping[field] = normalized.index(alias)
+                break
+    if len(mapping) == len(HEADER_ALIASES):
+        return mapping
+    fallback_order = ["anchor_raw", "review_point", "scenario", "rule_name", "category"]
+    return {field: index for index, field in enumerate(fallback_order)}
+
+
+def _value_from_row(row: list[str], header_map: dict[str, int], field: str) -> str:
+    index = header_map.get(field, -1)
+    if index < 0 or index >= len(row):
+        return ""
+    return str(row[index]).strip()
+
+
+def _load_xlsx_rows_without_styles(workbook_path: Path) -> tuple[str, list[list[str]]]:
+    with zipfile.ZipFile(workbook_path) as archive:
+        shared_strings = _read_shared_strings(archive)
+        workbook_root = ET.fromstring(archive.read("xl/workbook.xml"))
+        rel_root = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        sheet_targets = {
+            rel.attrib.get("Id", ""): rel.attrib.get("Target", "")
+            for rel in rel_root.findall("pkg:Relationship", XML_NS)
+        }
+        sheets: list[tuple[str, str]] = []
+        for sheet in workbook_root.findall("main:sheets/main:sheet", XML_NS):
+            name = sheet.attrib.get("name", "")
+            rel_id = sheet.attrib.get(f"{{{XML_NS['rel']}}}id", "")
+            target = sheet_targets.get(rel_id, "")
+            if target:
+                sheets.append((name, f"xl/{target}"))
+        selected_name, selected_target = _select_xml_sheet(sheets)
+        rows = _read_sheet_rows_from_xml(archive, selected_target, shared_strings)
+        return selected_name, rows
+
+
+def _select_xml_sheet(sheets: list[tuple[str, str]]) -> tuple[str, str]:
+    for candidate in DETAIL_SHEET_CANDIDATES:
+        for name, target in sheets:
+            if name == candidate:
+                return name, target
+    return sheets[0] if sheets else ("", "")
+
+
+def _read_shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    if "xl/sharedStrings.xml" not in archive.namelist():
+        return []
+    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+    strings: list[str] = []
+    for item in root.findall("main:si", XML_NS):
+        strings.append("".join(text.text or "" for text in item.iterfind(".//main:t", XML_NS)))
+    return strings
+
+
+def _read_sheet_rows_from_xml(
+    archive: zipfile.ZipFile,
+    sheet_path: str,
+    shared_strings: list[str],
+) -> list[list[str]]:
+    if not sheet_path or sheet_path not in archive.namelist():
+        return []
+    root = ET.fromstring(archive.read(sheet_path))
+    sheet_data = root.find("main:sheetData", XML_NS)
+    if sheet_data is None:
+        return []
+    rows: list[list[str]] = []
+    for row in sheet_data.findall("main:row", XML_NS):
+        values: list[str] = []
+        current_col = 1
+        for cell in row.findall("main:c", XML_NS):
+            ref = cell.attrib.get("r", "")
+            target_col = _column_index_from_ref(ref) if ref else current_col
+            while current_col < target_col:
+                values.append("")
+                current_col += 1
+            values.append(_read_cell_value(cell, shared_strings))
+            current_col += 1
+        rows.append(values)
+    return rows
+
+
+def _column_index_from_ref(ref: str) -> int:
+    letters = "".join(char for char in ref if char.isalpha())
+    index = 0
+    for char in letters:
+        index = index * 26 + (ord(char.upper()) - ord("A") + 1)
+    return index or 1
+
+
+def _read_cell_value(cell, shared_strings: list[str]) -> str:
+    cell_type = cell.attrib.get("t", "")
+    if cell_type == "inlineStr":
+        return "".join(text.text or "" for text in cell.iterfind(".//main:t", XML_NS)).strip()
+    value_node = cell.find("main:v", XML_NS)
+    if value_node is None or value_node.text is None:
+        return ""
+    raw = value_node.text
+    if cell_type == "s":
+        try:
+            return shared_strings[int(raw)].strip()
+        except (ValueError, IndexError):
+            return raw.strip()
+    return raw.strip()
 
 
 def parse_reviewer_report_titles(report_path: str | Path) -> list[str]:
